@@ -1,0 +1,10 @@
+[package]
+name = "runtimepack-engine-renpy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+runtimepack-core = { path = "../../core" }
+serde = { workspace = true }

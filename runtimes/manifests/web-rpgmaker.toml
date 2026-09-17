@@ -1,0 +1,34 @@
+manifest_version = 1
+id = "web-rpgmaker"
+name = "RuntimePack Web Runtime (MV/MZ)"
+version = "0.1.0"
+runtime_api = 1
+family = "web"
+engines = ["rpgmaker-mv", "rpgmaker-mz"]
+abis = ["arm64-v8a", "x86_64"]
+
+[android]
+min_sdk = 26
+target_sdk = 34
+
+[artifacts]
+android_module = "runtime-web"
+
+capabilities = [
+  "fs.vfs.read",
+  "fs.save.write",
+  "input.keyboard",
+  "input.pointer",
+  "input.virtual_gamepad",
+  "web.local_origin",
+  "web.javascript",
+  "web.webgl",
+  "web.webaudio",
+  "web.node.path",
+  "web.node.fs_subset",
+  "web.nwjs_subset",
+]
+
+[licenses]
+license_id = "MIT OR Apache-2.0"
+notice_bundle = "licenses/web"

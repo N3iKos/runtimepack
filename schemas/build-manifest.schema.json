@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BuildManifest",
+  "description": "Schema for generated build-manifest.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "runtimepack_version",
+    "app",
+    "engine",
+    "runtime",
+    "content",
+    "android",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "runtimepack_version": { "type": "string" },
+    "git_commit": { "type": ["string", "null"] },
+    "build_timestamp": { "type": "string", "format": "date-time" },
+    "app": {
+      "type": "object",
+      "required": ["name", "package", "version_name", "version_code"],
+      "properties": {
+        "name": { "type": "string" },
+        "package": { "type": "string" },
+        "version_name": { "type": "string" },
+        "version_code": { "type": "integer" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["id", "confidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "confidence": { "type": "string" },
+        "overridden": { "type": "boolean", "default": false },
+        "detected_version": { "type": ["string", "null"] }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "version", "family", "runtime_api"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "family": { "type": "string" },
+        "runtime_api": { "type": "integer" },
+        "capabilities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "content": {
+      "type": "object",
+      "required": ["mode", "content_hash"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["plain", "packed", "encrypted-streaming"] },
+        "content_hash": { "type": "string" },
+        "file_count": { "type": "integer" },
+        "total_bytes": { "type": "integer" }
+      }
+    },
+    "android": {
+      "type": "object",
+      "required": ["abis", "min_sdk", "target_sdk", "permissions"],
+      "properties": {
+        "abis": { "type": "array", "items": { "type": "string" } },
+        "min_sdk": { "type": "integer" },
+        "target_sdk": { "type": "integer" },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source_hash", "config_hash"],
+      "properties": {
+        "source_hash": { "type": "string" },
+        "config_hash": { "type": "string" },
+        "apk_hash": { "type": ["string", "null"] },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "agp_version": { "type": ["string", "null"] },
+            "gradle_version": { "type": ["string", "null"] },
+            "jdk_version": { "type": ["string", "null"] },
+            "android_sdk_platform": { "type": ["string", "null"] },
+            "ndk_version": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

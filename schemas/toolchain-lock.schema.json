@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolchainLock",
+  "description": "Schema for toolchain.lock pinning build tool versions",
+  "type": "object",
+  "required": [
+    "lock_version",
+    "gradle_version",
+    "agp_version",
+    "jdk_min_version",
+    "android_compile_sdk",
+    "android_min_sdk",
+    "android_target_sdk",
+    "build_tools_version"
+  ],
+  "properties": {
+    "lock_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "gradle_version": { "type": "string" },
+    "agp_version": { "type": "string" },
+    "jdk_min_version": { "type": "string" },
+    "android_compile_sdk": { "type": "integer" },
+    "android_min_sdk": { "type": "integer" },
+    "android_target_sdk": { "type": "integer" },
+    "build_tools_version": { "type": "string" },
+    "ndk_version": { "type": ["string", "null"] },
+    "cmake_version": { "type": ["string", "null"] }
+  }
+}

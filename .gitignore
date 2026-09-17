@@ -1,0 +1,11 @@
+/target/
+**/*.rs.bk
+*.apk
+*.aab
+*.keystore
+*.jks
+.idea/
+.vscode/
+Thumbs.db
+[Ee]xternal/
+dist/

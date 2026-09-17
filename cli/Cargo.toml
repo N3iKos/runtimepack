@@ -1,0 +1,25 @@
+[package]
+name = "runtimepack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "runtimepack"
+path = "src/main.rs"
+
+[[test]]
+name = "integration_detection"
+path = "../tests/integration/detection_test.rs"
+
+[dependencies]
+runtimepack-core = { path = "../core" }
+runtimepack-engine-rgss = { path = "../engines/rgss" }
+runtimepack-engine-rpgmaker-web = { path = "../engines/rpgmaker_web" }
+runtimepack-engine-renpy = { path = "../engines/renpy" }
+runtimepack-engine-tyrano = { path = "../engines/tyrano" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
