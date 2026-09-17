@@ -1,3 +1,6 @@
+pub mod scanner;
+pub use scanner::RpgMakerWebAnalyzer;
+
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};
 use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::GameSourceIndex;

@@ -68,3 +68,29 @@ pub trait Analyzer: Send + Sync {
     fn supports(&self, engine: EngineId) -> bool;
     fn analyze(&self, source: &GameSourceIndex, engine: &EngineDescriptor) -> CompatibilityReport;
 }
+
+#[derive(Default)]
+pub struct AnalyzerRegistry {
+    analyzers: Vec<Box<dyn Analyzer>>,
+}
+
+impl AnalyzerRegistry {
+    pub fn new() -> Self {
+        Self {
+            analyzers: Vec::new(),
+        }
+    }
+
+    pub fn register(&mut self, analyzer: Box<dyn Analyzer>) {
+        self.analyzers.push(analyzer);
+    }
+
+    pub fn analyze(&self, source: &GameSourceIndex, engine: &EngineDescriptor) -> CompatibilityReport {
+        for a in &self.analyzers {
+            if a.supports(engine.id) {
+                return a.analyze(source, engine);
+            }
+        }
+        CompatibilityReport::new(engine)
+    }
+}

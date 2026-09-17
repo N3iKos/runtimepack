@@ -5,9 +5,8 @@ use runtimepack_core::build_plan::{
     ContentManifestEntry, EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry,
     ToolchainProvenance,
 };
-use runtimepack_core::compatibility::CompatibilityReport;
 use runtimepack_core::detection::DetectorRegistry;
-use runtimepack_core::domain::{DetectionConfidence, EngineId};
+use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
 use runtimepack_core::runtime_registry::RuntimeRegistry;
@@ -89,6 +88,13 @@ fn create_default_detector_registry() -> DetectorRegistry {
     registry.register(Box::new(RpgMakerMzDetector));
     registry.register(Box::new(RenPyDetector));
     registry.register(Box::new(TyranoDetector));
+    registry
+}
+
+fn create_default_analyzer_registry() -> runtimepack_core::compatibility::AnalyzerRegistry {
+    let mut registry = runtimepack_core::compatibility::AnalyzerRegistry::new();
+    registry.register(Box::new(runtimepack_engine_rgss::RgssAnalyzer));
+    registry.register(Box::new(runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer));
     registry
 }
 
@@ -220,7 +226,8 @@ fn cmd_inspect(path: &Path, _config_path: Option<&Path>) {
     let detectors = create_default_detector_registry();
     let descriptor = detectors.resolve(&source_index);
 
-    let report = CompatibilityReport::new(&descriptor);
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &descriptor);
 
     println!("Engine:         {}", descriptor.id);
     println!("Confidence:     {}", descriptor.confidence);
@@ -228,6 +235,27 @@ fn cmd_inspect(path: &Path, _config_path: Option<&Path>) {
     println!("Status:         {}", report.status);
     if let Some(family) = descriptor.id.default_runtime_family() {
         println!("Runtime Family: {}", family);
+    }
+
+    if !report.required_capabilities.is_empty() {
+        println!("\nCapabilities Required:");
+        for cap in &report.required_capabilities {
+            println!("  + {}", cap);
+        }
+    }
+
+    if !report.required_shims.is_empty() {
+        println!("\nCompatibility Shims:");
+        for shim in &report.required_shims {
+            println!("  [SHIM] {}", shim);
+        }
+    }
+
+    if !report.issues.is_empty() {
+        println!("\nCompatibility Issues & Diagnostics ({}):", report.issues.len());
+        for issue in &report.issues {
+            println!("  [{}] [{}] {}", issue.code, issue.severity, issue.message);
+        }
     }
 
     if !descriptor.evidence.is_empty() {
@@ -275,6 +303,14 @@ fn cmd_explain(path: &Path) {
     println!("  Selected Engine: {}", resolved.id);
     println!("  Confidence:      {}", resolved.confidence);
     println!("  Score:           {}", resolved.score);
+
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &resolved);
+    println!("  Status:          {}", report.status);
+
+    if !report.required_shims.is_empty() {
+        println!("  Shims Required:  {}", report.required_shims.join(", "));
+    }
 }
 
 fn cmd_build(
@@ -321,7 +357,16 @@ fn cmd_build(
     println!("Detected:      {} (Confidence: {})", descriptor.id, descriptor.confidence);
 
     // 3. Compatibility & Legal Gate
-    let report = CompatibilityReport::new(&descriptor);
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &descriptor);
+
+    if report.status == CompatibilityStatus::UnsupportedDependency {
+        eprintln!("\n[CMP-100] Build rejected: Game contains unsupported native dependencies.");
+        for issue in &report.issues {
+            eprintln!("  [{}] [{}] {}", issue.code, issue.severity, issue.message);
+        }
+        std::process::exit(1);
+    }
     if descriptor.id == EngineId::Tyrano {
         eprintln!("\n[TYR-101] Build BLOCKED by TYRANO-LEGAL gate.");
         eprintln!("TyranoScript terms restrict redistribution/smartphone conversion packaging.");

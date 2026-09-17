@@ -1,0 +1,6 @@
+id = "rgss-kernel32-ini"
+engines = ["rpgmaker-xp", "rpgmaker-vx", "rpgmaker-vxace"]
+symbol = "GetPrivateProfileString"
+requires_capability = "rgss.win32.kernel32.temp"
+severity_if_missing = "unsupported"
+description = "Win32API kernel32 INI profile read/write functions"
