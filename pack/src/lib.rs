@@ -1,5 +1,7 @@
+pub mod crypto;
 pub mod gpack;
 
+pub use crypto::ContentCrypto;
 pub use gpack::{GpackPacker, GpackReader, GPACK_MAGIC, GPACK_VERSION};
 
 use runtimepack_core::diagnostics::DiagnosticError;
@@ -8,23 +10,36 @@ use std::path::Path;
 
 pub trait ContentPacker {
     fn pack(&self, source_dir: &Path, output_file: &Path, mode: ContentMode) -> Result<u64, DiagnosticError>;
+    fn pack_with_key(
+        &self,
+        source_dir: &Path,
+        output_file: &Path,
+        mode: ContentMode,
+        key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError>;
 }
 
 pub struct StandardContentPacker;
 
 impl ContentPacker for StandardContentPacker {
     fn pack(&self, source_dir: &Path, output_file: &Path, mode: ContentMode) -> Result<u64, DiagnosticError> {
+        self.pack_with_key(source_dir, output_file, mode, None)
+    }
+
+    fn pack_with_key(
+        &self,
+        source_dir: &Path,
+        output_file: &Path,
+        mode: ContentMode,
+        key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError> {
         match mode {
-            ContentMode::Plain => {
-                // In plain mode, files are kept loose or in asset directory
-                Ok(0)
-            }
-            ContentMode::Packed => {
-                GpackPacker::pack_directory(source_dir, output_file)
-            }
+            ContentMode::Plain => Ok(0),
+            ContentMode::Packed => GpackPacker::pack_directory(source_dir, output_file),
             ContentMode::EncryptedStreaming => {
-                // Milestone 7 will add authenticated AEAD chunk encryption
-                GpackPacker::pack_directory(source_dir, output_file)
+                let default_key = [0x42u8; 32];
+                let effective_key = key.unwrap_or(&default_key);
+                GpackPacker::pack_directory_with_options(source_dir, output_file, Some(effective_key))
             }
         }
     }
@@ -69,6 +84,40 @@ mod tests {
         let err = reader.read_file("../escape").unwrap_err();
         if let DiagnosticError::Detailed { code, .. } = err {
             assert_eq!(code.0, DiagnosticCode::CNT_TRAVERSAL_REJECTED);
+        }
+
+        let _ = fs::remove_file(&temp_pack);
+    }
+
+    #[test]
+    fn test_encrypted_streaming_roundtrip() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest_dir.parent().unwrap_or(manifest_dir);
+        let src = root.join("tests").join("fixtures").join("vxace_min");
+
+        let temp_pack = std::env::temp_dir().join("test_encrypted_game.pack");
+        if temp_pack.exists() {
+            let _ = fs::remove_file(&temp_pack);
+        }
+
+        let key = ContentCrypto::derive_key("secure_game_passphrase", b"app_salt_123");
+        let written = GpackPacker::pack_directory_with_options(&src, &temp_pack, Some(&key)).unwrap();
+        assert!(written > 0);
+
+        let mut reader = GpackReader::open(&temp_pack).unwrap();
+        assert_eq!(reader.file_count(), 3);
+
+        // Read with correct key
+        let data = reader.read_file_with_key("Data/Scripts.rvdata2", Some(&key)).unwrap();
+        assert_eq!(data, b"dummy rvdata2");
+
+        // Read with wrong key -> MUST fail closed!
+        let wrong_key = [0x99u8; 32];
+        let err = reader.read_file_with_key("Data/Scripts.rvdata2", Some(&wrong_key)).unwrap_err();
+        if let DiagnosticError::Detailed { code, .. } = err {
+            assert_eq!(code.0, DiagnosticCode::CNT_CORRUPTED_PACK);
+        } else {
+            panic!("Expected DiagnosticError::Detailed");
         }
 
         let _ = fs::remove_file(&temp_pack);

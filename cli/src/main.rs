@@ -409,9 +409,16 @@ fn cmd_build(
     }
 
     // 6. Content Packing (GPACK)
-    println!("\nPacking game content into GPACK container...");
+    println!("\nPacking game content (mode: {})...", content_mode);
     let pack_path = output.join("game.pack");
-    let total_bytes = match GpackPacker::pack_directory(path, &pack_path) {
+
+    let encryption_key = if content_mode == "encrypted-streaming" {
+        Some(runtimepack_pack::ContentCrypto::derive_key(&app_name, b"runtimepack_salt_v1"))
+    } else {
+        None
+    };
+
+    let total_bytes = match GpackPacker::pack_directory_with_options(path, &pack_path, encryption_key.as_ref()) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[CNT-102] Failed to pack content: {}", e);

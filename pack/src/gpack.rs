@@ -1,3 +1,4 @@
+use crate::crypto::ContentCrypto;
 use runtimepack_core::diagnostics::{DiagnosticCode, DiagnosticError};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ pub struct GpackIndexEntry {
     pub logical_path: String,
     pub offset: u64,
     pub size: u64,
+    pub stored_size: u64,
     pub content_hash: [u8; 32],
     pub compression: u8,
     pub encryption: u8,
@@ -69,6 +71,14 @@ impl GpackPacker {
     }
 
     pub fn pack_directory(source_dir: &Path, output_file: &Path) -> Result<u64, DiagnosticError> {
+        Self::pack_directory_with_options(source_dir, output_file, None)
+    }
+
+    pub fn pack_directory_with_options(
+        source_dir: &Path,
+        output_file: &Path,
+        encryption_key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError> {
         let index = runtimepack_core::ingest::GameSourceIndex::build(source_dir)?;
 
         let mut out = File::create(output_file).map_err(|e| {
@@ -81,6 +91,7 @@ impl GpackPacker {
 
         let mut entries = Vec::new();
         let mut current_offset = 64u64;
+        let mut chunk_counter = 0u64;
 
         // Sort files deterministically
         let mut file_list: Vec<_> = index.files.values().collect();
@@ -98,18 +109,28 @@ impl GpackPacker {
             hasher.update(&file_data);
             let hash_bytes: [u8; 32] = hasher.finalize().into();
 
-            out.write_all(&file_data)?;
+            let (stored_bytes, encryption_flag) = if let Some(key) = encryption_key {
+                let encrypted = ContentCrypto::encrypt_chunk(key, chunk_counter, &file_data)?;
+                chunk_counter += 1;
+                (encrypted, 1u8)
+            } else {
+                (file_data, 0u8)
+            };
+
+            let stored_len = stored_bytes.len() as u64;
+            out.write_all(&stored_bytes)?;
 
             entries.push(GpackIndexEntry {
                 logical_path: valid_path,
                 offset: current_offset,
                 size: file.size_bytes,
+                stored_size: stored_len,
                 content_hash: hash_bytes,
                 compression: 0,
-                encryption: 0,
+                encryption: encryption_flag,
             });
 
-            current_offset += file.size_bytes;
+            current_offset += stored_len;
         }
 
         // Write index table
@@ -122,6 +143,7 @@ impl GpackPacker {
             index_bytes.extend_from_slice(path_bytes);
             index_bytes.extend_from_slice(&entry.offset.to_le_bytes());
             index_bytes.extend_from_slice(&entry.size.to_le_bytes());
+            index_bytes.extend_from_slice(&entry.stored_size.to_le_bytes());
             index_bytes.extend_from_slice(&entry.content_hash);
             index_bytes.push(entry.compression);
             index_bytes.push(entry.encryption);
@@ -223,6 +245,8 @@ impl GpackReader {
             cursor += 8;
             let size = u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
             cursor += 8;
+            let stored_size = u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
+            cursor += 8;
 
             let mut hash = [0u8; 32];
             hash.copy_from_slice(&index_data[cursor..cursor + 32]);
@@ -237,6 +261,7 @@ impl GpackReader {
                 logical_path: path_str.clone(),
                 offset,
                 size,
+                stored_size,
                 content_hash: hash,
                 compression,
                 encryption,
@@ -266,6 +291,10 @@ impl GpackReader {
     }
 
     pub fn read_file(&mut self, path: &str) -> Result<Vec<u8>, DiagnosticError> {
+        self.read_file_with_key(path, None)
+    }
+
+    pub fn read_file_with_key(&mut self, path: &str, key: Option<&[u8; 32]>) -> Result<Vec<u8>, DiagnosticError> {
         // Validate path traversal
         GpackPacker::validate_logical_path(path)?;
 
@@ -278,12 +307,24 @@ impl GpackReader {
         })?.clone();
 
         self.file.seek(SeekFrom::Start(entry.offset))?;
-        let mut buffer = vec![0u8; entry.size as usize];
+        let mut buffer = vec![0u8; entry.stored_size as usize];
         self.file.read_exact(&mut buffer)?;
+
+        let plaintext = if entry.encryption == 1 {
+            let key = key.ok_or_else(|| {
+                DiagnosticError::from_code(
+                    DiagnosticCode::CNT_CORRUPTED_PACK,
+                    "Key required to decrypt protected content",
+                )
+            })?;
+            ContentCrypto::decrypt_chunk(key, 0, &buffer)?
+        } else {
+            buffer
+        };
 
         // Verify hash integrity
         let mut hasher = Sha256::new();
-        hasher.update(&buffer);
+        hasher.update(&plaintext);
         let actual_hash: [u8; 32] = hasher.finalize().into();
 
         if actual_hash != entry.content_hash {
@@ -293,6 +334,6 @@ impl GpackReader {
             ));
         }
 
-        Ok(buffer)
+        Ok(plaintext)
     }
 }
