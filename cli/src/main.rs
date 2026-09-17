@@ -1,6 +1,13 @@
+use chrono::Utc;
 use clap::{Parser, Subcommand};
+use runtimepack_core::build_plan::{
+    AndroidManifestEntry, AndroidProjectGenerator, AppConfig, BuildManifest,
+    ContentManifestEntry, EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry,
+    ToolchainProvenance,
+};
 use runtimepack_core::compatibility::CompatibilityReport;
 use runtimepack_core::detection::DetectorRegistry;
+use runtimepack_core::domain::{DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
 use runtimepack_core::runtime_registry::RuntimeRegistry;
@@ -8,6 +15,9 @@ use runtimepack_engine_renpy::RenPyDetector;
 use runtimepack_engine_rgss::{RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector};
 use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector};
 use runtimepack_engine_tyrano::TyranoDetector;
+use runtimepack_pack::GpackPacker;
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -267,6 +277,210 @@ fn cmd_explain(path: &Path) {
     println!("  Score:           {}", resolved.score);
 }
 
+fn cmd_build(
+    path: &Path,
+    package: Option<String>,
+    name: Option<String>,
+    content_mode: String,
+    output: &Path,
+) {
+    println!("RuntimePack Build — Starting build pipeline\n");
+    println!("Source game:   {}", path.display());
+    println!("Output target: {}", output.display());
+
+    // 1. Ingest
+    let source_index = match GameSourceIndex::build(path) {
+        Ok(idx) => idx,
+        Err(e) => {
+            eprintln!("[ING-101] Failed to ingest source: {}", e);
+            std::process::exit(1);
+        }
+    };
+    println!("Indexed {} files ({:.2} MB, source_hash: {})",
+        source_index.file_count(),
+        source_index.total_size_bytes as f64 / (1024.0 * 1024.0),
+        &source_index.source_hash[..8]
+    );
+
+    // 2. Detect
+    let detectors = create_default_detector_registry();
+    let descriptor = detectors.resolve(&source_index);
+
+    if descriptor.confidence == DetectionConfidence::Ambiguous {
+        eprintln!("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.");
+        for c in &descriptor.conflicts {
+            eprintln!("  ! {}", c);
+        }
+        std::process::exit(1);
+    }
+    if descriptor.id == EngineId::Unknown {
+        eprintln!("[DET-100] Detection failed: Engine could not be identified or is generic HTML out-of-scope.");
+        std::process::exit(1);
+    }
+
+    println!("Detected:      {} (Confidence: {})", descriptor.id, descriptor.confidence);
+
+    // 3. Compatibility & Legal Gate
+    let report = CompatibilityReport::new(&descriptor);
+    if descriptor.id == EngineId::Tyrano {
+        eprintln!("\n[TYR-101] Build BLOCKED by TYRANO-LEGAL gate.");
+        eprintln!("TyranoScript terms restrict redistribution/smartphone conversion packaging.");
+        eprintln!("Engine detection and analysis are supported, but APK bundling is blocked until legal clearance.");
+        std::process::exit(1);
+    }
+
+    // 4. Runtime Resolution
+    let registry = RuntimeRegistry::new();
+    let runtimes = registry.find_for_engine(descriptor.id);
+    if runtimes.is_empty() {
+        eprintln!("[RT-101] No compatible runtime package found for {}", descriptor.id);
+        std::process::exit(1);
+    }
+    let runtime = runtimes[0];
+    println!("Resolved:      {} v{} ({})", runtime.name, runtime.version, runtime.id);
+
+    // 5. App details
+    let app_name = name.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("StandaloneGame")
+            .to_string()
+    });
+
+    let sanitized_pkg_suffix = app_name
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>();
+    let pkg_id = package.unwrap_or_else(|| format!("io.runtimepack.game.{}", sanitized_pkg_suffix));
+
+    println!("Package ID:    {}", pkg_id);
+    println!("App Name:      {}", app_name);
+
+    if let Err(e) = fs::create_dir_all(output) {
+        eprintln!("[BLD-101] Failed to create output directory: {}", e);
+        std::process::exit(1);
+    }
+
+    // 6. Content Packing (GPACK)
+    println!("\nPacking game content into GPACK container...");
+    let pack_path = output.join("game.pack");
+    let total_bytes = match GpackPacker::pack_directory(path, &pack_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[CNT-102] Failed to pack content: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Calculate pack hash
+    let mut hasher = Sha256::new();
+    if let Ok(mut pf) = fs::File::open(&pack_path) {
+        use std::io::Read;
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = pf.read(&mut buf) {
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+    }
+    let pack_hash = format!("{:x}", hasher.finalize());
+    println!("GPACK created: {} ({:.2} MB, hash: {})",
+        pack_path.file_name().unwrap().to_string_lossy(),
+        total_bytes as f64 / (1024.0 * 1024.0),
+        &pack_hash[..8]
+    );
+
+    // 7. Assemble BuildManifest
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: Utc::now().to_rfc3339(),
+        app: AppConfig {
+            name: app_name.clone(),
+            package: pkg_id.clone(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: descriptor.id.to_string(),
+            confidence: descriptor.confidence.to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: runtime.id.clone(),
+            version: runtime.version.clone(),
+            family: runtime.family.to_string(),
+            runtime_api: runtime.runtime_api,
+            capabilities: runtime.capabilities.clone(),
+        },
+        content: ContentManifestEntry {
+            mode: content_mode,
+            content_hash: pack_hash.clone(),
+            file_count: source_index.file_count(),
+            total_bytes,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string(), "x86_64".to_string()],
+            min_sdk: runtime.android.min_sdk,
+            target_sdk: runtime.android.target_sdk,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: source_index.source_hash.clone(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            toolchain: ToolchainProvenance {
+                agp_version: Some("8.3.0".to_string()),
+                gradle_version: Some("8.7".to_string()),
+                jdk_version: Some("17".to_string()),
+                android_sdk_platform: Some("34".to_string()),
+                ndk_version: Some("26.1.10909125".to_string()),
+            },
+        },
+    };
+
+    // 8. Generate Android Project
+    println!("\nGenerating standalone Android project structure...");
+    let android_project_dir = output.join("android-project");
+    if let Err(e) = AndroidProjectGenerator::emit_project(&android_project_dir, &manifest, Some(&pack_path)) {
+        eprintln!("[AND-101] Project generation error: {}", e);
+        std::process::exit(1);
+    }
+    println!("Android project: {}", android_project_dir.display());
+
+    // 9. Emit Build Reports and Notices
+    println!("\nWriting build artifacts and third-party notices...");
+    let manifest_json = serde_json::to_string_pretty(&manifest).unwrap();
+    fs::write(output.join("build-manifest.json"), &manifest_json).unwrap();
+
+    let report_json = serde_json::to_string_pretty(&report).unwrap();
+    fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
+
+    // Checksums
+    let checksums = format!(
+        "{}\tgame.pack\n{}\tbuild-manifest.json\n",
+        pack_hash,
+        format!("{:x}", Sha256::digest(manifest_json.as_bytes()))
+    );
+    fs::write(output.join("checksums.txt"), checksums).unwrap();
+
+    // Notices
+    let notices_dir = output.join("third-party-notices");
+    fs::create_dir_all(&notices_dir).unwrap();
+    let mut notices_text = String::from("Third-Party Notices:\n\n");
+    for item in EvidenceRegistry::get_canonical_evidence() {
+        notices_text.push_str(&format!("[{}] {}\nURL: {}\n\n", item.id, item.title, item.url));
+    }
+    fs::write(notices_dir.join("NOTICES.txt"), notices_text).unwrap();
+
+    println!("Build report:   {}", output.join("build-manifest.json").display());
+    println!("Compatibility:  {}", output.join("compatibility-report.json").display());
+    println!("Notices:        {}", notices_dir.join("NOTICES.txt").display());
+    println!("\n[SUCCESS] Build preparation completed successfully!");
+}
+
 fn cmd_licenses() {
     println!("RuntimePack — Third-Party Notices and Evidence Registry\n");
     let evidence = EvidenceRegistry::get_canonical_evidence();
@@ -288,11 +502,13 @@ fn main() {
         Some(Commands::Runtime { sub: RuntimeCommands::List }) => cmd_runtime_list(),
         Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
         Some(Commands::Explain { path }) => cmd_explain(&path),
-        Some(Commands::Build { path, .. }) => {
-            println!("Build command will package {}", path.display());
-            // Build orchestration is Milestone 2+
-            println!("Notice: Build pipeline milestone is under development.");
-        }
+        Some(Commands::Build {
+            path,
+            package,
+            name,
+            content_mode,
+            output,
+        }) => cmd_build(&path, package, name, content_mode, &output),
         Some(Commands::Licenses) => cmd_licenses(),
         None => {
             println!("runtimepack 0.1.0");

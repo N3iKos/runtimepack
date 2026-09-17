@@ -13,8 +13,13 @@ path = "src/main.rs"
 name = "integration_detection"
 path = "../tests/integration/detection_test.rs"
 
+[[test]]
+name = "integration_build"
+path = "../tests/integration/build_test.rs"
+
 [dependencies]
 runtimepack-core = { path = "../core" }
+runtimepack-pack = { path = "../pack" }
 runtimepack-engine-rgss = { path = "../engines/rgss" }
 runtimepack-engine-rpgmaker-web = { path = "../engines/rpgmaker_web" }
 runtimepack-engine-renpy = { path = "../engines/renpy" }
@@ -23,3 +28,5 @@ clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }

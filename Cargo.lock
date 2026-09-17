@@ -413,14 +413,17 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "runtimepack"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "runtimepack-core",
  "runtimepack-engine-renpy",
  "runtimepack-engine-rgss",
  "runtimepack-engine-rpgmaker-web",
  "runtimepack-engine-tyrano",
+ "runtimepack-pack",
  "serde",
  "serde_json",
+ "sha2",
  "toml",
 ]
 

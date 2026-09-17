@@ -1,3 +1,6 @@
+pub mod generator;
+pub use generator::AndroidProjectGenerator;
+
 use crate::domain::{Abi, ContentMode, EngineId, SigningMode};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
