@@ -242,6 +242,27 @@ kotlin.code.style=official
 "#;
         fs::write(project_dir.join("gradle.properties"), gradle_properties)?;
 
+        // Write local.properties for Android SDK path
+        let sdk_dir = std::env::var("ANDROID_HOME")
+            .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
+            .ok()
+            .or_else(|| {
+                std::env::var("LOCALAPPDATA").ok().and_then(|la| {
+                    let p = Path::new(&la).join("Android/Sdk");
+                    if p.exists() {
+                        Some(p.to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        if let Some(sdk) = sdk_dir {
+            let escaped_sdk = sdk.replace('\\', "/");
+            let local_props = format!("sdk.dir={}\n", escaped_sdk);
+            fs::write(project_dir.join("local.properties"), local_props)?;
+        }
+
         Ok(())
     }
 }
