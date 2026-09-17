@@ -1,5 +1,8 @@
 pub mod generator;
+pub mod signing;
+
 pub use generator::AndroidProjectGenerator;
+pub use signing::SigningManager;
 
 use crate::domain::{Abi, ContentMode, EngineId, SigningMode};
 use serde::{Deserialize, Serialize};

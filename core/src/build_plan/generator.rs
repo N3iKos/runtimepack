@@ -106,7 +106,16 @@ android {{
         }}
     }}
 
+    signingConfigs {{
+        getByName("debug") {{
+            // Standard Android debug signing
+        }}
+    }}
+
     buildTypes {{
+        debug {{
+            signingConfig = signingConfigs.getByName("debug")
+        }}
         release {{
             isMinifyEnabled = false
             proguardFiles(
