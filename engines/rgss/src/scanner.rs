@@ -12,6 +12,43 @@ impl RgssAnalyzer {
         let filename = lower.rsplit('/').next().unwrap_or(&lower);
         filename.starts_with("rgss") && filename.ends_with(".dll")
     }
+
+    pub fn is_windows_system_redist(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        filename.starts_with("msvcr")
+            || filename.starts_with("msvcp")
+            || filename.starts_with("vcruntime")
+            || filename.starts_with("ucrtbase")
+            || filename.starts_with("d3d")
+            || filename.starts_with("xinput")
+            || lower.contains("_commonredist")
+    }
+
+    pub fn is_known_shimmable_dll(path: &str) -> Option<(&'static str, &'static str, &'static str)> {
+        let lower = path.to_ascii_lowercase();
+        if lower.contains("lonamousewheel") || lower.contains("mousewhee") {
+            Some((
+                "rgss.shim.mousewheel",
+                "user32.LonaMouseWheel",
+                "Win32 mouse wheel delta polling DLL; mapped to compatibility shim 'rgss.shim.mousewheel'",
+            ))
+        } else if lower.contains("f1altenterf12") {
+            Some((
+                "rgss.shim.f1_f12_alt_enter",
+                "user32.F1AltEnterF12",
+                "Windows hotkey hook DLL; managed natively by Android host activity",
+            ))
+        } else if lower.contains("bitmapchanger_optimization") {
+            Some((
+                "rgss.shim.palette_changer",
+                "BitmapChanger_Optimization",
+                "BitmapChanger C++ DLL; mapped to game's built-in Ruby fallback palette changer",
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 impl Analyzer for RgssAnalyzer {
@@ -31,21 +68,59 @@ impl Analyzer for RgssAnalyzer {
         report.required_capabilities.push("graphics.surface".to_string());
         report.required_capabilities.push("audio.standard".to_string());
 
+        let mut has_unsupported_dll = false;
+
         // 1. Scan for Native Windows PE DLLs
         for (path, file) in &source.files {
             if path.ends_with(".dll") {
-                if !Self::is_engine_rgss_dll(path) {
+                if Self::is_engine_rgss_dll(path) {
+                    // Standard RGSS DLL - replaced by Android RGSS backend
+                    continue;
+                }
+
+                if Self::is_windows_system_redist(path) {
                     report.add_issue(CompatibilityIssue {
-                        code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
-                        severity: DiagnosticSeverity::Error,
+                        code: "CMP-REDIST-EXCLUDED".to_string(),
+                        severity: DiagnosticSeverity::Info,
                         message: format!(
-                            "Unsupported native Windows PE DLL dependency found: '{}' ({} bytes). PE DLLs cannot run on Android without a dedicated Android native replacement.",
-                            file.logical_path, file.size_bytes
+                            "Windows Visual C++ redistributable DLL '{}' detected; excluded from Android runtime package.",
+                            file.logical_path
                         ),
                         source_path: Some(file.logical_path.clone()),
-                        remediation: Some(RemediationCategory::Dependency),
+                        remediation: None,
                     });
+                    continue;
                 }
+
+                if let Some((cap, shim, desc)) = Self::is_known_shimmable_dll(path) {
+                    if !report.required_capabilities.contains(&cap.to_string()) {
+                        report.required_capabilities.push(cap.to_string());
+                    }
+                    if !report.required_shims.contains(&shim.to_string()) {
+                        report.required_shims.push(shim.to_string());
+                    }
+                    report.add_issue(CompatibilityIssue {
+                        code: "CMP-102-SHIM".to_string(),
+                        severity: DiagnosticSeverity::Info,
+                        message: format!("'{}': {}", file.logical_path, desc),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: None,
+                    });
+                    continue;
+                }
+
+                // Truly unsupported native third-party PE DLL
+                has_unsupported_dll = true;
+                report.add_issue(CompatibilityIssue {
+                    code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
+                    severity: DiagnosticSeverity::Error,
+                    message: format!(
+                        "Unsupported native Windows PE DLL dependency found: '{}' ({} bytes). PE DLLs cannot run on Android without a dedicated Android native replacement.",
+                        file.logical_path, file.size_bytes
+                    ),
+                    source_path: Some(file.logical_path.clone()),
+                    remediation: Some(RemediationCategory::Dependency),
+                });
             }
         }
 
@@ -58,7 +133,6 @@ impl Analyzer for RgssAnalyzer {
             if let Some(file_info) = source.get_file(sf) {
                 let full_path = source.root_path.join(&file_info.relative_path);
                 if let Ok(bytes) = std::fs::read(full_path) {
-                    // Safe string matching on script binary data without ruby execution
                     let haystack = String::from_utf8_lossy(&bytes);
 
                     if haystack.contains("GetKeyboardState") || haystack.contains("GetAsyncKeyState") {
@@ -69,7 +143,6 @@ impl Analyzer for RgssAnalyzer {
                     }
 
                     if haystack.contains("Win32API.new") || haystack.contains("Win32API") {
-                        // Check for unknown Win32 calls
                         if haystack.contains("ShellExecute") || haystack.contains("CreateWindow") {
                             report.add_issue(CompatibilityIssue {
                                 code: DiagnosticCode::CMP_UNSUPPORTED_WIN32.to_string(),
@@ -78,9 +151,6 @@ impl Analyzer for RgssAnalyzer {
                                 source_path: Some(file_info.logical_path.clone()),
                                 remediation: Some(RemediationCategory::UnsupportedFeature),
                             });
-                            if report.status == CompatibilityStatus::Compatible {
-                                report.status = CompatibilityStatus::Degraded;
-                            }
                         }
                     }
                 }
@@ -90,9 +160,6 @@ impl Analyzer for RgssAnalyzer {
         if found_keyboard_shim {
             report.required_capabilities.push("rgss.win32.user32.keyboard".to_string());
             report.required_shims.push("user32.GetKeyboardState".to_string());
-            if report.status == CompatibilityStatus::Compatible {
-                report.status = CompatibilityStatus::CompatibleWithShims;
-            }
             report.add_issue(CompatibilityIssue {
                 code: "CMP-101-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,
@@ -105,9 +172,6 @@ impl Analyzer for RgssAnalyzer {
         if found_ini_shim {
             report.required_capabilities.push("rgss.win32.kernel32.temp".to_string());
             report.required_shims.push("kernel32.GetPrivateProfileString".to_string());
-            if report.status == CompatibilityStatus::Compatible {
-                report.status = CompatibilityStatus::CompatibleWithShims;
-            }
             report.add_issue(CompatibilityIssue {
                 code: "CMP-101-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,
@@ -115,6 +179,15 @@ impl Analyzer for RgssAnalyzer {
                 source_path: None,
                 remediation: None,
             });
+        }
+
+        // Compute final status
+        if has_unsupported_dll {
+            report.status = CompatibilityStatus::UnsupportedDependency;
+        } else if !report.required_shims.is_empty() {
+            report.status = CompatibilityStatus::CompatibleWithShims;
+        } else {
+            report.status = CompatibilityStatus::Compatible;
         }
 
         report

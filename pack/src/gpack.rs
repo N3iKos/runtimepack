@@ -74,6 +74,20 @@ impl GpackPacker {
         Self::pack_directory_with_options(source_dir, output_file, None)
     }
 
+    pub fn should_include_in_pack(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        if lower.contains("_commonredist/") {
+            return false;
+        }
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        if (filename.starts_with("msvcr") || filename.starts_with("msvcp") || filename.starts_with("vcruntime"))
+            && filename.ends_with(".dll")
+        {
+            return false;
+        }
+        true
+    }
+
     pub fn pack_directory_with_options(
         source_dir: &Path,
         output_file: &Path,
@@ -98,6 +112,9 @@ impl GpackPacker {
         file_list.sort_by(|a, b| a.logical_path.cmp(&b.logical_path));
 
         for file in file_list {
+            if !Self::should_include_in_pack(&file.logical_path) {
+                continue;
+            }
             let valid_path = Self::validate_logical_path(&file.logical_path)?;
             let src_file_path = index.root_path.join(&file.relative_path);
 
