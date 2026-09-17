@@ -95,6 +95,7 @@ fn create_default_analyzer_registry() -> runtimepack_core::compatibility::Analyz
     let mut registry = runtimepack_core::compatibility::AnalyzerRegistry::new();
     registry.register(Box::new(runtimepack_engine_rgss::RgssAnalyzer));
     registry.register(Box::new(runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer));
+    registry.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
     registry
 }
 

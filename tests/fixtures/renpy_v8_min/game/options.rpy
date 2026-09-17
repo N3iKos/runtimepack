@@ -1,0 +1,1 @@
+define config.name = "RenPy 8 Game"

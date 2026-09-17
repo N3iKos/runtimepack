@@ -64,6 +64,7 @@ class RuntimeHost(private val context: RuntimeContext) {
 
     fun initialize(manifest: BuildManifestData, surfaceView: View) {
         backend = when (manifest.runtime.family) {
+            "web" -> WebBackend()
             "test" -> TestBackend()
             else -> TestBackend() // Default to test backend in shell template
         }

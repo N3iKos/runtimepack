@@ -77,3 +77,36 @@ fn test_mv_node_path_shimmed() {
     assert_eq!(report.status, CompatibilityStatus::CompatibleWithShims);
     assert!(report.required_capabilities.contains(&"web.node.path".to_string()));
 }
+
+#[test]
+fn test_renpy_v8_version_resolved() {
+    let mut detectors = DetectorRegistry::new();
+    detectors.register(Box::new(runtimepack_engine_renpy::RenPyDetector));
+
+    let mut analyzers = AnalyzerRegistry::new();
+    analyzers.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
+
+    let idx = GameSourceIndex::build(&fixture("renpy_v8_min")).unwrap();
+    let desc = detectors.resolve(&idx);
+    assert_eq!(desc.id, EngineId::RenPy);
+
+    let report = analyzers.analyze(&idx, &desc);
+    assert_eq!(report.status, CompatibilityStatus::Compatible);
+    assert!(report.issues.iter().any(|i| i.code == "RNP-100-VERSION"));
+}
+
+#[test]
+fn test_renpy_unsupported_pyd_rejected() {
+    let mut detectors = DetectorRegistry::new();
+    detectors.register(Box::new(runtimepack_engine_renpy::RenPyDetector));
+
+    let mut analyzers = AnalyzerRegistry::new();
+    analyzers.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
+
+    let idx = GameSourceIndex::build(&fixture("renpy_unsupported_pyd")).unwrap();
+    let desc = detectors.resolve(&idx);
+
+    let report = analyzers.analyze(&idx, &desc);
+    assert_eq!(report.status, CompatibilityStatus::UnsupportedDependency);
+    assert!(report.issues.iter().any(|i| i.code == "CMP-105"));
+}
