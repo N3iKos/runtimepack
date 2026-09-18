@@ -133,6 +133,23 @@ fn test_rgss_bootstrap_provides_dl_cptr_compatibility() {
     assert!(source.contains("module DL"));
     assert!(source.contains("class CPtr"));
     assert!(source.contains("def self.malloc(size)"));
+    assert!(source.contains("@instances = {}"));
+    assert!(source.contains("DL::CPtr.instances"));
+}
+
+#[test]
+fn test_rgss_bootstrap_hooks_win32_input_and_native_fallback() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("rp_input_state.bin"));
+    assert!(source.contains("when 'GetKeyboardState'"));
+    assert!(source.contains("when 'GetAsyncKeyState', 'GetKeyState'"));
+    assert!(source.contains("-32767"));
+    assert!(source.contains("rp_native_press?"));
+    assert!(source.contains("rp_hime_press?"));
 }
 
 #[test]

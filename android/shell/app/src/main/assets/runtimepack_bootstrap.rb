@@ -109,9 +109,15 @@ module DL
   end
 
   class CPtr
+    @instances = {}
+    class << self
+      attr_accessor :instances
+    end
+
     def initialize(pointer, size = nil)
       @data = pointer.is_a?(String) ? pointer : ("\0" * (size || 0))
       @data = @data.ljust(size, "\0") if size && @data.bytesize < size
+      (DL::CPtr.instances ||= {})[object_id] = self
     end
 
     def [](index)
@@ -119,6 +125,7 @@ module DL
     end
 
     def []=(index, value)
+      @data = @data.ljust(index + 1, "\0") if index >= @data.bytesize
       @data.setbyte(index, value.to_i & 0xff)
     end
 
@@ -126,9 +133,13 @@ module DL
       object_id
     end
   end
-end unless defined?(DL)
+end
 
 class Win32API
+  def self.call(func, *args)
+    new('', func).call(*args)
+  end
+
   def initialize(dll, func, import_types = nil, export_type = nil)
     @dll = dll.to_s.downcase.gsub('\\', '/')
     @func = func.to_s
@@ -140,9 +151,35 @@ class Win32API
     case @func
     when 'GetCommandLine'
       ''
-    when 'GetKeyboardState', 'GetAsyncKeyState', 'GetKeyState'
-      if args[0].is_a?(String)
-        args[0].replace("\0" * args[0].bytesize)
+    when 'GetKeyboardState'
+      ptr_target = if args[0].is_a?(Numeric)
+        (DL::CPtr.instances[args[0].to_i] if defined?(DL::CPtr) && DL::CPtr.respond_to?(:instances) && DL::CPtr.instances)
+      elsif defined?(DL::CPtr) && args[0].is_a?(DL::CPtr)
+        args[0]
+      elsif args[0].is_a?(String)
+        args[0]
+      else
+        nil
+      end
+
+      if File.exist?("rp_input_state.bin")
+        data = File.binread("rp_input_state.bin") rescue nil
+        if data
+          if ptr_target.is_a?(String)
+            ptr_target[0, 256] = data[0, 256]
+          elsif defined?(DL::CPtr) && ptr_target.is_a?(DL::CPtr)
+            0.upto(255) { |k| ptr_target[k] = data.getbyte(k) || 0 }
+          end
+        end
+      end
+      1
+    when 'GetAsyncKeyState', 'GetKeyState'
+      vk = args[0].to_i
+      if File.exist?("rp_input_state.bin")
+        data = File.binread("rp_input_state.bin") rescue nil
+        if data && vk >= 0 && data.bytesize > vk
+          return ((data.getbyte(vk) & 0x80) != 0) ? -32767 : 0
+        end
       end
       0
     when 'MapVirtualKeyEx', 'ToUnicodeEx', 'GetKeyboardLayout', 'SetKeyboardState'
@@ -206,12 +243,15 @@ class Win32API
   end
 end
 
-[Sprite, Viewport, Plane, Window].each do |klass|
-  if defined?(klass) && klass.method_defined?(:visible=)
-    klass.class_eval do
-      alias_method :runtimepack_orig_visible=, :visible=
-      def visible=(val)
-        self.runtimepack_orig_visible = (val ? true : false)
+[:Sprite, :Viewport, :Plane, :Window].each do |klass_name|
+  if Object.const_defined?(klass_name)
+    klass = Object.const_get(klass_name)
+    if klass.method_defined?(:visible=)
+      klass.class_eval do
+        alias_method :runtimepack_orig_visible=, :visible=
+        def visible=(val)
+          self.runtimepack_orig_visible = (val ? true : false)
+        end
       end
     end
   end
@@ -273,14 +313,58 @@ def patch_json_decoder
   end
 end
 
-scripts = load_data('Data/Scripts.rvdata2')
-scripts.each do |script|
-  script_id = script[0]
-  script_name = script[1].to_s
-  script_source = Zlib::Inflate.inflate(script[2])
-  eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
-  BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
-  patch_json_decoder
+if defined?(Input)
+  class << Input
+    alias_method :rp_native_press?, :press? rescue nil
+    alias_method :rp_native_trigger?, :trigger? rescue nil
+    alias_method :rp_native_dir4, :dir4 rescue nil
+    alias_method :rp_native_dir8, :dir8 rescue nil
+  end
+end
+
+if (defined?(load_data) || respond_to?(:load_data, true)) && File.exist?('Data/Scripts.rvdata2')
+  scripts = load_data('Data/Scripts.rvdata2')
+  scripts.each do |script|
+    script_id = script[0]
+    script_name = script[1].to_s
+    script_source = Zlib::Inflate.inflate(script[2])
+    eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
+    BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
+    patch_json_decoder
+  end
+end
+
+if defined?(Input) && Input.respond_to?(:rp_native_press?)
+  class << Input
+    alias_method :rp_hime_press?, :press? rescue nil
+    alias_method :rp_hime_trigger?, :trigger? rescue nil
+    alias_method :rp_hime_dir4, :dir4 rescue nil
+    alias_method :rp_hime_dir8, :dir8 rescue nil
+
+    def press?(keys)
+      res = rp_hime_press?(keys) rescue false
+      return true if res
+      rp_native_press?(keys) rescue false
+    end
+
+    def trigger?(keys)
+      res = rp_hime_trigger?(keys) rescue false
+      return true if res
+      rp_native_trigger?(keys) rescue false
+    end
+
+    def dir4
+      d = rp_hime_dir4 rescue 0
+      return d if d && d > 0
+      rp_native_dir4 rescue 0
+    end
+
+    def dir8
+      d = rp_hime_dir8 rescue 0
+      return d if d && d > 0
+      rp_native_dir8 rescue 0
+    end
+  end
 end
 
 if defined?(SceneManager) && SceneManager.respond_to?(:run)
