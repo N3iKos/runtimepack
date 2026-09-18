@@ -44,6 +44,143 @@ fn test_generate_manifest_xml() {
 }
 
 #[test]
+fn test_rgss_extractor_patches_recursive_json_script() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let source = std::fs::read_to_string(extractor_path).unwrap();
+
+    assert!(source.contains("patchJsonDecoderScript"));
+    assert!(source.contains("content.indexOf(\"\\n  def self.next_token(debug = 0)\")"));
+    assert!(source.contains("content.indexOf(\"\\n  def self.parse(debug = 0)\""));
+    assert!(source.contains("EXTRACTION_VERSION"));
+}
+
+#[test]
+fn test_rgss_bootstrap_coerces_truthy_values_for_visible_setter() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("def visible=(val)"));
+    assert!(source.contains("val ? true : false"));
+}
+
+#[test]
+fn test_rgss_bootstrap_prevents_encoding_conversion_crash_on_file_write() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("def open(name"));
+    assert!(source.contains("\"wb\""));
+}
+
+#[test]
+fn test_rgss_bootstrap_sets_utf8_encoding_and_catches_tkg_error() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("Encoding.default_external = Encoding::UTF_8"));
+    assert!(source.contains("TKG::ErrorLog"));
+}
+
+#[test]
+fn test_rgss_bootstrap_resolves_case_insensitive_file_paths() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("module RuntimePackCasePath"));
+    assert!(source.contains("runtimepack_original_size"));
+    assert!(source.contains("casecmp"));
+}
+
+#[test]
+fn test_rgss_bootstrap_patches_json_parser_iteratively() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("module JSONPatch") || source.contains("patch_json_decoder"));
+}
+
+#[test]
+fn test_rgss_bootstrap_disables_bitmap_dll_without_popup() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(!source.contains("raise LoadError"));
+    assert!(!source.contains("raise RuntimeError"));
+    assert!(source.contains("BitmapChangerOptimization.invalidate"));
+}
+
+#[test]
+fn test_rgss_bootstrap_provides_dl_cptr_compatibility() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("module DL"));
+    assert!(source.contains("class CPtr"));
+    assert!(source.contains("def self.malloc(size)"));
+}
+
+#[test]
+fn test_rgss_bootstrap_populates_system_workarea_rect() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("when 'SystemParametersInfo'"));
+    assert!(source.contains("[0, 0, 1920, 1080].pack('l4')"));
+}
+
+#[test]
+fn test_rgss_bootstrap_loads_zlib_before_inflating_scripts() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    let require_pos = source.find("require 'zlib'").unwrap();
+    let inflate_pos = source.find("Zlib::Inflate.inflate").unwrap();
+    assert!(require_pos < inflate_pos);
+}
+
+#[test]
+fn test_rgss_bootstrap_runs_after_native_bindings() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let source = std::fs::read_to_string(extractor_path).unwrap();
+
+    assert!(source.contains("\"customScript\": \"runtimepack_bootstrap.rb\""));
+    assert!(!source.contains("\"preloadScript\": [\"win32api_shim.rb\"]"));
+}
+
+#[test]
+fn test_rgss_activity_starts_sdl_thread_from_on_start() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let source = std::fs::read_to_string(activity_path).unwrap();
+
+    assert!(source.contains("override fun onStart()"));
+    assert!(source.contains("resumeNativeThread()"));
+}
+
+#[test]
 fn test_signing_validation() {
     use runtimepack_core::build_plan::{SigningConfig, SigningManager};
     use runtimepack_core::domain::SigningMode;

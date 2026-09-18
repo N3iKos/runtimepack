@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 
 object GpackExtractor {
     private const val TAG = "GpackExtractor"
+    private const val EXTRACTION_VERSION = "v3"
     private val GPACK_MAGIC = byteArrayOf('G'.code.toByte(), 'P'.code.toByte(), 'A'.code.toByte(), 'C'.code.toByte(), 'K'.code.toByte(), '1'.code.toByte(), 0, 0)
 
     fun interface ProgressCallback {
@@ -24,10 +25,132 @@ object GpackExtractor {
     fun isExtracted(destDir: File): Boolean {
         val marker = File(destDir, ".gpack_extracted")
         val ini = File(destDir, "Game.ini")
-        return destDir.exists() && marker.exists() && ini.exists()
+        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && ini.exists()
+    }
+
+    fun patchJsonDecoderScript(destDir: File) {
+        val target = File(destDir, "Data/Scripts/101_jsonEnDecoder.rb")
+        if (!target.exists()) return
+
+        try {
+            val content = target.readText(Charsets.UTF_8)
+
+            val iterativeNextToken = """
+  def self.next_token(debug = 0)
+    loop do
+      return TOKEN_NONE if @index >= @length
+      char = @json[@index, 1]
+      @index += 1
+      case char
+      when '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '.'
+        return TOKEN_NUMBER
+      when '{'
+        return TOKEN_CURLY_OPEN
+      when '}'
+        return TOKEN_CURLY_CLOSED
+      when '"'
+        return TOKEN_STRING
+      when ','
+        return TOKEN_COMMA
+      when '['
+        return TOKEN_SQUARED_OPEN
+      when ']'
+        return TOKEN_SQUARED_CLOSED
+      when ':'
+        return TOKEN_COLON
+      when ' ', "\n", "\t", "\r"
+        # continue loop without recursion
+      when '/'
+        if @json[@index, 1] == '/'
+          while @index < @length && @json[@index] != "\n"
+            @index += 1
+          end
+          # continue loop without recursion
+        else
+          @index -= 1
+          return TOKEN_NONE
+        end
+      else
+        @index -= 1
+        if @json[@index, 5] == "false"
+          @index += 5
+          return TOKEN_FALSE
+        elsif @json[@index, 4] == "true"
+          @index += 4
+          return TOKEN_TRUE
+        elsif @json[@index, 4] == "null"
+          @index += 4
+          return TOKEN_NULL
+        end
+        return TOKEN_NONE
+      end
+    end
+  end
+""".trimIndent()
+
+            val methodStart = content.indexOf("\n  def self.next_token(debug = 0)")
+            val nextMethod = content.indexOf("\n  def self.parse(debug = 0)", methodStart + 1)
+            if (methodStart < 0 || nextMethod < 0) {
+                throw IllegalStateException("Could not locate active JSON.next_token method boundaries")
+            }
+
+            val patched = content.substring(0, methodStart + 1) +
+                iterativeNextToken + "\n\n" +
+                content.substring(nextMethod + 1)
+            target.writeText(patched, Charsets.UTF_8)
+            Log.i(TAG, "Patched 101_jsonEnDecoder.rb with non-recursive next_token.")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to patch 101_jsonEnDecoder.rb: ${e.message}")
+        }
+    }
+
+    fun patchErrorLogScript(destDir: File) {
+        val target = File(destDir, "Data/Scripts/Frames/208_Han_Nama_ErrorLog.rb")
+        if (!target.exists()) return
+
+        try {
+            val content = target.readText(Charsets.UTF_8)
+            val patched = content.replace("open(filename,\"w\")", "open(filename,\"wb\")")
+            if (patched != content) {
+                target.writeText(patched, Charsets.UTF_8)
+                Log.i(TAG, "Patched 208_Han_Nama_ErrorLog.rb to write in binary mode (wb).")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to patch 208_Han_Nama_ErrorLog.rb: ${e.message}")
+        }
+    }
+
+    fun installRuntimeFiles(context: Context, destDir: File) {
+        patchJsonDecoderScript(destDir)
+        patchErrorLogScript(destDir)
+
+        try {
+            context.assets.open("runtimepack_bootstrap.rb").use { bootstrapInput ->
+                FileOutputStream(File(destDir, "runtimepack_bootstrap.rb")).use { bootstrapOutput ->
+                    bootstrapInput.copyTo(bootstrapOutput)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not copy runtimepack_bootstrap.rb from assets: ${e.message}")
+        }
+
+        val mkxpConfig = """
+            {
+                "fixedAspectRatio": true,
+                "smoothScaling": true,
+                "pathCache": true,
+                "subImageFix": true,
+                "execName": "Game",
+                "customScript": "runtimepack_bootstrap.rb"
+            }
+        """.trimIndent()
+        File(destDir, "mkxp.json").writeText(mkxpConfig)
     }
 
     fun extract(context: Context, destDir: File, callback: ProgressCallback? = null): Boolean {
+        if (destDir.exists()) {
+            destDir.deleteRecursively()
+        }
         destDir.mkdirs()
         Log.i(TAG, "Extracting game.pack into ${destDir.absolutePath}...")
 
@@ -109,30 +232,10 @@ object GpackExtractor {
                 callback?.onProgress(i + 1, fileCount, entry.logicalPath)
             }
 
-            // 4. Install Win32API shim and mkxp.json
-            try {
-                context.assets.open("win32api_shim.rb").use { shimInput ->
-                    FileOutputStream(File(destDir, "win32api_shim.rb")).use { shimOutput ->
-                        shimInput.copyTo(shimOutput)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not copy win32api_shim.rb from assets: ${e.message}")
-            }
+            // 4. Install/update runtime files
+            installRuntimeFiles(context, destDir)
 
-            val mkxpConfig = """
-                {
-                    "fixedAspectRatio": true,
-                    "smoothScaling": true,
-                    "pathCache": true,
-                    "subImageFix": true,
-                    "execName": "Game",
-                    "preloadScript": ["win32api_shim.rb"]
-                }
-            """.trimIndent()
-            File(destDir, "mkxp.json").writeText(mkxpConfig)
-
-            File(destDir, ".gpack_extracted").writeText("ok")
+            File(destDir, ".gpack_extracted").writeText(EXTRACTION_VERSION)
             Log.i(TAG, "Successfully extracted all $fileCount files to ${destDir.absolutePath}")
             return true
         } catch (e: Exception) {

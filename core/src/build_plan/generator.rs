@@ -243,10 +243,10 @@ dependencies {{
             copy_dir_all(overlay_src, &overlay_dst)?;
         }
 
-        // Copy win32api_shim.rb if present
-        let shim_src = Path::new("android/shell/app/src/main/assets/win32api_shim.rb");
-        if shim_src.exists() {
-            fs::copy(shim_src, assets_dir.join("win32api_shim.rb"))?;
+        // Copy RGSS post-binding bootstrap if present
+        let bootstrap_src = Path::new("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+        if bootstrap_src.exists() {
+            fs::copy(bootstrap_src, assets_dir.join("runtimepack_bootstrap.rb"))?;
         }
 
         // Write root build.gradle.kts and settings.gradle.kts

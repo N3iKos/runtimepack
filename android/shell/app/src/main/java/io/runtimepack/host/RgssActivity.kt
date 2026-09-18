@@ -99,6 +99,7 @@ open class RgssActivity : SDLActivity() {
                 Log.e(TAG, "Extraction failed!")
             }
         }
+        GpackExtractor.installRuntimeFiles(this, gameDir)
 
         GAME_PATH = gameDir.absolutePath
         Log.i(TAG, "Initialized RGSS GAME_PATH: $GAME_PATH")
@@ -111,12 +112,6 @@ open class RgssActivity : SDLActivity() {
 
         // Attach In-Game Virtual Gamepad (vpad.js) & Cheat Overlay on top of SDL Surface
         attachVirtualGamepadOverlay()
-
-        // Diagnostics check
-        val ini = File(gameDir, "Game.ini")
-        val scripts = File(gameDir, "Data/Scripts.rvdata2")
-        val count = gameDir.listFiles()?.size ?: 0
-        updateDebugHud("Engine Started | Game.ini: ${ini.exists()} | Scripts: ${scripts.exists()} | Files: $count")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -169,11 +164,6 @@ open class RgssActivity : SDLActivity() {
             wv.webViewClient = object : android.webkit.WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    val gameDir = File(filesDir, "game")
-                    val ini = File(gameDir, "Game.ini")
-                    val scripts = File(gameDir, "Data/Scripts.rvdata2")
-                    val count = gameDir.listFiles()?.size ?: 0
-                    updateDebugHud("Engine Started | Game.ini: ${ini.exists()} | Scripts: ${scripts.exists()} | Files: $count")
                 }
             }
 
@@ -223,6 +213,11 @@ open class RgssActivity : SDLActivity() {
             123 -> KeyEvent.KEYCODE_F12
             else -> KeyEvent.KEYCODE_UNKNOWN
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        resumeNativeThread()
     }
 
     override fun onPause() {
