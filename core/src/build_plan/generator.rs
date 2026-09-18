@@ -125,6 +125,10 @@ android {{
         }}
     }}
 
+    androidResources {{
+        noCompress += listOf("pack", "rxdata", "rvdata", "rvdata2", "ogg", "png", "mp3")
+    }}
+
     signingConfigs {{
         getByName("debug") {{
             // Standard Android debug signing

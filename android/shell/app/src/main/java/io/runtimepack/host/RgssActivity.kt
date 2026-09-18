@@ -78,7 +78,13 @@ open class RgssActivity : SDLActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // 1. Prepare Game Content in app-specific internal storage
         val gameDir = File(filesDir, "game")
-        GpackExtractor.extractIfNecessary(this, gameDir)
+        if (!GpackExtractor.isExtracted(gameDir)) {
+            Log.i(TAG, "Extracting game assets to internal storage...")
+            val success = GpackExtractor.extract(this, gameDir)
+            if (!success) {
+                Log.e(TAG, "Game asset extraction failed!")
+            }
+        }
         GAME_PATH = gameDir.absolutePath
         Log.i(TAG, "Initialized RGSS GAME_PATH: $GAME_PATH")
 

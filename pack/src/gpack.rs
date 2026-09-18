@@ -70,10 +70,6 @@ impl GpackPacker {
         Ok(trimmed.to_string())
     }
 
-    pub fn pack_directory(source_dir: &Path, output_file: &Path) -> Result<u64, DiagnosticError> {
-        Self::pack_directory_with_options(source_dir, output_file, None)
-    }
-
     pub fn should_include_in_pack(path: &str) -> bool {
         let lower = path.to_ascii_lowercase();
         if lower.contains("_commonredist/") {
@@ -88,6 +84,10 @@ impl GpackPacker {
         true
     }
 
+    pub fn pack_directory(source_dir: &Path, output_file: &Path) -> Result<u64, DiagnosticError> {
+        Self::pack_directory_with_options(source_dir, output_file, None)
+    }
+
     pub fn pack_directory_with_options(
         source_dir: &Path,
         output_file: &Path,
@@ -99,61 +99,110 @@ impl GpackPacker {
             DiagnosticError::from_code(DiagnosticCode::CNT_INVALID_PATH, e.to_string())
         })?;
 
-        // Reserve header space (64 bytes)
-        let header_placeholder = [0u8; 64];
-        out.write_all(&header_placeholder)?;
-
-        let mut entries = Vec::new();
-        let mut current_offset = 64u64;
-        let mut chunk_counter = 0u64;
-
         // Sort files deterministically
         let mut file_list: Vec<_> = index.files.values().collect();
         file_list.sort_by(|a, b| a.logical_path.cmp(&b.logical_path));
 
+        // Pre-compute index metadata and encrypted/stored sizes
+        struct PreparedFile<'a> {
+            file_info: &'a runtimepack_core::ingest::IndexedFile,
+            valid_path: String,
+            stored_size: u64,
+            encryption: u8,
+        }
+
+        let mut prepared = Vec::new();
         for file in file_list {
             if !Self::should_include_in_pack(&file.logical_path) {
                 continue;
             }
             let valid_path = Self::validate_logical_path(&file.logical_path)?;
-            let src_file_path = index.root_path.join(&file.relative_path);
+            let (stored_size, encryption) = if encryption_key.is_some() {
+                // ChaCha20Poly1305 adds 16-byte Poly1305 tag
+                (file.size_bytes + 16, 1u8)
+            } else {
+                (file.size_bytes, 0u8)
+            };
+            prepared.push(PreparedFile {
+                file_info: file,
+                valid_path,
+                stored_size,
+                encryption,
+            });
+        }
 
+        // Calculate index table bytes length first so data offset is deterministic
+        let mut index_bytes_len = 0usize;
+        for p in &prepared {
+            let path_len = p.valid_path.as_bytes().len();
+            // 4 (path_len) + path_len + 8 (offset) + 8 (size) + 8 (stored_size) + 32 (hash) + 1 (comp) + 1 (enc)
+            index_bytes_len += 4 + path_len + 8 + 8 + 8 + 32 + 1 + 1;
+        }
+
+        let index_offset = 64u64;
+        let index_length = index_bytes_len as u64;
+        let data_start_offset = index_offset + index_length;
+
+        // Calculate file offsets
+        let mut current_offset = data_start_offset;
+        let mut file_offsets = Vec::new();
+        for p in &prepared {
+            file_offsets.push(current_offset);
+            current_offset += p.stored_size;
+        }
+
+        // Write header (64 bytes) with index at the FRONT
+        let mut header_buf = [0u8; 64];
+        header_buf[0..8].copy_from_slice(GPACK_MAGIC);
+        header_buf[8..12].copy_from_slice(&GPACK_VERSION.to_le_bytes());
+        header_buf[12..16].copy_from_slice(&0u32.to_le_bytes()); // flags
+        header_buf[16..24].copy_from_slice(&index_offset.to_le_bytes());
+        header_buf[24..32].copy_from_slice(&index_length.to_le_bytes());
+        header_buf[32..36].copy_from_slice(&(prepared.len() as u32).to_le_bytes());
+
+        // Reserve header and index table on disk
+        out.write_all(&header_buf)?;
+
+        // Now process and write all file data sequentially, collecting actual hashes
+        out.seek(SeekFrom::Start(data_start_offset))?;
+
+        let mut entries = Vec::new();
+        let mut chunk_counter = 0u64;
+
+        for (i, p) in prepared.into_iter().enumerate() {
+            let src_file_path = index.root_path.join(&p.file_info.relative_path);
             let mut in_file = File::open(&src_file_path)?;
-            let mut file_data = Vec::with_capacity(file.size_bytes as usize);
+            let mut file_data = Vec::with_capacity(p.file_info.size_bytes as usize);
             in_file.read_to_end(&mut file_data)?;
 
             let mut hasher = Sha256::new();
             hasher.update(&file_data);
             let hash_bytes: [u8; 32] = hasher.finalize().into();
 
-            let (stored_bytes, encryption_flag) = if let Some(key) = encryption_key {
+            let stored_bytes = if let Some(key) = encryption_key {
                 let encrypted = ContentCrypto::encrypt_chunk(key, chunk_counter, &file_data)?;
                 chunk_counter += 1;
-                (encrypted, 1u8)
+                encrypted
             } else {
-                (file_data, 0u8)
+                file_data
             };
 
-            let stored_len = stored_bytes.len() as u64;
             out.write_all(&stored_bytes)?;
 
             entries.push(GpackIndexEntry {
-                logical_path: valid_path,
-                offset: current_offset,
-                size: file.size_bytes,
-                stored_size: stored_len,
+                logical_path: p.valid_path,
+                offset: file_offsets[i],
+                size: p.file_info.size_bytes,
+                stored_size: p.stored_size,
                 content_hash: hash_bytes,
                 compression: 0,
-                encryption: encryption_flag,
+                encryption: p.encryption,
             });
-
-            current_offset += stored_len;
         }
 
-        // Write index table
-        let index_offset = current_offset;
-        let mut index_bytes = Vec::new();
-
+        // Now write index table at index_offset (64)
+        out.seek(SeekFrom::Start(index_offset))?;
+        let mut index_bytes = Vec::with_capacity(index_bytes_len);
         for entry in &entries {
             let path_bytes = entry.logical_path.as_bytes();
             index_bytes.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
@@ -165,24 +214,9 @@ impl GpackPacker {
             index_bytes.push(entry.compression);
             index_bytes.push(entry.encryption);
         }
-
         out.write_all(&index_bytes)?;
-        let index_length = index_bytes.len() as u64;
 
-        // Rewind and write real header
-        out.seek(SeekFrom::Start(0))?;
-
-        let mut header_buf = [0u8; 64];
-        header_buf[0..8].copy_from_slice(GPACK_MAGIC);
-        header_buf[8..12].copy_from_slice(&GPACK_VERSION.to_le_bytes());
-        header_buf[12..16].copy_from_slice(&0u32.to_le_bytes()); // flags
-        header_buf[16..24].copy_from_slice(&index_offset.to_le_bytes());
-        header_buf[24..32].copy_from_slice(&index_length.to_le_bytes());
-        header_buf[32..36].copy_from_slice(&(entries.len() as u32).to_le_bytes());
-
-        out.write_all(&header_buf)?;
-
-        Ok(current_offset + index_length)
+        Ok(current_offset)
     }
 }
 
