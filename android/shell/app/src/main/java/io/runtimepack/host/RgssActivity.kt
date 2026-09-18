@@ -27,6 +27,9 @@ open class RgssActivity : SDLActivity() {
     companion object {
         private const val TAG = "RgssActivity"
         const val INPUT_STATE_FILE = "rp_input_state.bin"
+        const val CHEAT_CMD_FILE = "rp_cheat_cmd.json"
+        const val CHEAT_STATE_FILE = "rp_cheat_state.json"
+        const val CHEAT_EVAL_FILE = "rp_cheat_eval_res.txt"
 
         @JvmField
         var GAME_PATH: String = ""
@@ -133,6 +136,41 @@ open class RgssActivity : SDLActivity() {
                 false
             }
         }
+
+        @JvmStatic
+        fun writeAtomic(targetFile: File, content: String): Boolean {
+            return try {
+                val targetDir = targetFile.parentFile ?: File(".")
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
+                val tempFile = File(targetDir, "${targetFile.name}.tmp")
+                tempFile.writeText(content, Charsets.UTF_8)
+                try {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        targetFile.toPath(),
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        targetFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (e: Exception) {
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to write atomic file ${targetFile.name}: ${e.message}", e)
+                false
+            }
+        }
     }
 
     val virtualKeyBuffer = ByteArray(256)
@@ -227,6 +265,21 @@ open class RgssActivity : SDLActivity() {
                 fun openUrl(url: String) {
                     this@RgssActivity.openUrl(url)
                 }
+
+                @JavascriptInterface
+                fun postCheatCmd(jsonCmd: String): Boolean {
+                    return this@RgssActivity.postCheatCmd(jsonCmd)
+                }
+
+                @JavascriptInterface
+                fun getCheatState(): String {
+                    return this@RgssActivity.getCheatState()
+                }
+
+                @JavascriptInterface
+                fun getEvalResult(): String {
+                    return this@RgssActivity.getEvalResult()
+                }
             }, "RuntimePackVPad")
 
             wv.webViewClient = object : android.webkit.WebViewClient() {
@@ -249,6 +302,66 @@ open class RgssActivity : SDLActivity() {
             filesDir ?: File(".")
         } catch (e: Exception) {
             File(".")
+        }
+    }
+
+    open fun postCheatCmd(jsonCmd: String): Boolean {
+        return try {
+            val dir = getInputStateDirectory()
+            val targetFile = File(dir, CHEAT_CMD_FILE)
+            val ok = writeAtomic(targetFile, jsonCmd)
+            val gameSub = File(dir, "game")
+            if (gameSub.exists() && gameSub.isDirectory) {
+                writeAtomic(File(gameSub, CHEAT_CMD_FILE), jsonCmd)
+            }
+            ok
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post cheat command: ${e.message}", e)
+            false
+        }
+    }
+
+    open fun getCheatState(): String {
+        return try {
+            val dir = getInputStateDirectory()
+            val stateFile = File(dir, CHEAT_STATE_FILE)
+            if (stateFile.exists()) {
+                stateFile.readText(Charsets.UTF_8)
+            } else {
+                val gameSubFile = File(File(dir, "game"), CHEAT_STATE_FILE)
+                if (gameSubFile.exists()) {
+                    gameSubFile.readText(Charsets.UTF_8)
+                } else {
+                    "{}"
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read cheat state: ${e.message}", e)
+            "{}"
+        }
+    }
+
+    open fun getEvalResult(): String {
+        return try {
+            val dir = getInputStateDirectory()
+            val evalFile = File(dir, CHEAT_EVAL_FILE)
+            if (evalFile.exists()) {
+                val text = evalFile.readText(Charsets.UTF_8)
+                evalFile.delete()
+                text
+            } else {
+                val gameSubFile = File(File(dir, "game"), CHEAT_EVAL_FILE)
+                if (gameSubFile.exists()) {
+                    val text = gameSubFile.readText(Charsets.UTF_8)
+                    gameSubFile.delete()
+                    text
+                } else {
+                    ""
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read eval result: ${e.message}", e)
+            ""
         }
     }
 

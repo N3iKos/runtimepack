@@ -37,6 +37,7 @@ module TKG
 end
 
 require 'zlib'
+require 'json' rescue nil
 
 class << File
   alias_method :runtimepack_original_exist?, :exist?
@@ -365,6 +366,117 @@ if defined?(Input) && Input.respond_to?(:rp_native_press?)
       rp_native_dir8 rescue 0
     end
   end
+end
+
+module RuntimePackCheatRunner
+  CMD_FILE = "rp_cheat_cmd.json"
+  STATE_FILE = "rp_cheat_state.json"
+  EVAL_FILE = "rp_cheat_eval_res.txt"
+  ERROR_FILE = "rp_cheat_error.txt"
+
+  def self.update
+    return unless File.exist?(CMD_FILE)
+    begin
+      content = File.read(CMD_FILE)
+      File.delete(CMD_FILE) rescue nil
+      return if content.nil? || content.strip.empty?
+
+      # Parse command (handle single hash or array of hashes)
+      cmds = (JSON.decode(content) rescue nil) || (JSON.parse(content) rescue nil)
+      cmds = [cmds] if cmds.is_a?(Hash)
+      return unless cmds.is_a?(Array)
+
+      cmds.each { |cmd| process_cmd(cmd) }
+    rescue => e
+      File.open(ERROR_FILE, "wb") { |f| f.write("[CHT-001] #{e.class}: #{e.message}\n#{e.backtrace.join("\n") rescue ''}") }
+    end
+  end
+
+  def self.process_cmd(cmd)
+    return unless cmd.is_a?(Hash)
+    action = cmd["action"].to_s
+    case action
+    when "set_variable"
+      id = cmd["id"].to_i
+      val = cmd["value"]
+      $game_variables[id] = val if defined?($game_variables) && $game_variables
+    when "set_switch"
+      id = cmd["id"].to_i
+      val = cmd["value"] ? true : false
+      $game_switches[id] = val if defined?($game_switches) && $game_switches
+    when "gain_gold"
+      amt = cmd["amount"].to_i
+      $game_party.gain_gold(amt) if defined?($game_party) && $game_party
+    when "recover_all"
+      if defined?($game_party) && $game_party
+        if $game_party.respond_to?(:members) && $game_party.members
+          $game_party.members.each { |m| m.recover_all if m.respond_to?(:recover_all) }
+        elsif $game_party.respond_to?(:all_members) && $game_party.all_members
+          $game_party.all_members.each { |m| m.recover_all if m.respond_to?(:recover_all) }
+        end
+      end
+    when "gain_item"
+      if defined?($game_party) && $game_party
+        type = cmd["type"].to_s
+        id = cmd["id"].to_i
+        amt = cmd["amount"].to_i
+        db = (type == "weapon" && defined?($data_weapons)) ? $data_weapons :
+             ((type == "armor" && defined?($data_armors)) ? $data_armors : (defined?($data_items) ? $data_items : nil))
+        item = db[id] if db && db.respond_to?(:[])
+        $game_party.gain_item(item, amt) if item
+      end
+    when "dump_state"
+      dump_game_state
+    when "eval"
+      code = cmd["code"].to_s
+      begin
+        res = eval(code, TOPLEVEL_BINDING)
+        File.open(EVAL_FILE, "wb") { |f| f.write(res.inspect) }
+      rescue => err
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") }
+      end
+    end
+  end
+
+  def self.dump_game_state
+    gold = (defined?($game_party) && $game_party) ? ($game_party.gold rescue 0) : 0
+    vars = {}
+    switches = {}
+    if defined?($game_variables) && $game_variables
+      1.upto(300) do |i|
+        v = $game_variables[i] rescue nil
+        vars[i.to_s] = v if v != nil && v != 0
+      end
+    end
+    if defined?($game_switches) && $game_switches
+      1.upto(300) do |i|
+        s = $game_switches[i] rescue false
+        switches[i.to_s] = s if s
+      end
+    end
+    payload = { "gold" => gold, "variables" => vars, "switches" => switches }
+    # Write JSON
+    encoded = (JSON.encode(payload) rescue nil) || (JSON.generate(payload) rescue nil) || (JSON.dump(payload) rescue nil)
+    File.open(STATE_FILE, "wb") { |f| f.write(encoded.to_s) } rescue nil
+  end
+
+  def self.hook_graphics
+    if defined?(Graphics)
+      class << Graphics
+        unless method_defined?(:rp_orig_cheat_update)
+          alias_method :rp_orig_cheat_update, :update rescue nil
+          def update
+            RuntimePackCheatRunner.update
+            rp_orig_cheat_update if respond_to?(:rp_orig_cheat_update)
+          end
+        end
+      end
+    end
+  end
+end
+
+if defined?(Graphics)
+  RuntimePackCheatRunner.hook_graphics
 end
 
 if defined?(SceneManager) && SceneManager.respond_to?(:run)

@@ -29,3 +29,4 @@
 - [2026-09-18] Penanganan error encoding ASCII-8BIT ke UTF-8 pada logging error TKG (`open(filename, "wb")`)
 - [2026-09-18] Penanganan coercion boolean pada setter `Sprite#visible=` untuk mengatasi typo game `@sprite.visible = @sprite`
 - [2026-09-18] Lona RPG terbukti sukses booting dan merender Title Screen interaktif penuh pada MuMu Player
+- [2026-09-18] Implementasi Engine-Agnostic Core Cheat Runner di runtimepack_bootstrap.rb, RgssActivity atomic IPC bridge, dan cheat_engine.js universal primitives
