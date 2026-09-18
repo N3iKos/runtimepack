@@ -243,6 +243,12 @@ dependencies {{
             copy_dir_all(overlay_src, &overlay_dst)?;
         }
 
+        // Copy win32api_shim.rb if present
+        let shim_src = Path::new("android/shell/app/src/main/assets/win32api_shim.rb");
+        if shim_src.exists() {
+            fs::copy(shim_src, assets_dir.join("win32api_shim.rb"))?;
+        }
+
         // Write root build.gradle.kts and settings.gradle.kts
         let root_gradle = r#"plugins {
     id("com.android.application") version "8.3.0" apply false

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,10 +13,11 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
 import android.view.KeyEvent
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import android.widget.FrameLayout
+import android.widget.RelativeLayout
 import org.libsdl.app.SDLActivity
 import java.io.File
 
@@ -75,24 +77,46 @@ open class RgssActivity : SDLActivity() {
         return arrayOf()
     }
 
+    private fun updateDebugHud(msg: String) {
+        Log.i(TAG, "[HUD] $msg")
+        runOnUiThread {
+            val escaped = msg.replace("'", "\\'").replace("\n", " ")
+            overlayWebView?.evaluateJavascript("window.updateDebugStatus && window.updateDebugStatus('$escaped');", null)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 1. Prepare Game Content in app-specific internal storage
+        // Set transparent window background so SurfaceView beneath is visible
+        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
         val gameDir = File(filesDir, "game")
-        if (!GpackExtractor.isExtracted(gameDir)) {
+        val alreadyExtracted = GpackExtractor.isExtracted(gameDir)
+
+        if (!alreadyExtracted) {
             Log.i(TAG, "Extracting game assets to internal storage...")
             val success = GpackExtractor.extract(this, gameDir)
             if (!success) {
-                Log.e(TAG, "Game asset extraction failed!")
+                Log.e(TAG, "Extraction failed!")
             }
         }
+
         GAME_PATH = gameDir.absolutePath
         Log.i(TAG, "Initialized RGSS GAME_PATH: $GAME_PATH")
 
-        // 2. Initialize SDLActivity and OpenGL ES Native Surface
+        // Initialize SDLActivity and OpenGL ES Native Surface
         super.onCreate(savedInstanceState)
 
-        // 3. Attach In-Game Virtual Gamepad (vpad.js) & Cheat Overlay on top of SDL Surface
+        // Make mLayout transparent
+        mLayout?.setBackgroundColor(Color.TRANSPARENT)
+
+        // Attach In-Game Virtual Gamepad (vpad.js) & Cheat Overlay on top of SDL Surface
         attachVirtualGamepadOverlay()
+
+        // Diagnostics check
+        val ini = File(gameDir, "Game.ini")
+        val scripts = File(gameDir, "Data/Scripts.rvdata2")
+        val count = gameDir.listFiles()?.size ?: 0
+        updateDebugHud("Engine Started | Game.ini: ${ini.exists()} | Scripts: ${scripts.exists()} | Files: $count")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -101,12 +125,11 @@ open class RgssActivity : SDLActivity() {
 
         try {
             val wv = WebView(this)
-            wv.layoutParams = FrameLayout.LayoutParams(
+            wv.layoutParams = RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             wv.setBackgroundColor(Color.TRANSPARENT)
-            wv.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
             val settings = wv.settings
             settings.javaScriptEnabled = true
@@ -142,6 +165,17 @@ open class RgssActivity : SDLActivity() {
                     }
                 }
             }, "RuntimePackVPad")
+
+            wv.webViewClient = object : android.webkit.WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    val gameDir = File(filesDir, "game")
+                    val ini = File(gameDir, "Game.ini")
+                    val scripts = File(gameDir, "Data/Scripts.rvdata2")
+                    val count = gameDir.listFiles()?.size ?: 0
+                    updateDebugHud("Engine Started | Game.ini: ${ini.exists()} | Scripts: ${scripts.exists()} | Files: $count")
+                }
+            }
 
             wv.loadUrl("file:///android_asset/overlay/index.html")
             mLayout.addView(wv)

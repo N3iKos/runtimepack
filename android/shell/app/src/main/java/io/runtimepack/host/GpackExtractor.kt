@@ -109,14 +109,25 @@ object GpackExtractor {
                 callback?.onProgress(i + 1, fileCount, entry.logicalPath)
             }
 
-            // 4. Write default mkxp.json for mobile
+            // 4. Install Win32API shim and mkxp.json
+            try {
+                context.assets.open("win32api_shim.rb").use { shimInput ->
+                    FileOutputStream(File(destDir, "win32api_shim.rb")).use { shimOutput ->
+                        shimInput.copyTo(shimOutput)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not copy win32api_shim.rb from assets: ${e.message}")
+            }
+
             val mkxpConfig = """
                 {
                     "fixedAspectRatio": true,
                     "smoothScaling": true,
                     "pathCache": true,
                     "subImageFix": true,
-                    "execName": "Game"
+                    "execName": "Game",
+                    "preloadScript": ["win32api_shim.rb"]
                 }
             """.trimIndent()
             File(destDir, "mkxp.json").writeText(mkxpConfig)
