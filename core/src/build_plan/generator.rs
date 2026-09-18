@@ -5,6 +5,23 @@ use std::path::Path;
 
 pub struct AndroidProjectGenerator;
 
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 impl AndroidProjectGenerator {
     pub const FORBIDDEN_PERMISSIONS: &'static [&'static str] = &[
         "android.permission.MANAGE_EXTERNAL_STORAGE",
@@ -33,6 +50,7 @@ impl AndroidProjectGenerator {
         app_name: &str,
         orientation: &str,
         permissions: &[String],
+        main_activity: &str,
     ) -> Result<String, DiagnosticError> {
         let perms_xml = Self::generate_permissions_xml(permissions)?;
 
@@ -57,7 +75,7 @@ impl AndroidProjectGenerator {
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
         <activity
-            android:name="io.runtimepack.host.BootstrapActivity"
+            android:name="{main_activity}"
             android:exported="true"
             android:screenOrientation="{screen_orientation}"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard">
@@ -73,7 +91,8 @@ impl AndroidProjectGenerator {
             package_name = package_name,
             perms_xml = perms_xml,
             app_name = app_name,
-            screen_orientation = screen_orientation
+            screen_orientation = screen_orientation,
+            main_activity = main_activity
         ))
     }
 
@@ -102,7 +121,7 @@ android {{
         versionName = "{version_name}"
 
         ndk {{
-            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
+            abiFilters.addAll(listOf("arm64-v8a"))
         }}
     }}
 
@@ -154,11 +173,18 @@ dependencies {{
         packed_content_path: Option<&Path>,
     ) -> Result<(), DiagnosticError> {
         let app_dir = project_dir.join("app");
-        let src_dir = app_dir.join("src/main/java/io/runtimepack/host");
+        let src_dir = app_dir.join("src/main/java");
         let assets_dir = app_dir.join("src/main/assets");
 
         fs::create_dir_all(&src_dir)?;
         fs::create_dir_all(&assets_dir)?;
+
+        // Choose main activity based on runtime family
+        let main_activity = if manifest.runtime.family == "RGSS" {
+            "io.runtimepack.host.RgssActivity"
+        } else {
+            "io.runtimepack.host.BootstrapActivity"
+        };
 
         // Write AndroidManifest.xml
         let manifest_xml = Self::generate_manifest_xml(
@@ -166,6 +192,7 @@ dependencies {{
             &manifest.app.name,
             "sensorLandscape",
             &manifest.android.permissions,
+            main_activity,
         )?;
         fs::write(app_dir.join("src/main/AndroidManifest.xml"), manifest_xml)?;
 
@@ -192,17 +219,24 @@ dependencies {{
             }
         }
 
-        // Copy shell template Kotlin sources
-        let host_src = Path::new("android/shell/app/src/main/java/io/runtimepack/host");
-        if host_src.exists() {
-            for entry in fs::read_dir(host_src)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    let dest = src_dir.join(entry.file_name());
-                    fs::copy(&path, dest)?;
-                }
-            }
+        // Copy all Java / Kotlin sources (including org.libsdl.app and io.runtimepack.host)
+        let host_java_src = Path::new("android/shell/app/src/main/java");
+        if host_java_src.exists() {
+            copy_dir_all(host_java_src, &src_dir)?;
+        }
+
+        // Copy native jniLibs
+        let jni_src = Path::new("android/shell/app/src/main/jniLibs");
+        if jni_src.exists() {
+            let jni_dst = app_dir.join("src/main/jniLibs");
+            copy_dir_all(jni_src, &jni_dst)?;
+        }
+
+        // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
+        let overlay_src = Path::new("android/shell/app/src/main/assets/overlay");
+        if overlay_src.exists() {
+            let overlay_dst = assets_dir.join("overlay");
+            copy_dir_all(overlay_src, &overlay_dst)?;
         }
 
         // Write root build.gradle.kts and settings.gradle.kts

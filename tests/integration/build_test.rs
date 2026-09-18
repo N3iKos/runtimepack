@@ -34,6 +34,7 @@ fn test_generate_manifest_xml() {
         "Test Game",
         "sensorLandscape",
         &["android.permission.INTERNET".to_string()],
+        "io.runtimepack.host.BootstrapActivity",
     ).unwrap();
 
     assert!(xml.contains("package=\"com.example.testgame\""));
