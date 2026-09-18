@@ -110,9 +110,11 @@
     // ------------------------------------------------------------------------
     // Clean Metrics State Helper (Decoupled from Tamper Watchdog)
     // ------------------------------------------------------------------------
-    window.__renderMetricsState = function(seed) {
-        return ((seed * 1664525 + 1013904223) ^ 0x5A5AA5A5) >>> 0;
-    };
+    if (typeof window !== "undefined") {
+        window.__renderMetricsState = function(seed) {
+            return ((seed * 1664525 + 1013904223) ^ 0x5A5AA5A5) >>> 0;
+        };
+    }
 
     const KEY_ACTION_MAP = {
         38: "up", 40: "down", 37: "left", 39: "right",
@@ -288,20 +290,54 @@
 
     function pressKey(keyCode) {
         if (!keyCode) return;
+        if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.onKeyDown) {
+            window.RuntimePackVPad.onKeyDown(keyCode);
+        }
         if (typeof Input !== "undefined" && Input._currentState) {
             const action = KEY_ACTION_MAP[keyCode];
             if (action) Input._currentState[action] = true;
         }
-        document.dispatchEvent(new KeyboardEvent("keydown", { keyCode, bubbles: true, cancelable: true }));
+        if (typeof document !== "undefined" && document.dispatchEvent && typeof KeyboardEvent !== "undefined") {
+            document.dispatchEvent(new KeyboardEvent("keydown", { keyCode, bubbles: true, cancelable: true }));
+        }
     }
 
     function releaseKey(keyCode, forceAll) {
         if (!keyCode) return;
+        if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.onKeyUp) {
+            window.RuntimePackVPad.onKeyUp(keyCode);
+        }
         if (typeof Input !== "undefined" && Input._currentState) {
             const action = KEY_ACTION_MAP[keyCode];
             if (action) Input._currentState[action] = false;
         }
-        document.dispatchEvent(new KeyboardEvent("keyup", { keyCode, bubbles: true, cancelable: true }));
+        if (typeof document !== "undefined" && document.dispatchEvent && typeof KeyboardEvent !== "undefined") {
+            document.dispatchEvent(new KeyboardEvent("keyup", { keyCode, bubbles: true, cancelable: true }));
+        }
+    }
+
+    function openLinktree() {
+        const url = "https://linktr.ee/VenoraTL";
+        try {
+            if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
+                window.RuntimePackVPad.openUrl(url);
+            } else if (typeof window !== "undefined" && window.cordova && window.cordova.InAppBrowser) {
+                window.cordova.InAppBrowser.open(url, "_system");
+            } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
+                navigator.app.loadUrl(url, { openExternal: true });
+            } else if (typeof window !== "undefined" && window.open) {
+                window.open(url, "_system");
+            } else if (typeof require === "function") {
+                const nw = require("nw.gui");
+                if (nw && nw.Shell) nw.Shell.openExternal(url);
+            } else if (typeof window !== "undefined" && window.open) {
+                window.open(url, "_blank");
+            }
+        } catch (e) {
+            if (typeof window !== "undefined" && window.open) {
+                window.open(url, "_blank");
+            }
+        }
     }
 
     function bindTap(el, callback) {
@@ -1341,7 +1377,9 @@
         }
         saveState();
     }
-    window.applyVpadTheme = applyTheme;
+    if (typeof window !== "undefined") {
+        window.applyVpadTheme = applyTheme;
+    }
 
     function setupOverlayLogic() {
         const toggleBtn = document.getElementById("vpad-btn-toggle");
@@ -1437,25 +1475,7 @@
         });
 
         // 3b. 🔗 Open Linktree Venora Community
-        window.openLinktree = function() {
-            const url = "https://linktr.ee/VenoraTL";
-            try {
-                if (window.cordova && window.cordova.InAppBrowser) {
-                    window.cordova.InAppBrowser.open(url, "_system");
-                } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
-                    navigator.app.loadUrl(url, { openExternal: true });
-                } else if (window.open) {
-                    window.open(url, "_system");
-                } else if (typeof require === "function") {
-                    const nw = require("nw.gui");
-                    if (nw && nw.Shell) nw.Shell.openExternal(url);
-                } else {
-                    window.open(url, "_blank");
-                }
-            } catch (e) {
-                window.open(url, "_blank");
-            }
-        };
+        window.openLinktree = openLinktree;
 
         const linkBtn = document.getElementById("vpad-btn-link");
         if (linkBtn) {
@@ -2487,12 +2507,24 @@
         });
     }
 
+    if (typeof window !== "undefined") {
+        window.pressKey = pressKey;
+        window.releaseKey = releaseKey;
+        window.openLinktree = openLinktree;
+    }
+
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports = { pressKey, releaseKey, openLinktree };
+    }
+
     // ------------------------------------------------------------------------
     // 13. Auto-Start
     // ------------------------------------------------------------------------
-    if (document.readyState === "complete" || document.readyState === "interactive") {
-        createOverlay();
-    } else {
-        document.addEventListener("DOMContentLoaded", createOverlay);
+    if (typeof document !== "undefined") {
+        if (document.readyState === "complete" || document.readyState === "interactive") {
+            createOverlay();
+        } else {
+            document.addEventListener("DOMContentLoaded", createOverlay);
+        }
     }
 })();

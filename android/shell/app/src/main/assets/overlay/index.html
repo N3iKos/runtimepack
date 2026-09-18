@@ -34,8 +34,9 @@
         }, true);
 
         window.openLinktree = function() {
-            if (window.RuntimePackVPad) {
-                window.RuntimePackVPad.openUrl("https://github.com/anomalyco/antigravity");
+            var url = "https://linktr.ee/VenoraTL";
+            if (window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
+                window.RuntimePackVPad.openUrl(url);
             }
         };
     </script>
