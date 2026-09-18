@@ -130,6 +130,18 @@ open class RgssActivity : SDLActivity() {
                         tempFile.delete()
                     }
                 }
+                val gameSub = File(targetDir, "game")
+                if (gameSub.exists() && gameSub.isDirectory) {
+                    val gameTarget = File(gameSub, INPUT_STATE_FILE)
+                    val gameTemp = File(gameSub, "$INPUT_STATE_FILE.tmp")
+                    try {
+                        gameTemp.writeBytes(snapshot)
+                        if (!gameTemp.renameTo(gameTarget)) {
+                            gameTemp.copyTo(gameTarget, overwrite = true)
+                            gameTemp.delete()
+                        }
+                    } catch (_: Exception) {}
+                }
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to write virtual key buffer: ${e.message}", e)

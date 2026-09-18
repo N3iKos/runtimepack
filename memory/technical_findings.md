@@ -40,3 +40,15 @@ end
 **Penyebab:** Fork SDLActivity menonaktifkan pemanggilan `resumeNativeThread()` di `onStart()` bawaan dan menyerahkan kontrol ke subclass. Pada mode multi-window emulator, `onResume()` tidak otomatis memicu start thread bila state focus belum tercapai.
 **Solusi/workaround:** Tambahkan override `onStart()` di `RgssActivity.kt` yang secara eksplisit memanggil `resumeNativeThread()`.
 **Tags:** #sdl2 #android #lifecycle #multithreading
+
+## [Corrupt JSON String pada Serialisasi Empty Hash di 101_jsonEnDecoder.rb]
+**Masalah:** File `rp_cheat_state.json` terisi dengan format JSON tidak valid `{"gold":0,"variables":},"switches":}}` sehingga parser JSON di WebView overlay gagal membaca status game.
+**Penyebab:** Script `101_jsonEnDecoder.rb` melakukan penggantian slice string terakhir `string[string.size - 1, 1] = "}"` pada hasil pembukaan `"{"`. Ketika hash kosong `{}` di-encode, loop `each_key` tidak berjalan sehingga `"{"` langsung diganti menjadi `"}"`. Akibatnya `JSON.encode({})` mengembalikan `"}"` alih-alih `"{}"`.
+**Solusi/workaround:** Gunakan `serialize_fallback` khusus pada cheat runner bootstrap Ruby yang memetakan hash/array kosong secara eksplisit ke `"{}"` dan `"[]"`, serta pasang monkey-patch pada `JSON.encode_hash` dan `JSON.encode_array` di `patch_json_decoder`.
+**Tags:** #ruby #json #serialization #edge-case
+
+## [SyntaxError pada Script Console Lolos dari rescue => err]
+**Masalah:** Jika user salah mengetik sintaks di Script Console (misal kurung tidak lengkap), muncul dialog error unhandled Ruby dan freeze game loop.
+**Penyebab:** Di Ruby, `SyntaxError` diturunkan dari `ScriptError < Exception`, bukan `StandardError`. Pernyataan `rescue => err` hanya menangkap turunan `StandardError`.
+**Solusi/workaround:** Tangkap error secara eksplisit menggunakan `rescue Exception => err` pada blok `eval` dan `process_cmd` agar seluruh error kompilasi dan runtime Ruby ditangkap lalu dituliskan ke file hasil `rp_cheat_eval_res.txt`.
+**Tags:** #ruby #syntax-error #exception-handling #eval

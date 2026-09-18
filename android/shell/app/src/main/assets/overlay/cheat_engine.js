@@ -216,6 +216,14 @@
             return lastDumpedState;
         },
 
+        dumpState: function () {
+            return this.requestStateDump();
+        },
+
+        getState: function () {
+            return this.getLoadedState();
+        },
+
         // Profile-Driven Action Executor (Backward Compatibility)
         executeAction: function (actionKey) {
             // 1. Cek fitur terlarang

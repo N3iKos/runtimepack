@@ -36,8 +36,15 @@ module TKG
   end
 end
 
-require 'zlib'
-require 'json' rescue nil
+begin
+  require 'zlib'
+rescue LoadError, ScriptError, StandardError
+end
+
+begin
+  require 'json'
+rescue LoadError, ScriptError, StandardError
+end
 
 class << File
   alias_method :runtimepack_original_exist?, :exist?
@@ -163,8 +170,9 @@ class Win32API
         nil
       end
 
-      if File.exist?("rp_input_state.bin")
-        data = File.binread("rp_input_state.bin") rescue nil
+      input_file = File.exist?("rp_input_state.bin") ? "rp_input_state.bin" : (File.exist?("../rp_input_state.bin") ? "../rp_input_state.bin" : nil)
+      if input_file
+        data = File.binread(input_file) rescue nil
         if data
           if ptr_target.is_a?(String)
             ptr_target[0, 256] = data[0, 256]
@@ -176,8 +184,9 @@ class Win32API
       1
     when 'GetAsyncKeyState', 'GetKeyState'
       vk = args[0].to_i
-      if File.exist?("rp_input_state.bin")
-        data = File.binread("rp_input_state.bin") rescue nil
+      input_file = File.exist?("rp_input_state.bin") ? "rp_input_state.bin" : (File.exist?("../rp_input_state.bin") ? "../rp_input_state.bin" : nil)
+      if input_file
+        data = File.binread(input_file) rescue nil
         if data && vk >= 0 && data.bytesize > vk
           return ((data.getbyte(vk) & 0x80) != 0) ? -32767 : 0
         end
@@ -259,7 +268,24 @@ end
 end
 
 def patch_json_decoder
-  if defined?(JSON) && JSON.respond_to?(:next_token) && !JSON.respond_to?(:__rp_patched)
+  if defined?(JSON)
+    if JSON.respond_to?(:encode_hash) && !JSON.respond_to?(:__rp_encode_patched)
+      class << JSON
+        define_method(:__rp_encode_patched) { true }
+        alias_method :rp_orig_encode_hash, :encode_hash rescue nil
+        alias_method :rp_orig_encode_array, :encode_array rescue nil
+        def encode_hash(hash)
+          return "{}" if hash.nil? || hash.empty?
+          rp_orig_encode_hash(hash)
+        end
+        def encode_array(array)
+          return "[]" if array.nil? || array.empty?
+          rp_orig_encode_array(array)
+        end
+      end
+    end
+
+    if JSON.respond_to?(:next_token) && !JSON.respond_to?(:__rp_patched)
     JSON.define_singleton_method(:__rp_patched) { true }
     JSON.define_singleton_method(:next_token) do |debug = 0|
       loop do
@@ -313,6 +339,7 @@ def patch_json_decoder
     end
   end
 end
+end
 
 if defined?(Input)
   class << Input
@@ -323,51 +350,6 @@ if defined?(Input)
   end
 end
 
-if (defined?(load_data) || respond_to?(:load_data, true)) && File.exist?('Data/Scripts.rvdata2')
-  scripts = load_data('Data/Scripts.rvdata2')
-  scripts.each do |script|
-    script_id = script[0]
-    script_name = script[1].to_s
-    script_source = Zlib::Inflate.inflate(script[2])
-    eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
-    BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
-    patch_json_decoder
-  end
-end
-
-if defined?(Input) && Input.respond_to?(:rp_native_press?)
-  class << Input
-    alias_method :rp_hime_press?, :press? rescue nil
-    alias_method :rp_hime_trigger?, :trigger? rescue nil
-    alias_method :rp_hime_dir4, :dir4 rescue nil
-    alias_method :rp_hime_dir8, :dir8 rescue nil
-
-    def press?(keys)
-      res = rp_hime_press?(keys) rescue false
-      return true if res
-      rp_native_press?(keys) rescue false
-    end
-
-    def trigger?(keys)
-      res = rp_hime_trigger?(keys) rescue false
-      return true if res
-      rp_native_trigger?(keys) rescue false
-    end
-
-    def dir4
-      d = rp_hime_dir4 rescue 0
-      return d if d && d > 0
-      rp_native_dir4 rescue 0
-    end
-
-    def dir8
-      d = rp_hime_dir8 rescue 0
-      return d if d && d > 0
-      rp_native_dir8 rescue 0
-    end
-  end
-end
-
 module RuntimePackCheatRunner
   CMD_FILE = "rp_cheat_cmd.json"
   STATE_FILE = "rp_cheat_state.json"
@@ -375,10 +357,11 @@ module RuntimePackCheatRunner
   ERROR_FILE = "rp_cheat_error.txt"
 
   def self.update
-    return unless File.exist?(CMD_FILE)
+    cmd_file = File.exist?(CMD_FILE) ? CMD_FILE : (File.exist?("../#{CMD_FILE}") ? "../#{CMD_FILE}" : nil)
+    return unless cmd_file
     begin
-      content = File.read(CMD_FILE)
-      File.delete(CMD_FILE) rescue nil
+      content = File.read(cmd_file)
+      File.delete(cmd_file) rescue nil
       return if content.nil? || content.strip.empty?
 
       # Parse command (handle single hash or array of hashes)
@@ -387,8 +370,10 @@ module RuntimePackCheatRunner
       return unless cmds.is_a?(Array)
 
       cmds.each { |cmd| process_cmd(cmd) }
-    rescue => e
-      File.open(ERROR_FILE, "wb") { |f| f.write("[CHT-001] #{e.class}: #{e.message}\n#{e.backtrace.join("\n") rescue ''}") }
+    rescue Exception => e
+      err_msg = "[CHT-001] #{e.class}: #{e.message}\n#{e.backtrace.join("\n") rescue ''}"
+      File.open(ERROR_FILE, "wb") { |f| f.write(err_msg) } rescue nil
+      File.open("../#{ERROR_FILE}", "wb") { |f| f.write(err_msg) } rescue nil
     end
   end
 
@@ -431,9 +416,11 @@ module RuntimePackCheatRunner
       code = cmd["code"].to_s
       begin
         res = eval(code, TOPLEVEL_BINDING)
-        File.open(EVAL_FILE, "wb") { |f| f.write(res.inspect) }
-      rescue => err
-        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") }
+        File.open(EVAL_FILE, "wb") { |f| f.write(res.inspect) } rescue nil
+        File.open("../#{EVAL_FILE}", "wb") { |f| f.write(res.inspect) } rescue nil
+      rescue Exception => err
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") } rescue nil
+        File.open("../#{EVAL_FILE}", "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") } rescue nil
       end
     end
   end
@@ -456,27 +443,112 @@ module RuntimePackCheatRunner
     end
     payload = { "gold" => gold, "variables" => vars, "switches" => switches }
     # Write JSON
-    encoded = (JSON.encode(payload) rescue nil) || (JSON.generate(payload) rescue nil) || (JSON.dump(payload) rescue nil)
+    encoded = serialize_fallback(payload)
     File.open(STATE_FILE, "wb") { |f| f.write(encoded.to_s) } rescue nil
+    File.open("../#{STATE_FILE}", "wb") { |f| f.write(encoded.to_s) } rescue nil
   end
 
-  def self.hook_graphics
+  def self.serialize_fallback(obj)
+    case obj
+    when Hash
+      "{" + obj.map { |k, v| "#{k.to_s.inspect}:#{serialize_fallback(v)}" }.join(",") + "}"
+    when Array
+      "[" + obj.map { |v| serialize_fallback(v) }.join(",") + "]"
+    when String
+      obj.inspect
+    when Numeric
+      obj.to_s
+    when true, false
+      obj.to_s
+    when nil
+      "null"
+    else
+      obj.to_s.inspect
+    end
+  end
+
+  def self.hook_engine
     if defined?(Graphics)
       class << Graphics
         unless method_defined?(:rp_orig_cheat_update)
           alias_method :rp_orig_cheat_update, :update rescue nil
-          def update
-            RuntimePackCheatRunner.update
-            rp_orig_cheat_update if respond_to?(:rp_orig_cheat_update)
+          def update(*args)
+            RuntimePackCheatRunner.update rescue nil
+            send(:rp_orig_cheat_update, *args) if respond_to?(:rp_orig_cheat_update, true)
+          end
+        end
+      end
+    end
+    if defined?(Input)
+      class << Input
+        unless method_defined?(:rp_orig_cheat_input_update)
+          alias_method :rp_orig_cheat_input_update, :update rescue nil
+          def update(*args)
+            RuntimePackCheatRunner.update rescue nil
+            send(:rp_orig_cheat_input_update, *args) if respond_to?(:rp_orig_cheat_input_update, true)
           end
         end
       end
     end
   end
+
+  def self.hook_graphics
+    hook_engine
+  end
 end
 
-if defined?(Graphics)
-  RuntimePackCheatRunner.hook_graphics
+RuntimePackCheatRunner.hook_engine
+
+def patch_input_fallbacks
+  if defined?(Input) && Input.respond_to?(:rp_native_press?) && !Input.respond_to?(:__rp_input_patched)
+    class << Input
+      define_method(:__rp_input_patched) { true }
+      alias_method :rp_hime_press?, :press? rescue nil
+      alias_method :rp_hime_trigger?, :trigger? rescue nil
+      alias_method :rp_hime_dir4, :dir4 rescue nil
+      alias_method :rp_hime_dir8, :dir8 rescue nil
+
+      def press?(keys)
+        res = rp_hime_press?(keys) rescue false
+        return true if res
+        rp_native_press?(keys) rescue false
+      end
+
+      def trigger?(keys)
+        res = rp_hime_trigger?(keys) rescue false
+        return true if res
+        rp_native_trigger?(keys) rescue false
+      end
+
+      def dir4
+        d = rp_hime_dir4 rescue 0
+        return d if d && d > 0
+        rp_native_dir4 rescue 0
+      end
+
+      def dir8
+        d = rp_hime_dir8 rescue 0
+        return d if d && d > 0
+        rp_native_dir8 rescue 0
+      end
+    end
+  end
+end
+
+if (defined?(load_data) || respond_to?(:load_data, true)) && File.exist?('Data/Scripts.rvdata2')
+  scripts = load_data('Data/Scripts.rvdata2')
+  scripts.each_with_index do |script, idx|
+    if idx == scripts.size - 1
+      patch_input_fallbacks
+      RuntimePackCheatRunner.hook_engine
+    end
+    script_id = script[0]
+    script_name = script[1].to_s
+    script_source = Zlib::Inflate.inflate(script[2])
+    eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
+    BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
+    patch_json_decoder
+  end
 end
 
 if defined?(SceneManager) && SceneManager.respond_to?(:run)
