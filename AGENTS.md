@@ -887,3 +887,21 @@ UNKNOWN wins over invention
 ```
 
 The project is intended to be maintainable by multiple autonomous agents. Predictability, traceability, reproducibility, and explicit uncertainty are more important than producing a speculative implementation quickly.
+
+---
+
+# Memory Protocol
+Di awal SETIAP sesi baru, baca berurutan:
+1. memory/memory.md
+2. memory/progress.md
+3. memory/decisions_log.md (3 entry teratas cukup, kecuali perlu history lengkap)
+4. memory/technical_findings.md (scan judul-judul saja, buka detail kalau relevan)
+
+Update di akhir sesi kerja atau saat topik besar selesai:
+- progress.md → status terbaru
+- decisions_log.md → kalau ada keputusan baru
+- technical_findings.md → kalau nemu bug/gotcha baru
+- memory.md → HANYA kalau ada perubahan di "3 hal paling penting" atau preferensi
+
+Jangan duplikat informasi antar file. Kalau ragu taruh dimana, technical detail → technical_findings.md, 
+keputusan strategis → decisions_log.md, status kerja → progress.md.
