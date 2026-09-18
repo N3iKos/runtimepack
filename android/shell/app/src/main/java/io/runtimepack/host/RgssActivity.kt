@@ -20,11 +20,13 @@ import android.webkit.WebView
 import android.widget.RelativeLayout
 import org.libsdl.app.SDLActivity
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 open class RgssActivity : SDLActivity() {
 
     companion object {
         private const val TAG = "RgssActivity"
+        const val INPUT_STATE_FILE = "rp_input_state.bin"
 
         @JvmField
         var GAME_PATH: String = ""
@@ -56,8 +58,85 @@ open class RgssActivity : SDLActivity() {
         fun inMultiWindow(activity: Activity): Boolean {
             return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity.isInMultiWindowMode
         }
+
+        @JvmStatic
+        fun mapJsKey(jsKey: Int): Pair<List<Int>, List<Int>> {
+            return when (jsKey) {
+                90 -> Pair(
+                    listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE),
+                    listOf(0x5A, 0x0D, 0x20)
+                )
+                88 -> Pair(
+                    listOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_ESCAPE),
+                    listOf(0x58, 0x1B)
+                )
+                38 -> Pair(listOf(KeyEvent.KEYCODE_DPAD_UP), listOf(0x26))
+                40 -> Pair(listOf(KeyEvent.KEYCODE_DPAD_DOWN), listOf(0x28))
+                37 -> Pair(listOf(KeyEvent.KEYCODE_DPAD_LEFT), listOf(0x25))
+                39 -> Pair(listOf(KeyEvent.KEYCODE_DPAD_RIGHT), listOf(0x27))
+                16 -> Pair(listOf(KeyEvent.KEYCODE_SHIFT_LEFT), listOf(0x10))
+                17 -> Pair(listOf(KeyEvent.KEYCODE_CTRL_LEFT), listOf(0x11))
+                27 -> Pair(listOf(KeyEvent.KEYCODE_ESCAPE), listOf(0x1B))
+                13 -> Pair(listOf(KeyEvent.KEYCODE_ENTER), listOf(0x0D))
+                32 -> Pair(listOf(KeyEvent.KEYCODE_SPACE), listOf(0x20))
+                81 -> Pair(listOf(KeyEvent.KEYCODE_Q), listOf(0x51))
+                69 -> Pair(listOf(KeyEvent.KEYCODE_E), listOf(0x45))
+                in 48..57 -> Pair(
+                    listOf(KeyEvent.KEYCODE_0 + (jsKey - 48)),
+                    listOf(jsKey)
+                )
+                in 65..90 -> Pair(
+                    listOf(KeyEvent.KEYCODE_A + (jsKey - 65)),
+                    listOf(jsKey)
+                )
+                9 -> Pair(listOf(KeyEvent.KEYCODE_TAB), listOf(0x09))
+                8 -> Pair(listOf(KeyEvent.KEYCODE_DEL), listOf(0x08))
+                116 -> Pair(listOf(KeyEvent.KEYCODE_F5), listOf(0x74))
+                120 -> Pair(listOf(KeyEvent.KEYCODE_F9), listOf(0x78))
+                123 -> Pair(listOf(KeyEvent.KEYCODE_F12), listOf(0x7B))
+                else -> Pair(emptyList(), emptyList())
+            }
+        }
+
+        @JvmStatic
+        fun writeVirtualKeyBufferAtomic(buffer: ByteArray, targetDir: File): Boolean {
+            return try {
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
+                val targetFile = File(targetDir, INPUT_STATE_FILE)
+                val tempFile = File(targetDir, "$INPUT_STATE_FILE.tmp")
+                val snapshot = synchronized(buffer) { buffer.clone() }
+                tempFile.writeBytes(snapshot)
+                try {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        targetFile.toPath(),
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        targetFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (e: Exception) {
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to write virtual key buffer: ${e.message}", e)
+                false
+            }
+        }
     }
 
+    val virtualKeyBuffer = ByteArray(256)
+    val pressedJsKeys: MutableSet<Int> = ConcurrentHashMap.newKeySet()
     private var overlayWebView: WebView? = null
 
     override fun getLibraries(): Array<String> {
@@ -136,28 +215,17 @@ open class RgssActivity : SDLActivity() {
             wv.addJavascriptInterface(object : Any() {
                 @JavascriptInterface
                 fun onKeyDown(jsKeyCode: Int) {
-                    val androidKey = mapJsToAndroidKey(jsKeyCode)
-                    if (androidKey != KeyEvent.KEYCODE_UNKNOWN) {
-                        onNativeKeyDown(androidKey)
-                    }
+                    this@RgssActivity.onKeyDown(jsKeyCode)
                 }
 
                 @JavascriptInterface
                 fun onKeyUp(jsKeyCode: Int) {
-                    val androidKey = mapJsToAndroidKey(jsKeyCode)
-                    if (androidKey != KeyEvent.KEYCODE_UNKNOWN) {
-                        onNativeKeyUp(androidKey)
-                    }
+                    this@RgssActivity.onKeyUp(jsKeyCode)
                 }
 
                 @JavascriptInterface
                 fun openUrl(url: String) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to open URL: $url", e)
-                    }
+                    this@RgssActivity.openUrl(url)
                 }
             }, "RuntimePackVPad")
 
@@ -176,43 +244,86 @@ open class RgssActivity : SDLActivity() {
         }
     }
 
-    private fun mapJsToAndroidKey(jsKey: Int): Int {
-        return when (jsKey) {
-            38 -> KeyEvent.KEYCODE_DPAD_UP
-            40 -> KeyEvent.KEYCODE_DPAD_DOWN
-            37 -> KeyEvent.KEYCODE_DPAD_LEFT
-            39 -> KeyEvent.KEYCODE_DPAD_RIGHT
-            90 -> KeyEvent.KEYCODE_Z      // A (OK / Z)
-            88 -> KeyEvent.KEYCODE_X      // B (Cancel / X)
-            67 -> KeyEvent.KEYCODE_C      // C (Action 2)
-            16 -> KeyEvent.KEYCODE_SHIFT_LEFT // DASH (Shift)
-            27 -> KeyEvent.KEYCODE_ESCAPE // MENU (Escape)
-            13 -> KeyEvent.KEYCODE_ENTER  // ENTER
-            32 -> KeyEvent.KEYCODE_SPACE  // SPACE
-            81 -> KeyEvent.KEYCODE_Q      // Q (L / Prev)
-            69 -> KeyEvent.KEYCODE_E      // E (R / Next)
-            17 -> KeyEvent.KEYCODE_CTRL_LEFT // SKIP (Ctrl)
-            65 -> KeyEvent.KEYCODE_A
-            83 -> KeyEvent.KEYCODE_S
-            68 -> KeyEvent.KEYCODE_D
-            87 -> KeyEvent.KEYCODE_W
-            9  -> KeyEvent.KEYCODE_TAB
-            8  -> KeyEvent.KEYCODE_DEL
-            49 -> KeyEvent.KEYCODE_1
-            50 -> KeyEvent.KEYCODE_2
-            51 -> KeyEvent.KEYCODE_3
-            52 -> KeyEvent.KEYCODE_4
-            53 -> KeyEvent.KEYCODE_5
-            54 -> KeyEvent.KEYCODE_6
-            55 -> KeyEvent.KEYCODE_7
-            56 -> KeyEvent.KEYCODE_8
-            57 -> KeyEvent.KEYCODE_9
-            48 -> KeyEvent.KEYCODE_0
-            116 -> KeyEvent.KEYCODE_F5
-            120 -> KeyEvent.KEYCODE_F9
-            123 -> KeyEvent.KEYCODE_F12
-            else -> KeyEvent.KEYCODE_UNKNOWN
+    protected open fun getInputStateDirectory(): File {
+        return try {
+            filesDir ?: File(".")
+        } catch (e: Exception) {
+            File(".")
         }
+    }
+
+    open fun onKeyDown(jsKeyCode: Int) {
+        if (!pressedJsKeys.add(jsKeyCode)) {
+            return
+        }
+        val (androidKeys, vkKeys) = mapJsKey(jsKeyCode)
+        synchronized(virtualKeyBuffer) {
+            for (vk in vkKeys) {
+                if (vk in 0..255) {
+                    virtualKeyBuffer[vk] = 0x80.toByte()
+                }
+            }
+            writeVirtualKeyBufferAtomic(virtualKeyBuffer, getInputStateDirectory())
+        }
+        for (androidKey in androidKeys) {
+            dispatchNativeKeyDown(androidKey)
+        }
+    }
+
+    open fun onKeyUp(jsKeyCode: Int) {
+        pressedJsKeys.remove(jsKeyCode)
+        val (androidKeys, vkKeys) = mapJsKey(jsKeyCode)
+        synchronized(virtualKeyBuffer) {
+            for (vk in vkKeys) {
+                if (vk in 0..255) {
+                    virtualKeyBuffer[vk] = 0x00.toByte()
+                }
+            }
+            for (pressedKey in pressedJsKeys) {
+                val (_, remainingVks) = mapJsKey(pressedKey)
+                for (vk in remainingVks) {
+                    if (vk in 0..255) {
+                        virtualKeyBuffer[vk] = 0x80.toByte()
+                    }
+                }
+            }
+            writeVirtualKeyBufferAtomic(virtualKeyBuffer, getInputStateDirectory())
+        }
+        for (androidKey in androidKeys) {
+            dispatchNativeKeyUp(androidKey)
+        }
+    }
+
+    protected open fun dispatchNativeKeyDown(androidKey: Int) {
+        try {
+            onNativeKeyDown(androidKey)
+        } catch (e: UnsatisfiedLinkError) {
+            // Ignored if native library not loaded (e.g. host unit tests)
+        }
+    }
+
+    protected open fun dispatchNativeKeyUp(androidKey: Int) {
+        try {
+            onNativeKeyUp(androidKey)
+        } catch (e: UnsatisfiedLinkError) {
+            // Ignored if native library not loaded (e.g. host unit tests)
+        }
+    }
+
+    open fun openUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to open URL: $url", e)
+        }
+    }
+
+    private fun mapJsToAndroidKey(jsKey: Int): Int {
+        val (androidKeys, _) = mapJsKey(jsKey)
+        return androidKeys.firstOrNull() ?: KeyEvent.KEYCODE_UNKNOWN
     }
 
     override fun onStart() {

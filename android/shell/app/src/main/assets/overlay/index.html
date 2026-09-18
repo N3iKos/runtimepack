@@ -21,18 +21,6 @@
 </head>
 <body>
     <script>
-        window.addEventListener('keydown', function(e) {
-            if (window.RuntimePackVPad) {
-                window.RuntimePackVPad.onKeyDown(e.keyCode);
-            }
-        }, true);
-
-        window.addEventListener('keyup', function(e) {
-            if (window.RuntimePackVPad) {
-                window.RuntimePackVPad.onKeyUp(e.keyCode);
-            }
-        }, true);
-
         window.openLinktree = function() {
             var url = "https://linktr.ee/VenoraTL";
             if (window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {

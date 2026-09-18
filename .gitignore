@@ -10,3 +10,5 @@ Thumbs.db
 [Ee]xternal/
 dist/
 LONA-*/
+.gradle/
+build/
