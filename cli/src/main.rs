@@ -426,7 +426,7 @@ fn cmd_build(
     let pack_path = output.join("game.pack");
 
     let encryption_key = if content_mode == "encrypted-streaming" {
-        Some(runtimepack_pack::ContentCrypto::derive_key(&app_name, b"runtimepack_salt_v1"))
+        Some(runtimepack_pack::ContentCrypto::derive_package_key(&pkg_id, &app_name))
     } else {
         None
     };
@@ -538,6 +538,7 @@ fn cmd_build(
 
     println!("\nCompiling standalone Android package with Gradle...");
     gradle_cmd.arg("assembleDebug");
+    gradle_cmd.arg("--console=plain");
     gradle_cmd.current_dir(&android_project_dir);
 
     match gradle_cmd.output() {

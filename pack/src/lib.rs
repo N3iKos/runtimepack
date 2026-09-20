@@ -122,4 +122,17 @@ mod tests {
 
         let _ = fs::remove_file(&temp_pack);
     }
+
+    #[test]
+    fn test_derive_package_key_deterministic_and_unique() {
+        let key1 = ContentCrypto::derive_package_key("com.example.lonarpg", "Lona RPG");
+        let key2 = ContentCrypto::derive_package_key("com.example.lonarpg", "Lona RPG");
+        let key3 = ContentCrypto::derive_package_key("com.example.othergame", "Lona RPG");
+        let key4 = ContentCrypto::derive_package_key("com.example.lonarpg", "Other Game");
+
+        assert_eq!(key1, key2, "Keys for identical package and name must be deterministic");
+        assert_ne!(key1, key3, "Keys for different package names must differ");
+        assert_ne!(key1, key4, "Keys for different app names must differ");
+        assert_ne!(key1, [0u8; 32], "Key must not be zeroes");
+    }
 }

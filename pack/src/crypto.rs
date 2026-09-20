@@ -16,6 +16,16 @@ impl ContentCrypto {
         hasher.finalize().into()
     }
 
+    pub fn derive_package_key(package_name: &str, app_name: &str) -> [u8; 32] {
+        let ikm = format!("{}::{}", package_name, app_name);
+        let salt = b"runtimepack_salt_v1";
+        let prk = hkdf::Hkdf::<Sha256>::new(Some(salt), ikm.as_bytes());
+        let mut okm = [0u8; 32];
+        prk.expand(b"gpack-content-v1", &mut okm)
+            .expect("32 bytes is valid length for HKDF-SHA256 output");
+        okm
+    }
+
     pub fn make_nonce(chunk_index: u64) -> Nonce {
         let mut bytes = [0u8; 12];
         bytes[4..12].copy_from_slice(&chunk_index.to_be_bytes());
