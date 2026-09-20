@@ -14,37 +14,78 @@
     // ------------------------------------------------------------------------
     const KEY_NAMES = {
         8: "Backspace", 9: "Tab", 13: "Enter", 16: "Shift", 17: "Ctrl", 18: "Alt",
-        27: "Escape", 32: "Space", 37: "Left", 38: "Up", 39: "Right", 40: "Down",
-        46: "Delete",
+        19: "Pause", 20: "CapsLock", 27: "Escape", 32: "Space",
+        33: "PageUp", 34: "PageDown", 35: "End", 36: "Home",
+        37: "Left", 38: "Up", 39: "Right", 40: "Down",
+        45: "Insert", 46: "Delete",
         48: "0", 49: "1", 50: "2", 51: "3", 52: "4", 53: "5", 54: "6", 55: "7", 56: "8", 57: "9",
         65: "A", 66: "B", 67: "C", 68: "D", 69: "E", 70: "F", 71: "G", 72: "H", 73: "I", 74: "J",
         75: "K", 76: "L", 77: "M", 78: "N", 79: "O", 80: "P", 81: "Q", 82: "R", 83: "S", 84: "T",
         85: "U", 86: "V", 87: "W", 88: "X", 89: "Y", 90: "Z",
+        96: "Num0", 97: "Num1", 98: "Num2", 99: "Num3", 100: "Num4",
+        101: "Num5", 102: "Num6", 103: "Num7", 104: "Num8", 105: "Num9",
+        106: "Num*", 107: "Num+", 109: "Num-", 110: "Num.", 111: "Num/",
         112: "F1", 113: "F2", 114: "F3", 115: "F4", 116: "F5", 117: "F6",
-        118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12"
+        118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12",
+        186: ";", 187: "=", 188: ",", 189: "-", 190: ".", 191: "/", 192: "`",
+        219: "[", 220: "\\", 221: "]", 222: "'"
     };
 
     const COMMON_KEYS = [
-        { code: 8, name: "Backspace", defaultLabel: "DEL" },
-        { code: 13, name: "Enter / OK", defaultLabel: "ENTER" },
+        // RPG Maker & Action Keys
+        { code: 90, name: "Z (OK / Confirm)", defaultLabel: "Z" },
+        { code: 88, name: "X (Cancel / Menu)", defaultLabel: "X" },
+        { code: 67, name: "C (Action 2)", defaultLabel: "C" },
         { code: 32, name: "Space / Action", defaultLabel: "SPACE" },
+        { code: 13, name: "Enter / OK", defaultLabel: "ENTER" },
         { code: 27, name: "Escape / Menu", defaultLabel: "ESC" },
         { code: 16, name: "Shift / Dash", defaultLabel: "DASH" },
-        { code: 17, name: "Control / Skip", defaultLabel: "SKIP" },
-        { code: 9, name: "Tab", defaultLabel: "TAB" },
-        { code: 46, name: "Delete", defaultLabel: "DEL" },
+        { code: 17, name: "Ctrl / Skip", defaultLabel: "SKIP" },
         { code: 18, name: "Alt", defaultLabel: "ALT" },
-        { code: 90, name: "Z (OK)", defaultLabel: "Z" },
-        { code: 88, name: "X (Cancel)", defaultLabel: "X" },
-        { code: 67, name: "C (Action 2)", defaultLabel: "C" },
+        { code: 9, name: "Tab", defaultLabel: "TAB" },
+        { code: 8, name: "Backspace", defaultLabel: "DEL" },
+        { code: 46, name: "Delete", defaultLabel: "DEL" },
+        { code: 45, name: "Insert", defaultLabel: "INS" },
+
+        // D-Pad / Arrow Keys
+        { code: 38, name: "Arrow Up", defaultLabel: "UP" },
+        { code: 40, name: "Arrow Down", defaultLabel: "DOWN" },
+        { code: 37, name: "Arrow Left", defaultLabel: "LEFT" },
+        { code: 39, name: "Arrow Right", defaultLabel: "RIGHT" },
+
+        // Navigation Keys
+        { code: 36, name: "Home", defaultLabel: "HOME" },
+        { code: 35, name: "End", defaultLabel: "END" },
+        { code: 33, name: "Page Up", defaultLabel: "PGUP" },
+        { code: 34, name: "Page Down", defaultLabel: "PGDN" },
+        { code: 20, name: "Caps Lock", defaultLabel: "CAPS" },
+
+        // Full Alphabet A - Z
         { code: 65, name: "A", defaultLabel: "A" },
-        { code: 83, name: "S", defaultLabel: "S" },
+        { code: 66, name: "B", defaultLabel: "B" },
         { code: 68, name: "D", defaultLabel: "D" },
-        { code: 81, name: "Q (L / Prev)", defaultLabel: "Q" },
-        { code: 69, name: "E (R / Next)", defaultLabel: "E" },
+        { code: 69, name: "E", defaultLabel: "E" },
+        { code: 70, name: "F", defaultLabel: "F" },
+        { code: 71, name: "G", defaultLabel: "G" },
+        { code: 72, name: "H", defaultLabel: "H" },
+        { code: 73, name: "I (Item)", defaultLabel: "I" },
+        { code: 74, name: "J", defaultLabel: "J" },
+        { code: 75, name: "K", defaultLabel: "K" },
+        { code: 76, name: "L", defaultLabel: "L" },
+        { code: 77, name: "M (Map)", defaultLabel: "M" },
+        { code: 78, name: "N", defaultLabel: "N" },
+        { code: 79, name: "O", defaultLabel: "O" },
+        { code: 80, name: "P", defaultLabel: "P" },
+        { code: 81, name: "Q", defaultLabel: "Q" },
+        { code: 82, name: "R", defaultLabel: "R" },
+        { code: 83, name: "S", defaultLabel: "S" },
+        { code: 84, name: "T", defaultLabel: "T" },
+        { code: 85, name: "U", defaultLabel: "U" },
+        { code: 86, name: "V", defaultLabel: "V" },
         { code: 87, name: "W", defaultLabel: "W" },
-        { code: 77, name: "M (Map)", defaultLabel: "MAP" },
-        { code: 73, name: "I (Item)", defaultLabel: "ITEM" },
+        { code: 89, name: "Y", defaultLabel: "Y" },
+
+        // Numbers 0 - 9
         { code: 49, name: "1", defaultLabel: "1" },
         { code: 50, name: "2", defaultLabel: "2" },
         { code: 51, name: "3", defaultLabel: "3" },
@@ -55,9 +96,50 @@
         { code: 56, name: "8", defaultLabel: "8" },
         { code: 57, name: "9", defaultLabel: "9" },
         { code: 48, name: "0", defaultLabel: "0" },
+
+        // Numpad Keys
+        { code: 96, name: "Numpad 0", defaultLabel: "NUM0" },
+        { code: 97, name: "Numpad 1", defaultLabel: "NUM1" },
+        { code: 98, name: "Numpad 2", defaultLabel: "NUM2" },
+        { code: 99, name: "Numpad 3", defaultLabel: "NUM3" },
+        { code: 100, name: "Numpad 4", defaultLabel: "NUM4" },
+        { code: 101, name: "Numpad 5", defaultLabel: "NUM5" },
+        { code: 102, name: "Numpad 6", defaultLabel: "NUM6" },
+        { code: 103, name: "Numpad 7", defaultLabel: "NUM7" },
+        { code: 104, name: "Numpad 8", defaultLabel: "NUM8" },
+        { code: 105, name: "Numpad 9", defaultLabel: "NUM9" },
+        { code: 107, name: "Numpad +", defaultLabel: "NUM+" },
+        { code: 109, name: "Numpad -", defaultLabel: "NUM-" },
+        { code: 106, name: "Numpad *", defaultLabel: "NUM*" },
+        { code: 111, name: "Numpad /", defaultLabel: "NUM/" },
+        { code: 110, name: "Numpad .", defaultLabel: "NUM." },
+
+        // Function Keys F1 - F12
+        { code: 112, name: "F1", defaultLabel: "F1" },
+        { code: 113, name: "F2", defaultLabel: "F2" },
+        { code: 114, name: "F3", defaultLabel: "F3" },
+        { code: 115, name: "F4", defaultLabel: "F4" },
         { code: 116, name: "F5 (Restart)", defaultLabel: "F5" },
+        { code: 117, name: "F6", defaultLabel: "F6" },
+        { code: 118, name: "F7", defaultLabel: "F7" },
+        { code: 119, name: "F8", defaultLabel: "F8" },
         { code: 120, name: "F9 (Debug)", defaultLabel: "F9" },
-        { code: 123, name: "F12 (Reset)", defaultLabel: "F12" }
+        { code: 121, name: "F10", defaultLabel: "F10" },
+        { code: 122, name: "F11", defaultLabel: "F11" },
+        { code: 123, name: "F12 (Reset)", defaultLabel: "F12" },
+
+        // Symbols & Punctuations
+        { code: 186, name: "; (Semicolon)", defaultLabel: ";" },
+        { code: 187, name: "= (Equals)", defaultLabel: "=" },
+        { code: 188, name: ", (Comma)", defaultLabel: "," },
+        { code: 189, name: "- (Minus)", defaultLabel: "-" },
+        { code: 190, name: ". (Period)", defaultLabel: "." },
+        { code: 191, name: "/ (Slash)", defaultLabel: "/" },
+        { code: 192, name: "` (Backquote)", defaultLabel: "`" },
+        { code: 219, name: "[ (Left Bracket)", defaultLabel: "[" },
+        { code: 220, name: "\\ (Backslash)", defaultLabel: "\\" },
+        { code: 221, name: "] (Right Bracket)", defaultLabel: "]" },
+        { code: 222, name: "' (Quote)", defaultLabel: "'" }
     ];
 
     // Hook TouchInput RPG Maker agar tidak memblokir event touch/scrolling pada UI overlay editor
@@ -106,6 +188,36 @@
     if (typeof window !== "undefined" && window.Input) {
         hookInput(window.Input);
     }
+
+    // Notify the native host whether an overlay text field currently holds focus,
+    // so hardware keys reach SDL unless the user is typing into the overlay.
+    function setupOverlayTextFocusBridge() {
+        if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+        if (document._vpadTextFocusBridgeInstalled) return;
+        document._vpadTextFocusBridgeInstalled = true;
+        const isTextInput = (el) => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+        const notify = (focused) => {
+            if (typeof window !== "undefined" && window.RuntimePackVPad &&
+                typeof window.RuntimePackVPad.setOverlayTextFocused === "function") {
+                window.RuntimePackVPad.setOverlayTextFocused(focused);
+            }
+        };
+        document.addEventListener("focusin", (event) => {
+            if (isTextInput(event.target)) notify(true);
+        });
+        document.addEventListener("focusout", (event) => {
+            if (isTextInput(event.target)) notify(false);
+        });
+        // Defensive resets: a torn-down/paused/hidden WebView must not leave the
+        // native flag stuck on, or hardware keys would never reach the game again.
+        if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+            window.addEventListener("blur", () => notify(false));
+        }
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) notify(false);
+        });
+    }
+    setupOverlayTextFocusBridge();
 
     // ------------------------------------------------------------------------
     // Clean Metrics State Helper (Decoupled from Tamper Watchdog)
@@ -317,7 +429,7 @@
     }
 
     function openLinktree() {
-        const url = "https://linktr.ee/VenoraTL";
+        const url = "https://linktr.ee/Veldra.Works";
         try {
             if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
                 window.RuntimePackVPad.openUrl(url);
@@ -425,7 +537,7 @@
                 -webkit-tap-highlight-color: transparent !important;
             }
 
-            /* Watermark Top-Right: Hidden in normal gameplay, visible in Edit Mode */
+            /* Watermark Top-Right: Hidden in normal gameplay, visible only in Edit Mode */
             #fnh-watermark {
                 position: fixed;
                 top: max(14px, env(safe-area-inset-top, 14px));
@@ -1128,10 +1240,9 @@
         root.id = "vpad-root";
 
         root.innerHTML = `
-            <!-- Watermark Top-Right -->
+            <!-- Watermark Top-Right: Shown only in Layout Edit Mode -->
             <div id="fnh-watermark">
-                <div>Translation, Port & Layout by SHIRAI</div>
-                <div>Presented by Venora Community</div>
+                <div>RuntimePack Overlay</div>
             </div>
 
             <!-- Top Left Vertical Toolbar (34px, 10% smaller, Inline SVGs) -->
@@ -1145,7 +1256,7 @@
                 <div id="vpad-btn-cheat" class="vpad-top-btn cheat-interactive" title="Cheat Menu">
                     <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 </div>
-                <div id="vpad-btn-link" class="vpad-top-btn" title="Venora Community" onclick="window.openLinktree()">
+                <div id="vpad-btn-link" class="vpad-top-btn" title="Veldra Works" onclick="window.openLinktree()">
                     <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 </div>
             </div>
@@ -1454,10 +1565,18 @@
         );
 
         // 2. Hide / Show Gamepad
+        function applyGamepadHidden() {
+            document.getElementById("vpad-controls").classList.toggle("vpad-hidden", state.hidden);
+            if (window.RuntimePackVPad && window.RuntimePackVPad.setGamepadHidden) {
+                window.RuntimePackVPad.setGamepadHidden(state.hidden);
+            }
+        }
+        applyGamepadHidden();
+
         bindTap(toggleBtn, () => {
             if (isEditMode) return;
             state.hidden = !state.hidden;
-            document.getElementById("vpad-controls").classList.toggle("vpad-hidden", state.hidden);
+            applyGamepadHidden();
             saveState();
         });
 
@@ -1480,6 +1599,13 @@
         const linkBtn = document.getElementById("vpad-btn-link");
         if (linkBtn) {
             bindTap(linkBtn, window.openLinktree);
+        }
+
+        const cheatBtn = document.getElementById("vpad-btn-cheat");
+        if (cheatBtn) {
+            bindTap(cheatBtn, () => {
+                if (window.CheatMenu) window.CheatMenu.toggle();
+            });
         }
 
         // 4. Preset Popover Dropdown
@@ -1841,6 +1967,9 @@
         document.body.classList.add("vpad-edit-mode");
         document.getElementById("vpad-editor-bar").classList.add("show");
         document.getElementById("vpad-btn-gear").classList.add("active");
+        if (window.RuntimePackVPad && window.RuntimePackVPad.setOverlayModalOpen) {
+            window.RuntimePackVPad.setOverlayModalOpen(true);
+        }
         renderControls();
     }
 
@@ -1853,6 +1982,9 @@
         document.getElementById("vpad-theme-popover").classList.remove("show");
         document.getElementById("vpad-btn-gear").classList.remove("active");
         hidePropertyPanel();
+        if (window.RuntimePackVPad && window.RuntimePackVPad.setOverlayModalOpen) {
+            window.RuntimePackVPad.setOverlayModalOpen(false);
+        }
         renderControls();
         saveState();
     }
@@ -2124,6 +2256,8 @@
         let origCx = 0, origCy = 0;
         let initialPinchDist = 0;
         let initialScale = 1.0;
+        let buttonActiveTouchId = null;
+        let isButtonMouseDown = false;
 
         el.addEventListener("pointerdown", (e) => e.stopPropagation());
 
@@ -2131,7 +2265,10 @@
             if (!isEditMode) {
                 if (ctrl.type === "button") {
                     e.stopPropagation();
-                    btnOnDown(el, ctrl);
+                    if (buttonActiveTouchId === null && e.changedTouches && e.changedTouches.length > 0) {
+                        buttonActiveTouchId = e.changedTouches[0].identifier;
+                        btnOnDown(el, ctrl);
+                    }
                 }
                 return;
             }
@@ -2200,9 +2337,19 @@
             }
         }, { passive: false });
 
-        window.addEventListener("touchend", (e) => {
+        const handleTouchEnd = (e) => {
             if (!isEditMode) {
-                if (ctrl.type === "button") btnOnUp(el, ctrl);
+                if (ctrl.type === "button" && buttonActiveTouchId !== null) {
+                    if (e.changedTouches) {
+                        for (let i = 0; i < e.changedTouches.length; i++) {
+                            if (e.changedTouches[i].identifier === buttonActiveTouchId) {
+                                buttonActiveTouchId = null;
+                                btnOnUp(el, ctrl);
+                                break;
+                            }
+                        }
+                    }
+                }
                 return;
             }
             if (isPinching && e.touches.length < 2) isPinching = false;
@@ -2211,11 +2358,16 @@
                 dragState.type = null;
                 saveState();
             }
-        });
+        };
+        window.addEventListener("touchend", handleTouchEnd);
+        window.addEventListener("touchcancel", handleTouchEnd);
 
         el.addEventListener("mousedown", (e) => {
             if (!isEditMode) {
-                if (ctrl.type === "button") btnOnDown(el, ctrl);
+                if (ctrl.type === "button") {
+                    isButtonMouseDown = true;
+                    btnOnDown(el, ctrl);
+                }
                 return;
             }
             e.stopPropagation();
@@ -2247,7 +2399,10 @@
 
         window.addEventListener("mouseup", () => {
             if (!isEditMode) {
-                if (ctrl.type === "button") btnOnUp(el, ctrl);
+                if (ctrl.type === "button" && isButtonMouseDown) {
+                    isButtonMouseDown = false;
+                    btnOnUp(el, ctrl);
+                }
                 return;
             }
             if (isDragging) {
@@ -2514,7 +2669,7 @@
     }
 
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { pressKey, releaseKey, openLinktree };
+        module.exports = { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch };
     }
 
     // ------------------------------------------------------------------------
