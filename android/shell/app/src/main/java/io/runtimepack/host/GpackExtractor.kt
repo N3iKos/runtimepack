@@ -25,7 +25,37 @@ object GpackExtractor {
     fun isExtracted(destDir: File): Boolean {
         val marker = File(destDir, ".gpack_extracted")
         val ini = File(destDir, "Game.ini")
-        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && ini.exists()
+        val pack = File(destDir, "game.pack")
+        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && (ini.exists() || pack.exists())
+    }
+
+    fun isEncryptedStreamingMode(context: Context): Boolean {
+        return try {
+            val manifestJson = context.assets.open("build-manifest.json").bufferedReader().use { it.readText() }
+            manifestJson.contains("\"mode\": \"encrypted-streaming\"") || manifestJson.contains("\"mode\":\"encrypted-streaming\"")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun prepareStreamingContainer(context: Context, destDir: File): Boolean {
+        return try {
+            destDir.mkdirs()
+            val targetPack = File(destDir, "game.pack")
+            if (!targetPack.exists()) {
+                context.assets.open("game.pack").use { input ->
+                    FileOutputStream(targetPack).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            installRuntimeFiles(context, destDir)
+            File(destDir, ".gpack_extracted").writeText(EXTRACTION_VERSION)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prepare streaming container: ${e.message}", e)
+            false
+        }
     }
 
     fun patchJsonDecoderScript(destDir: File) {
@@ -141,7 +171,13 @@ object GpackExtractor {
                 "pathCache": true,
                 "subImageFix": true,
                 "execName": "Game",
-                "customScript": "runtimepack_bootstrap.rb"
+                "customScript": "runtimepack_bootstrap.rb",
+                "fontSub": [
+                    "Noto Sans CJK TC Black>Noto Sans CJK TC",
+                    "Noto Sans CJK TC Medium>Noto Sans CJK TC",
+                    "Source Han Sans Bold>Source Han Sans",
+                    "Noto Sans LRPG Black>Noto Sans LRPG"
+                ]
             }
         """.trimIndent()
         File(destDir, "mkxp.json").writeText(mkxpConfig)

@@ -39,6 +39,7 @@ fn test_generate_manifest_xml() {
 
     assert!(xml.contains("package=\"com.example.testgame\""));
     assert!(xml.contains("android:label=\"Test Game\""));
+    assert!(xml.contains("android:icon=\"@mipmap/ic_launcher\""));
     assert!(xml.contains("android:name=\"io.runtimepack.host.BootstrapActivity\""));
     assert!(xml.contains("android:name=\"io.runtimepack.host.RuntimeApplication\""));
 }
@@ -65,6 +66,26 @@ fn test_rgss_bootstrap_coerces_truthy_values_for_visible_setter() {
 
     assert!(source.contains("def visible=(val)"));
     assert!(source.contains("val ? true : false"));
+}
+
+#[test]
+fn test_rgss_source_bootstrap_contains_font_and_direction_glyph_compatibility() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
+    let source = std::fs::read_to_string(bootstrap_path).unwrap();
+
+    assert!(source.contains("FONT_SETTERS = [:shadow, :outline, :bold, :italic]"));
+    assert!(source.contains("runtimepack_orig_#{name}="));
+    assert!(source.contains("send(original, val ? true : false)"));
+    assert!(source.contains("InputUtils.instance_variable_get(:@keySYM_in_UI)"));
+    let eval_position = source.find("eval(script_source").unwrap();
+    let normalize_position = source.rfind("RuntimePackCompatibility.normalize_input_utils").unwrap();
+    assert!(normalize_position > eval_position);
+    assert!(source.contains("Up"));
+    assert!(source.contains("Down"));
+    assert!(source.contains("Left"));
+    assert!(source.contains("Right"));
 }
 
 #[test]
@@ -198,6 +219,72 @@ fn test_rgss_activity_starts_sdl_thread_from_on_start() {
 }
 
 #[test]
+fn test_rgss_extractor_emits_font_substitutions() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let source = std::fs::read_to_string(extractor_path).unwrap();
+
+    assert!(source.contains("\"fontSub\""));
+    let expected = [
+        "Noto Sans CJK TC Black>Noto Sans CJK TC",
+        "Noto Sans CJK TC Medium>Noto Sans CJK TC",
+        "Source Han Sans Bold>Source Han Sans",
+        "Noto Sans LRPG Black>Noto Sans LRPG",
+    ];
+    let mut last = 0usize;
+    for entry in expected.iter() {
+        let pos = source
+            .find(entry)
+            .unwrap_or_else(|| panic!("missing fontSub entry: {entry}"));
+        assert!(pos > last, "fontSub entries out of order: {entry}");
+        last = pos;
+    }
+}
+
+#[test]
+fn test_rgss_activity_overlay_preserves_hardware_keyboard_focus() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let source = std::fs::read_to_string(activity_path).unwrap();
+
+    // Hardware keys must be forwarded to SDL through a dispatchKeyEvent override.
+    assert!(source.contains("override fun dispatchKeyEvent"));
+    assert!(source.contains("handleKeyEvent"));
+
+    // Overlay text focus state is tracked through a JS bridge method.
+    assert!(source.contains("setOverlayTextFocused"));
+
+    // SDL's special-key handling (volume/camera/zoom) must be preserved.
+    assert!(source.contains("KEYCODE_VOLUME_DOWN"));
+    assert!(source.contains("KEYCODE_CAMERA"));
+
+    // The overlay WebView must stay focusable so soft-keyboard/IME still works.
+    assert!(!source.contains("isFocusable = false"));
+    assert!(!source.contains("isFocusableInTouchMode = false"));
+    assert!(!source.contains("FOCUS_BLOCK_DESCENDANTS"));
+
+    // Hardware keys default to SDL when nothing else is focused.
+    assert!(source.contains("mSurface?.requestFocus()"));
+
+    // Defensive reset: overlay text-focus state must clear when the activity pauses/destroys.
+    let pause_start = source.find("override fun onPause()").unwrap();
+    let resume_start = source.find("override fun onResume()").unwrap();
+    assert!(resume_start > pause_start, "onPause must precede onResume");
+    assert!(
+        source[pause_start..resume_start].contains("overlayTextFocused = false"),
+        "onPause must reset overlayTextFocused"
+    );
+
+    let destroy_start = source.find("override fun onDestroy()").unwrap();
+    assert!(
+        source[destroy_start..].contains("overlayTextFocused = false"),
+        "onDestroy must reset overlayTextFocused"
+    );
+}
+
+#[test]
 fn test_signing_validation() {
     use runtimepack_core::build_plan::{SigningConfig, SigningManager};
     use runtimepack_core::domain::SigningMode;
@@ -223,4 +310,83 @@ fn test_signing_validation() {
     } else {
         panic!("Expected DiagnosticError::Detailed");
     }
+}
+
+#[test]
+fn test_build_manifest_supports_encrypted_streaming_mode() {
+    use runtimepack_core::build_plan::{
+        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry,
+        EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+    };
+    use runtimepack_core::domain::ContentMode;
+
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        app: AppConfig {
+            name: "Test VFS".to_string(),
+            package: "com.example.testvfs".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rgss".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::EncryptedStreaming.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    let serialized = serde_json::to_string_pretty(&manifest).unwrap();
+    assert!(serialized.contains("\"mode\": \"encrypted-streaming\""));
+
+    let deserialized: BuildManifest = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized.content.mode, "encrypted-streaming");
+
+    // Android shell wiring verification: GpackExtractor and RgssActivity must support encrypted streaming mode
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(manifest_dir);
+
+    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let extractor_source = std::fs::read_to_string(extractor_path).unwrap();
+    assert!(extractor_source.contains("fun isEncryptedStreamingMode"));
+    assert!(extractor_source.contains("fun prepareStreamingContainer"));
+
+    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let activity_source = std::fs::read_to_string(activity_path).unwrap();
+    assert!(activity_source.contains("GpackExtractor.isEncryptedStreamingMode"));
+    assert!(activity_source.contains("GpackExtractor.prepareStreamingContainer"));
 }
