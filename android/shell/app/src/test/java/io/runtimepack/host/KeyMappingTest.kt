@@ -392,4 +392,12 @@ class KeyMappingTest {
         assertEquals(36, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_MOVE_HOME))
         assertEquals(35, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_MOVE_END))
     }
+
+    @Test
+    fun testWebShimsScriptInitialState() {
+        val activity = WebActivity()
+        assertEquals("", activity.webShimsScript)
+        activity.webShimsScript = "test script"
+        assertEquals("test script", activity.webShimsScript)
+    }
 }

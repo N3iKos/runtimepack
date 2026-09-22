@@ -3,6 +3,7 @@ package io.runtimepack.host
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -62,6 +63,7 @@ open class WebActivity : Activity() {
     var overlayWebView: WebView? = null
     var vfsInterceptor: VfsResourceInterceptor? = null
     var gpackReader: GpackStreamReader? = null
+    var webShimsScript: String = ""
 
     @Volatile
     var overlayTextFocused: Boolean = false
@@ -93,6 +95,7 @@ open class WebActivity : Activity() {
         val gameDir = File(filesDir, "game")
         prepareGameContent(gameDir)
         setupVfs(gameDir)
+        loadWebShims()
 
         setupGameWebView()
         setupOverlayWebView()
@@ -229,6 +232,11 @@ open class WebActivity : Activity() {
         }
 
         wv.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                injectJsShims(view)
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -249,6 +257,14 @@ open class WebActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectJsShims(view)
+                val firstFrameScript = """
+                    (function() {
+                        setTimeout(function() {
+                            if (window.RuntimePackNative) { window.RuntimePackNative.onFirstFrame(); }
+                        }, 100);
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(firstFrameScript, null)
                 HealthMarker.GAME_STARTED.emit()
             }
         }
@@ -333,43 +349,23 @@ open class WebActivity : Activity() {
         overlayWebView = wv
     }
 
+    fun loadWebShims() {
+        if (webShimsScript.isNotEmpty()) return
+        webShimsScript = try {
+            assets.open("web_shims/runtimepack_web_shims.js").bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load web shims from assets: ${e.message}", e)
+            ""
+        }
+    }
+
     private fun injectJsShims(view: WebView?) {
-        val shimScript = """
-            (function() {
-                // Compatibility Shim: node.path & nw.Window
-                window.require = function(mod) {
-                    if (mod === 'path') {
-                        return {
-                            join: function() {
-                                return Array.prototype.slice.call(arguments).join('/').replace(/\/+/g, '/');
-                            },
-                            dirname: function(p) {
-                                var parts = p.split('/');
-                                parts.pop();
-                                return parts.join('/') || '.';
-                            },
-                            basename: function(p) { return p.split('/').pop(); },
-                            extname: function(p) {
-                                var base = p.split('/').pop();
-                                var idx = base.lastIndexOf('.');
-                                return idx >= 0 ? base.substring(idx) : '';
-                            }
-                        };
-                    }
-                    if (mod === 'nw.gui' || mod === 'nw') {
-                        return { Window: { get: function() { return { showDevTools: function(){}, close: function(){} }; } } };
-                    }
-                    console.warn('[RuntimePack] Unhandled require module:', mod);
-                    return {};
-                };
-                window.nw = window.nw || { Window: { get: function() { return { showDevTools: function(){}, close: function(){} }; } } };
-                // Report first frame
-                setTimeout(function() {
-                    if (window.RuntimePackNative) { window.RuntimePackNative.onFirstFrame(); }
-                }, 100);
-            })();
-        """.trimIndent()
-        view?.evaluateJavascript(shimScript, null)
+        if (webShimsScript.isEmpty()) {
+            loadWebShims()
+        }
+        if (webShimsScript.isNotEmpty()) {
+            view?.evaluateJavascript(webShimsScript, null)
+        }
     }
 
     open fun dispatchKeyToGame(jsKeyCode: Int, type: String) {
