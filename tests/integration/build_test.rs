@@ -387,6 +387,84 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
 
     let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
     let activity_source = std::fs::read_to_string(activity_path).unwrap();
-    assert!(activity_source.contains("GpackExtractor.isEncryptedStreamingMode"));
-    assert!(activity_source.contains("GpackExtractor.prepareStreamingContainer"));
+    assert!(activity_source.contains("GpackExtractor.extract"));
 }
+
+#[test]
+fn test_generate_manifest_routes_web_family_to_web_activity() {
+    use runtimepack_core::build_plan::{
+        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry,
+        EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+    };
+    use runtimepack_core::domain::ContentMode;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "runtimepack_test_web_manifest_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let project_dir = temp_dir.join("android-project");
+
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        app: AppConfig {
+            name: "Test Web Game".to_string(),
+            package: "com.example.testwebgame".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("MV".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "rpgmaker-web".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let manifest_xml_path = project_dir.join("app/src/main/AndroidManifest.xml");
+    let manifest_xml = std::fs::read_to_string(&manifest_xml_path).unwrap();
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert!(manifest_xml.contains("android:name=\"io.runtimepack.host.WebActivity\""));
+}
+

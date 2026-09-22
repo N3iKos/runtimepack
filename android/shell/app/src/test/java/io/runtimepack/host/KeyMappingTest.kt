@@ -20,11 +20,11 @@ class KeyMappingTest {
     fun testMapJsKeyActionA() {
         val (androidKeys, vkKeys) = RgssActivity.mapJsKey(90)
         assertEquals(
-            listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE),
+            listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_ENTER),
             androidKeys
         )
         assertEquals(
-            listOf(0x5A, 0x0D, 0x20),
+            listOf(0x5A, 0x0D),
             vkKeys
         )
     }
@@ -93,6 +93,30 @@ class KeyMappingTest {
     }
 
     @Test
+    fun testMapJsKeyAlt() {
+        val alt = RgssActivity.mapJsKey(18)
+        assertEquals(listOf(KeyEvent.KEYCODE_ALT_LEFT), alt.first)
+        assertEquals(listOf(0x12), alt.second)
+    }
+
+    @Test
+    fun testMapJsKeyDelete() {
+        val del = RgssActivity.mapJsKey(46)
+        assertEquals(listOf(KeyEvent.KEYCODE_FORWARD_DEL), del.first)
+        assertEquals(listOf(0x2E), del.second)
+    }
+
+    @Test
+    fun testMapJsKeyFunctionKeys() {
+        for (i in 0..11) {
+            val jsKey = 112 + i
+            val (androidKeys, vkKeys) = RgssActivity.mapJsKey(jsKey)
+            assertEquals(listOf(KeyEvent.KEYCODE_F1 + i), androidKeys)
+            assertEquals(listOf(0x70 + i), vkKeys)
+        }
+    }
+
+    @Test
     fun testMapJsKeyNumbers() {
         for (i in 0..9) {
             val jsKey = 48 + i
@@ -129,7 +153,7 @@ class KeyMappingTest {
     @Test
     fun testVirtualKeyBufferStateUpdates() {
         val buffer = ByteArray(256)
-        val (_, vkKeys) = RgssActivity.mapJsKey(90) // VK: 0x5A, 0x0D, 0x20
+        val (_, vkKeys) = RgssActivity.mapJsKey(90) // VK: 0x5A, 0x0D
 
         // Key Down: set mapped VK to 0x80
         for (vk in vkKeys) {
@@ -137,7 +161,7 @@ class KeyMappingTest {
         }
         assertEquals(0x80.toByte(), buffer[0x5A])
         assertEquals(0x80.toByte(), buffer[0x0D])
-        assertEquals(0x80.toByte(), buffer[0x20])
+        assertEquals(0x00.toByte(), buffer[0x20])
         assertEquals(0x00.toByte(), buffer[0x00])
         assertEquals(0x00.toByte(), buffer[0x58])
 
@@ -253,5 +277,119 @@ class KeyMappingTest {
         // Release 13 -> now 0x0D is 0x00
         release(13)
         assertEquals(0x00.toByte(), buffer[0x0D])
+    }
+
+    private class TestInputRgssActivity(private val workingDir: File) : RgssActivity() {
+        override fun getInputStateDirectory(): File = workingDir
+        override fun dispatchNativeKeyDown(androidKey: Int) {}
+        override fun dispatchNativeKeyUp(androidKey: Int) {}
+    }
+
+    @Test
+    fun testAltAndDirectionCoexistInVirtualKeyBuffer() {
+        val targetDir = tempFolder.newFolder("rp_alt_dpad_test")
+        val activity = TestInputRgssActivity(targetDir)
+        val stateFile = File(targetDir, RgssActivity.INPUT_STATE_FILE)
+
+        // 1. Press ALT (JS 18 -> VK 0x12)
+        activity.onKeyDown(18)
+        assertEquals(0x80.toByte(), activity.virtualKeyBuffer[0x12])
+        assertTrue(stateFile.exists())
+        assertEquals(0x80.toByte(), stateFile.readBytes()[0x12])
+
+        // 2. Press UP (JS 38 -> VK 0x26) while holding ALT
+        activity.onKeyDown(38)
+        assertEquals(0x80.toByte(), activity.virtualKeyBuffer[0x12])
+        assertEquals(0x80.toByte(), activity.virtualKeyBuffer[0x26])
+        val bytesBoth = stateFile.readBytes()
+        assertEquals(0x80.toByte(), bytesBoth[0x12])
+        assertEquals(0x80.toByte(), bytesBoth[0x26])
+
+        // 3. Release UP (JS 38) -> UP is cleared, ALT remains pressed (0x80)
+        activity.onKeyUp(38)
+        assertEquals(0x80.toByte(), activity.virtualKeyBuffer[0x12])
+        assertEquals(0x00.toByte(), activity.virtualKeyBuffer[0x26])
+        val bytesUpReleased = stateFile.readBytes()
+        assertEquals(0x80.toByte(), bytesUpReleased[0x12])
+        assertEquals(0x00.toByte(), bytesUpReleased[0x26])
+
+        // 4. Release ALT (JS 18) -> ALT is finally cleared (0x00)
+        activity.onKeyUp(18)
+        assertEquals(0x00.toByte(), activity.virtualKeyBuffer[0x12])
+        assertEquals(0x00.toByte(), activity.virtualKeyBuffer[0x26])
+        val bytesAllReleased = stateFile.readBytes()
+        assertEquals(0x00.toByte(), bytesAllReleased[0x12])
+        assertEquals(0x00.toByte(), bytesAllReleased[0x26])
+    }
+
+    @Test
+    fun testMapAndroidKeyToVkFullCoverage() {
+        assertEquals(0x41, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_A))
+        assertEquals(0x5A, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_Z))
+        assertEquals(0x30, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_0))
+        assertEquals(0x39, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_9))
+        assertEquals(0x60, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_NUMPAD_0))
+        assertEquals(0x69, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_NUMPAD_9))
+        assertEquals(0x0D, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_ENTER))
+        assertEquals(0x20, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_SPACE))
+        assertEquals(0x1B, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_ESCAPE))
+        assertEquals(0x10, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_SHIFT_LEFT))
+        assertEquals(0x11, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_CTRL_LEFT))
+        assertEquals(0x12, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_ALT_LEFT))
+        assertEquals(0x09, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_TAB))
+        assertEquals(0x08, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_DEL))
+        assertEquals(0x2E, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_FORWARD_DEL))
+        assertEquals(0x70, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_F1))
+        assertEquals(0x7B, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_F12))
+        assertEquals(0xBA, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_SEMICOLON))
+        assertEquals(0xBF, RgssActivity.mapAndroidKeyToVk(KeyEvent.KEYCODE_SLASH))
+    }
+
+    @Test
+    fun testExpandedJsKeyMapping() {
+        // Numpad 5: 101 -> VK 0x65
+        val (numAndroid, numVk) = RgssActivity.mapJsKey(101)
+        assertEquals(listOf(KeyEvent.KEYCODE_NUMPAD_5), numAndroid)
+        assertEquals(listOf(0x65), numVk)
+
+        // Semicolon: 186 -> VK 0xBA
+        val (semiAndroid, semiVk) = RgssActivity.mapJsKey(186)
+        assertEquals(listOf(KeyEvent.KEYCODE_SEMICOLON), semiAndroid)
+        assertEquals(listOf(0xBA), semiVk)
+
+        // PageDown: 34 -> VK 0x22
+        val (pgAndroid, pgVk) = RgssActivity.mapJsKey(34)
+        assertEquals(listOf(KeyEvent.KEYCODE_PAGE_DOWN), pgAndroid)
+        assertEquals(listOf(0x22), pgVk)
+    }
+
+    @Test
+    fun testWebActivityAndroidKeyToJsKeyCode() {
+        assertEquals(65, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_A))
+        assertEquals(90, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_Z))
+        assertEquals(48, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_0))
+        assertEquals(57, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_9))
+        assertEquals(96, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_NUMPAD_0))
+        assertEquals(105, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_NUMPAD_9))
+        assertEquals(112, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_F1))
+        assertEquals(123, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_F12))
+        assertEquals(38, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DPAD_UP))
+        assertEquals(40, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertEquals(37, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DPAD_LEFT))
+        assertEquals(39, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(13, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_ENTER))
+        assertEquals(13, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DPAD_CENTER))
+        assertEquals(27, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_ESCAPE))
+        assertEquals(27, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_BACK))
+        assertEquals(32, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_SPACE))
+        assertEquals(8, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_DEL))
+        assertEquals(9, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_TAB))
+        assertEquals(16, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_SHIFT_LEFT))
+        assertEquals(17, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_CTRL_LEFT))
+        assertEquals(18, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_ALT_LEFT))
+        assertEquals(33, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_PAGE_UP))
+        assertEquals(34, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_PAGE_DOWN))
+        assertEquals(36, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_MOVE_HOME))
+        assertEquals(35, WebActivity.androidKeyToJsKeyCode(KeyEvent.KEYCODE_MOVE_END))
     }
 }

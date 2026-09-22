@@ -70,6 +70,8 @@ impl AndroidProjectGenerator {
     <application
         android:name="io.runtimepack.host.RuntimeApplication"
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="{app_name}"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
@@ -184,10 +186,10 @@ dependencies {{
         fs::create_dir_all(&assets_dir)?;
 
         // Choose main activity based on runtime family
-        let main_activity = if manifest.runtime.family == "RGSS" {
-            "io.runtimepack.host.RgssActivity"
-        } else {
-            "io.runtimepack.host.BootstrapActivity"
+        let main_activity = match manifest.runtime.family.as_str() {
+            "RGSS" => "io.runtimepack.host.RgssActivity",
+            "RPG Maker Web" | "web" | "Tyrano Web" => "io.runtimepack.host.WebActivity",
+            _ => "io.runtimepack.host.BootstrapActivity",
         };
 
         // Write AndroidManifest.xml
@@ -243,10 +245,29 @@ dependencies {{
             copy_dir_all(overlay_src, &overlay_dst)?;
         }
 
+        // Copy Android resources (launcher icons, mipmaps)
+        let res_src = Path::new("android/shell/app/src/main/res");
+        if res_src.exists() {
+            let res_dst = app_dir.join("src/main/res");
+            copy_dir_all(res_src, &res_dst)?;
+        }
+
         // Copy RGSS post-binding bootstrap if present
         let bootstrap_src = Path::new("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
         if bootstrap_src.exists() {
             fs::copy(bootstrap_src, assets_dir.join("runtimepack_bootstrap.rb"))?;
+        }
+
+        // Copy Gradle wrapper if available in shell template
+        let shell_dir = Path::new("android/shell");
+        if shell_dir.join("gradlew.bat").exists() {
+            let _ = fs::copy(shell_dir.join("gradlew.bat"), project_dir.join("gradlew.bat"));
+        }
+        if shell_dir.join("gradlew").exists() {
+            let _ = fs::copy(shell_dir.join("gradlew"), project_dir.join("gradlew"));
+        }
+        if shell_dir.join("gradle").exists() {
+            let _ = copy_dir_all(&shell_dir.join("gradle"), &project_dir.join("gradle"));
         }
 
         // Write root build.gradle.kts and settings.gradle.kts
