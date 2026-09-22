@@ -518,7 +518,7 @@ fn cmd_build(
     // 8. Generate Android Project
     println!("\nGenerating standalone Android project structure...");
     let android_project_dir = output.join("android-project");
-    if let Err(e) = AndroidProjectGenerator::emit_project(&android_project_dir, &manifest, Some(&pack_path)) {
+    if let Err(e) = AndroidProjectGenerator::emit_project_with_source(&android_project_dir, &manifest, Some(&pack_path), Some(path)) {
         eprintln!("[AND-101] Project generation error: {}", e);
         std::process::exit(1);
     }

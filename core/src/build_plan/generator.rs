@@ -178,6 +178,15 @@ dependencies {{
         manifest: &BuildManifest,
         packed_content_path: Option<&Path>,
     ) -> Result<(), DiagnosticError> {
+        Self::emit_project_with_source(project_dir, manifest, packed_content_path, None)
+    }
+
+    pub fn emit_project_with_source(
+        project_dir: &Path,
+        manifest: &BuildManifest,
+        packed_content_path: Option<&Path>,
+        game_source_dir: Option<&Path>,
+    ) -> Result<(), DiagnosticError> {
         let app_dir = project_dir.join("app");
         let src_dir = app_dir.join("src/main/java");
         let assets_dir = app_dir.join("src/main/assets");
@@ -253,10 +262,21 @@ dependencies {{
         }
 
         // Copy Android resources (launcher icons, mipmaps)
+        let res_dst = app_dir.join("src/main/res");
         let res_src = Path::new("android/shell/app/src/main/res");
         if res_src.exists() {
-            let res_dst = app_dir.join("src/main/res");
             copy_dir_all(res_src, &res_dst)?;
+        }
+
+        // Dynamic icon extraction from game source or fallback to neutral icons
+        if let Some(src_dir) = game_source_dir {
+            crate::build_plan::icon::extract_and_generate_icons(
+                src_dir,
+                Some(&manifest.app.name),
+                &res_dst,
+            );
+        } else {
+            crate::build_plan::icon::ensure_neutral_icons(&res_dst);
         }
 
         // Copy RGSS post-binding bootstrap if present

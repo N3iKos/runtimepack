@@ -1,5 +1,11 @@
 use runtimepack_core::build_plan::generator::AndroidProjectGenerator;
+use runtimepack_core::build_plan::{
+    AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry, EngineManifestEntry,
+    ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+};
 use runtimepack_core::diagnostics::DiagnosticCode;
+use runtimepack_core::domain::ContentMode;
+use std::path::Path;
 
 #[test]
 fn test_forbidden_storage_permissions_rejected() {
@@ -466,5 +472,190 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 
     assert!(manifest_xml.contains("android:name=\"io.runtimepack.host.WebActivity\""));
+}
+
+#[test]
+fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
+    let temp_dir = std::env::temp_dir().join(format!("build_test_icons_default_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        app: AppConfig {
+            name: "Neutral Game".to_string(),
+            package: "com.example.neutral".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("MV".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "rpgmaker-web".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let res_dir = project_dir.join("app/src/main/res");
+    let densities = [
+        ("mipmap-mdpi", 48),
+        ("mipmap-hdpi", 72),
+        ("mipmap-xhdpi", 96),
+        ("mipmap-xxhdpi", 144),
+        ("mipmap-xxxhdpi", 192),
+    ];
+
+    for (folder, _) in densities {
+        let sq = res_dir.join(folder).join("ic_launcher.png");
+        let rd = res_dir.join(folder).join("ic_launcher_round.png");
+        assert!(sq.exists(), "Default icon missing: {:?}", sq);
+        assert!(rd.exists(), "Default round icon missing: {:?}", rd);
+        assert!(std::fs::metadata(&sq).unwrap().len() > 0);
+        assert!(std::fs::metadata(&rd).unwrap().len() > 0);
+    }
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
+    let source_candidates = [
+        Path::new("Raw-Game/The_Witchs_House_MV"),
+        Path::new("Raw-Game/BLACK SOULS"),
+        Path::new("Raw-Game/Forestia1.4.4-IND"),
+    ];
+
+    let found_source = source_candidates.iter().find(|p| p.exists());
+    if let Some(source_dir) = found_source {
+        let temp_dir =
+            std::env::temp_dir().join(format!("build_test_icons_dynamic_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let project_dir = temp_dir.join("project");
+        let manifest = BuildManifest {
+            schema_version: 1,
+            runtimepack_version: "0.1.0".to_string(),
+            git_commit: None,
+            build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+            app: AppConfig {
+                name: "Custom Game".to_string(),
+                package: "com.example.custom".to_string(),
+                version_name: "1.0.0".to_string(),
+                version_code: 1,
+            },
+            engine: EngineManifestEntry {
+                id: "rpgmaker_mv".to_string(),
+                confidence: "EXACT".to_string(),
+                overridden: false,
+                detected_version: Some("MV".to_string()),
+            },
+            runtime: RuntimeManifestEntry {
+                id: "rpgmaker-web".to_string(),
+                version: "1.0.0".to_string(),
+                family: "RPG Maker Web".to_string(),
+                runtime_api: 1,
+                capabilities: vec![],
+            },
+            content: ContentManifestEntry {
+                mode: ContentMode::Packed.to_string(),
+                content_hash: "dummy_hash".to_string(),
+                file_count: 1,
+                total_bytes: 1024,
+            },
+            android: AndroidManifestEntry {
+                abis: vec!["arm64-v8a".to_string()],
+                min_sdk: 26,
+                target_sdk: 34,
+                permissions: vec![],
+            },
+            provenance: ProvenanceManifestEntry {
+                source_hash: "dummy_src".to_string(),
+                config_hash: "".to_string(),
+                apk_hash: None,
+                toolchain: ToolchainProvenance {
+                    agp_version: None,
+                    gradle_version: None,
+                    jdk_version: None,
+                    android_sdk_platform: None,
+                    ndk_version: None,
+                },
+            },
+        };
+
+        AndroidProjectGenerator::emit_project_with_source(
+            &project_dir,
+            &manifest,
+            None,
+            Some(source_dir),
+        )
+        .unwrap();
+
+        let res_dir = project_dir.join("app/src/main/res");
+        let densities = [
+            ("mipmap-mdpi", 48),
+            ("mipmap-hdpi", 72),
+            ("mipmap-xhdpi", 96),
+            ("mipmap-xxhdpi", 144),
+            ("mipmap-xxxhdpi", 192),
+        ];
+
+        for (folder, expected_size) in densities {
+            let sq = res_dir.join(folder).join("ic_launcher.png");
+            let rd = res_dir.join(folder).join("ic_launcher_round.png");
+            assert!(sq.exists(), "Dynamic icon missing: {:?}", sq);
+            assert!(rd.exists(), "Dynamic round icon missing: {:?}", rd);
+
+            // Read image and verify exact size
+            let sq_bytes = std::fs::read(&sq).unwrap();
+            let sq_img = image::load_from_memory(&sq_bytes).unwrap();
+            assert_eq!(sq_img.width(), expected_size);
+            assert_eq!(sq_img.height(), expected_size);
+
+            let rd_bytes = std::fs::read(&rd).unwrap();
+            let rd_img = image::load_from_memory(&rd_bytes).unwrap();
+            assert_eq!(rd_img.width(), expected_size);
+            assert_eq!(rd_img.height(), expected_size);
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
 

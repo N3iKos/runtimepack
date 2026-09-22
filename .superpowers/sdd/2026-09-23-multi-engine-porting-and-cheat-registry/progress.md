@@ -1,0 +1,9 @@
+# SDD ledger — plan: Docs/superpowers/plans/2026-09-23-multi-engine-porting-and-cheat-registry.md
+
+## Pre-flight Scan
+| Task A | Task B | Shared Interface / File | Finding | Ruling |
+|---|---|---|---|---|
+| Task 1 | Task 2 | `core/src/build_plan/generator.rs` | Icon generation & cheat profile injection in project emission | Decoupled: icon writes to `app/src/main/res/mipmap-*`, cheat writes to `app/src/main/assets/overlay/cheat_profile.js` |
+| Task 2 | Task 3-7 | `profiles/games/` | Cheat profiles per game | Each game uses its own profile folder or neutral fallback |
+| Task 3 | Task 6 | RGSS runtime (`mkxp-z`) | RGSS1 (XP) vs RGSS3 (VX Ace) | Handled by mkxp.json / runtime resolution |
+| Task 4 | Task 5 | Web runtime (`WebActivity.kt`) | MV vs MZ core files | Both routed to WebActivity with VFS streaming and shims |

@@ -1,4 +1,5 @@
 pub mod generator;
+pub mod icon;
 pub mod signing;
 
 pub use generator::AndroidProjectGenerator;
