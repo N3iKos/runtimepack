@@ -659,3 +659,87 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
     }
 }
 
+#[test]
+fn test_cheat_profile_registry_matching_and_fallback() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "rtp_cheat_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // 1. Test Termina detection & injection
+        let termina_mock = temp_dir.join("termina_game");
+        std::fs::create_dir_all(termina_mock.join("www/data")).unwrap();
+        std::fs::write(
+            termina_mock.join("www/data/System.json"),
+            r#"{"gameTitle":"Fear & Hunger 2: TERMINA","switches":[""],"variables":[""]}"#,
+        )
+        .unwrap();
+
+        let matched_id = AndroidProjectGenerator::detect_game_profile_id(&termina_mock);
+        assert_eq!(matched_id.as_deref(), Some("termina"));
+
+        let overlay_dir = temp_dir.join("overlay_termina");
+        AndroidProjectGenerator::inject_cheat_profile(Some(&termina_mock), &overlay_dir).unwrap();
+        let termina_cheat_content =
+            std::fs::read_to_string(overlay_dir.join("cheat_profile.js")).unwrap();
+        assert!(termina_cheat_content.contains("Fear & Hunger 2: Termina Cheats"));
+        assert!(termina_cheat_content.contains("save_anywhere"));
+        assert!(termina_cheat_content.contains("coin_flip_always_win"));
+        assert!(termina_cheat_content.contains("full_restore_body_mind"));
+        assert!(termina_cheat_content.contains("add_shillings"));
+        assert!(termina_cheat_content.contains("add_soul_stone"));
+
+        // 2. Test Lona detection & injection
+        let lona_mock = temp_dir.join("lona_game");
+        std::fs::create_dir_all(&lona_mock).unwrap();
+        std::fs::write(
+            lona_mock.join("Game.ini"),
+            "[Game]\nRTP=\nLibrary=RGSS301.dll\nScripts=Data\\Scripts.rvdata2\nTitle=LonaRPG\n",
+        )
+        .unwrap();
+
+        let matched_lona = AndroidProjectGenerator::detect_game_profile_id(&lona_mock);
+        assert_eq!(matched_lona.as_deref(), Some("lona"));
+
+        let overlay_lona = temp_dir.join("overlay_lona");
+        AndroidProjectGenerator::inject_cheat_profile(Some(&lona_mock), &overlay_lona).unwrap();
+        let lona_cheat_content =
+            std::fs::read_to_string(overlay_lona.join("cheat_profile.js")).unwrap();
+        assert!(lona_cheat_content.contains("Lona RPG Quick Cheats"));
+        assert!(lona_cheat_content.contains("restore_vitals"));
+
+        // 3. Test Neutral Fallback when no match
+        let unknown_mock = temp_dir.join("generic_rpg");
+        std::fs::create_dir_all(&unknown_mock).unwrap();
+        std::fs::write(
+            unknown_mock.join("Game.ini"),
+            "[Game]\nTitle=GenericAdventure\n",
+        )
+        .unwrap();
+
+        let matched_unknown = AndroidProjectGenerator::detect_game_profile_id(&unknown_mock);
+        assert_eq!(matched_unknown, None);
+
+        let overlay_neutral = temp_dir.join("overlay_neutral");
+        AndroidProjectGenerator::inject_cheat_profile(Some(&unknown_mock), &overlay_neutral).unwrap();
+        let neutral_content =
+            std::fs::read_to_string(overlay_neutral.join("cheat_profile.js")).unwrap();
+        assert!(neutral_content.contains("Neutral Cheat Profile Template"));
+        assert!(neutral_content.contains("sections: []"));
+        assert!(!neutral_content.contains("Lona RPG"));
+        assert!(!neutral_content.contains("Termina"));
+
+        // 4. Test inject with None source
+        let overlay_none = temp_dir.join("overlay_none");
+        AndroidProjectGenerator::inject_cheat_profile(None, &overlay_none).unwrap();
+        let none_content =
+            std::fs::read_to_string(overlay_none.join("cheat_profile.js")).unwrap();
+        assert!(none_content.contains("sections: []"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+

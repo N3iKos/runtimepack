@@ -1,7 +1,7 @@
 use crate::build_plan::BuildManifest;
 use crate::diagnostics::{DiagnosticCode, DiagnosticError};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct AndroidProjectGenerator;
 
@@ -23,11 +23,124 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 impl AndroidProjectGenerator {
+    pub const NEUTRAL_CHEAT_PROFILE: &'static str = "/**\n * RuntimePack - Neutral Cheat Profile Template\n */\n\nwindow.GAME_CHEATS = {\n  title: \"Game Cheats\",\n  sections: []\n};\n";
+
     pub const FORBIDDEN_PERMISSIONS: &'static [&'static str] = &[
         "android.permission.MANAGE_EXTERNAL_STORAGE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
     ];
+
+    pub fn detect_game_profile_id(game_source_dir: &Path) -> Option<String> {
+        let path_str = game_source_dir.to_string_lossy().to_lowercase();
+
+        // 1. Check Lona markers
+        let ini_candidates = [
+            game_source_dir.join("Game.ini"),
+            game_source_dir.join("game.ini"),
+        ];
+        for ini_path in &ini_candidates {
+            if ini_path.exists() {
+                if let Ok(bytes) = fs::read(ini_path) {
+                    let content = String::from_utf8_lossy(&bytes);
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if (trimmed.starts_with("Title=") || trimmed.starts_with("title="))
+                            && trimmed.to_lowercase().contains("lonarpg")
+                        {
+                            return Some("lona".to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if path_str.contains("lona") {
+            return Some("lona".to_string());
+        }
+
+        // 2. Check Termina markers
+        let system_json_candidates = [
+            game_source_dir.join("System.json"),
+            game_source_dir.join("data/System.json"),
+            game_source_dir.join("www/data/System.json"),
+            game_source_dir.join("www/System.json"),
+        ];
+        for sys_path in &system_json_candidates {
+            if sys_path.exists() {
+                if let Ok(bytes) = fs::read(sys_path) {
+                    let content = String::from_utf8_lossy(&bytes);
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(title) = val.get("gameTitle").and_then(|v| v.as_str()) {
+                            if title.to_lowercase().contains("termina") {
+                                return Some("termina".to_string());
+                            }
+                        }
+                    }
+                    if content.contains("\"gameTitle\":\"Termina\"")
+                        || content.contains("\"gameTitle\": \"Termina\"")
+                        || (content.contains("gameTitle") && content.to_lowercase().contains("termina"))
+                    {
+                        return Some("termina".to_string());
+                    }
+                }
+            }
+        }
+        if path_str.contains("termina") {
+            return Some("termina".to_string());
+        }
+
+        None
+    }
+
+    pub fn find_cheat_profile_path(profile_id: &str) -> Option<PathBuf> {
+        let rel1 = Path::new("profiles/games").join(profile_id).join("cheats.js");
+        if rel1.exists() {
+            return Some(rel1);
+        }
+        let rel2 = Path::new("../profiles/games").join(profile_id).join("cheats.js");
+        if rel2.exists() {
+            return Some(rel2);
+        }
+        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            let p = Path::new(&manifest_dir).join("profiles/games").join(profile_id).join("cheats.js");
+            if p.exists() {
+                return Some(p);
+            }
+            if let Some(parent) = Path::new(&manifest_dir).parent() {
+                let p2 = parent.join("profiles/games").join(profile_id).join("cheats.js");
+                if p2.exists() {
+                    return Some(p2);
+                }
+                if let Some(grandparent) = parent.parent() {
+                    let p3 = grandparent.join("profiles/games").join(profile_id).join("cheats.js");
+                    if p3.exists() {
+                        return Some(p3);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn inject_cheat_profile(
+        game_source_dir: Option<&Path>,
+        target_overlay_dir: &Path,
+    ) -> std::io::Result<()> {
+        fs::create_dir_all(target_overlay_dir)?;
+        let target_file = target_overlay_dir.join("cheat_profile.js");
+
+        if let Some(src_dir) = game_source_dir {
+            if let Some(profile_id) = Self::detect_game_profile_id(src_dir) {
+                if let Some(profile_path) = Self::find_cheat_profile_path(&profile_id) {
+                    fs::copy(&profile_path, &target_file)?;
+                    return Ok(());
+                }
+            }
+        }
+
+        fs::write(&target_file, Self::NEUTRAL_CHEAT_PROFILE)?;
+        Ok(())
+    }
 
     pub fn generate_permissions_xml(permissions: &[String]) -> Result<String, DiagnosticError> {
         let mut xml = String::new();
@@ -249,10 +362,12 @@ dependencies {{
 
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
         let overlay_src = Path::new("android/shell/app/src/main/assets/overlay");
+        let overlay_dst = assets_dir.join("overlay");
         if overlay_src.exists() {
-            let overlay_dst = assets_dir.join("overlay");
             copy_dir_all(overlay_src, &overlay_dst)?;
         }
+        // Inject game-specific cheat profile or fallback to neutral template
+        Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
 
         // Copy web_shims assets (runtimepack_web_shims.js)
         let shims_src = Path::new("android/shell/app/src/main/assets/web_shims");

@@ -16,6 +16,9 @@
     let freezeEnemiesActive = false;
     let currentSpeed = 4;
     let activeTab = "variables";
+    let currentViewMode = "engine"; // "engine" | "menu"
+    let activeProfileSecIdx = 0;
+    const profileToggles = {};
     let isMenuOpen = false;
     let currentVarFilter = "";
     let currentSwitchFilter = "";
@@ -422,6 +425,61 @@
                 opacity: 1;
             }
 
+            /* Mode Toggle & Profile Section */
+            #btn-cheat-mode-toggle {
+                padding: 3px 8px;
+                font-size: 10px;
+                font-weight: 700;
+                background: #2563eb;
+                color: #ffffff;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .fnh-cat-nav {
+                display: flex;
+                gap: 6px;
+                overflow-x: auto;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #27272a;
+                margin-bottom: 8px;
+                -webkit-overflow-scrolling: touch;
+            }
+            .fnh-cat-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 12px;
+                border-radius: 16px;
+                font-size: 11px;
+                font-weight: 700;
+                background: #1f1f23;
+                border: 1px solid #3f3f46;
+                color: #a1a1aa;
+                cursor: pointer;
+                white-space: nowrap;
+                transition: all 0.15s ease;
+            }
+            .fnh-cat-btn svg {
+                width: 13px;
+                height: 13px;
+                stroke: currentColor;
+                fill: none;
+                stroke-width: 2;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+            }
+            .fnh-cat-btn.active {
+                background: #2563eb;
+                border-color: #3b82f6;
+                color: #ffffff;
+            }
+            .fnh-profile-sec {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
             /* ================================================================
                THEME 2: RETRO OSD (ORANGE TERMINAL) OVERRIDES
                ================================================================ */
@@ -457,6 +515,26 @@
                 background: #16161c !important;
                 border-color: #444 !important;
                 font-family: Consolas, monospace !important;
+            }
+            body.vpad-theme-retro #btn-cheat-mode-toggle {
+                background: #ff7700 !important;
+                color: #000000 !important;
+                border-color: #ffa244 !important;
+            }
+            body.vpad-theme-retro .fnh-cat-nav {
+                border-bottom-color: #333 !important;
+            }
+            body.vpad-theme-retro .fnh-cat-btn {
+                background: #141418 !important;
+                border-color: #444 !important;
+                color: #888 !important;
+                border-radius: 2px !important;
+                font-family: Consolas, monospace !important;
+            }
+            body.vpad-theme-retro .fnh-cat-btn.active {
+                background: rgba(255, 119, 0, 0.25) !important;
+                border-color: #ff7700 !important;
+                color: #ffaa44 !important;
             }
             body.vpad-theme-retro .fnh-btn-action {
                 background: rgba(255, 119, 0, 0.2) !important;
@@ -876,6 +954,164 @@
     }
 
     // ------------------------------------------------------------------------
+    // CHEAT MENU PROFILE (READY-TO-USE PRESETS FOR AI AGENT / DEVELOPER)
+    // ------------------------------------------------------------------------
+    function renderCheatMenuProfile() {
+        if (typeof document === "undefined") return;
+        const container = document.getElementById("fnh-tab-profile-menu");
+        if (!container) return;
+
+        const profile = globalObj.GAME_CHEATS;
+        if (!profile || !profile.sections || !profile.sections.length) {
+            container.innerHTML = `
+                <div style="text-align:center; padding:30px 15px; color:#71717a;">
+                    <div style="font-size:13px; font-weight:700; color:#e4e4e7; margin-bottom:6px;">Belum Ada Cheat Siap Pakai</div>
+                    <div style="font-size:11px; line-height:1.5;">
+                        Konfigurasi cheat siap pakai dapat diatur melalui <code>overlay/cheat_profile.js</code>.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        if (activeProfileSecIdx >= profile.sections.length) {
+            activeProfileSecIdx = 0;
+        }
+
+        const state = getCheatState() || {};
+        const switches = state.switches || {};
+        const variables = state.variables || {};
+
+        // 1. Horizontal Category Nav Bar
+        let navHtml = `<div class="fnh-cat-nav">`;
+        profile.sections.forEach((sec, sIdx) => {
+            const isActive = sIdx === activeProfileSecIdx;
+            navHtml += `
+                <button class="fnh-cat-btn ${isActive ? "active" : ""}" data-idx="${sIdx}">
+                    ${sec.icon || ""} <span>${escapeHtml(sec.name || "Category")}</span>
+                </button>
+            `;
+        });
+        navHtml += `</div>`;
+
+        // 2. Active Category Content (Only the selected section!)
+        const curSec = profile.sections[activeProfileSecIdx];
+        let itemsHtml = `<div class="fnh-profile-sec">`;
+
+        (curSec.items || []).forEach((item, iIdx) => {
+            const itemId = `fnh-prof-${activeProfileSecIdx}-${iIdx}`;
+            if (item.type === "toggle") {
+                let isOn = false;
+                if (item.key && state[item.key] !== undefined) {
+                    isOn = Boolean(state[item.key]);
+                } else if (profileToggles[item.id] !== undefined) {
+                    isOn = Boolean(profileToggles[item.id]);
+                }
+                itemsHtml += `
+                    <div class="fnh-cheat-row">
+                        <div class="fnh-cheat-left">
+                            <span>${escapeHtml(item.name || "Toggle")}</span>
+                        </div>
+                        <button class="fnh-cheat-btn ${isOn ? "fnh-btn-toggle-on" : ""} fnh-prof-toggle-btn" data-sec="${activeProfileSecIdx}" data-idx="${iIdx}" style="min-width:60px; padding:6px 12px; font-size:11px;">
+                            ${isOn ? "ON" : "OFF"}
+                        </button>
+                    </div>
+                `;
+            } else if (item.type === "action" || item.type === "script") {
+                itemsHtml += `
+                    <div class="fnh-cheat-row">
+                        <div class="fnh-cheat-left">
+                            <span>${escapeHtml(item.name || "Action")}</span>
+                        </div>
+                        <button class="fnh-cheat-btn fnh-btn-action fnh-prof-action-btn" data-sec="${activeProfileSecIdx}" data-idx="${iIdx}" style="padding:6px 14px; font-size:11px;">
+                            Execute
+                        </button>
+                    </div>
+                `;
+            } else if (item.type === "switch") {
+                const sId = item.switchId;
+                const isOn = Boolean(switches[String(sId)] !== undefined ? switches[String(sId)] : switches[sId]);
+                itemsHtml += `
+                    <div class="fnh-cheat-row">
+                        <div class="fnh-cheat-left">
+                            <span>${escapeHtml(item.name || "Switch #" + sId)}</span>
+                        </div>
+                        <button class="fnh-cheat-btn ${isOn ? "fnh-btn-toggle-on" : ""} fnh-prof-switch-btn" data-sec="${activeProfileSecIdx}" data-idx="${iIdx}" data-sid="${sId}" style="min-width:60px; padding:6px 12px; font-size:11px;">
+                            ${isOn ? "ON" : "OFF"}
+                        </button>
+                    </div>
+                `;
+            } else if (item.type === "variable") {
+                const vId = item.variableId;
+                const currentVal = variables[String(vId)] !== undefined ? variables[String(vId)] : (variables[vId] !== undefined ? variables[vId] : 0);
+                itemsHtml += `
+                    <div class="fnh-cheat-row">
+                        <div class="fnh-cheat-left">
+                            <span>${escapeHtml(item.name || "Variable #" + vId)}</span>
+                        </div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <input type="number" class="fnh-input fnh-prof-var-input" id="${itemId}-input" value="${currentVal}" min="${item.min !== undefined ? item.min : 0}" max="${item.max !== undefined ? item.max : 999999}" step="${item.step || 1}" style="width:70px; padding:4px 6px; font-size:11px;">
+                            <button class="fnh-cheat-btn fnh-btn-action fnh-prof-var-btn" data-sec="${activeProfileSecIdx}" data-idx="${iIdx}" data-vid="${vId}" data-input-id="${itemId}-input" style="padding:6px 10px; font-size:11px;">Set</button>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        itemsHtml += `</div>`;
+        container.innerHTML = navHtml + itemsHtml;
+    }
+
+    function toggleCheatMode() {
+        if (currentViewMode === "engine") {
+            setCheatMode("menu");
+        } else {
+            setCheatMode("engine");
+        }
+    }
+
+    function setCheatMode(mode) {
+        currentViewMode = mode;
+        const btn = document.getElementById("btn-cheat-mode-toggle");
+        const tabs = document.getElementById("fnh-cheat-tabs");
+        const titleSpan = document.querySelector("#fnh-cheat-header .fnh-cheat-title span");
+        const profilePane = document.getElementById("fnh-tab-profile-menu");
+        const validTabs = ["variables", "switches", "spawner", "console"];
+
+        if (mode === "menu") {
+            if (btn) {
+                btn.textContent = "Cheat Engine";
+                btn.style.background = "#4f46e5";
+                btn.style.borderColor = "#6366f1";
+            }
+            if (titleSpan) {
+                titleSpan.textContent = (globalObj.GAME_CHEATS && globalObj.GAME_CHEATS.title) ? globalObj.GAME_CHEATS.title.toUpperCase() : "CHEAT MENU";
+            }
+            if (tabs) tabs.style.display = "none";
+            validTabs.forEach(t => {
+                const p = document.getElementById("fnh-tab-" + t);
+                if (p) p.style.display = "none";
+            });
+            if (profilePane) {
+                profilePane.style.display = "flex";
+                callDumpState();
+                getCheatState();
+                renderCheatMenuProfile();
+            }
+        } else {
+            if (btn) {
+                btn.textContent = "Cheat Menu";
+                btn.style.background = "#2563eb";
+                btn.style.borderColor = "#3b82f6";
+            }
+            if (titleSpan) titleSpan.textContent = "CHEAT ENGINE";
+            if (tabs) tabs.style.display = "flex";
+            if (profilePane) profilePane.style.display = "none";
+            switchTab(activeTab || "variables");
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // TAB NAVIGATION & MODAL CONTROLS
     // ------------------------------------------------------------------------
     function switchTab(tabId) {
@@ -926,9 +1162,13 @@
         if (typeof document === "undefined") return;
         const overlay = document.getElementById("fnh-cheat-overlay");
         if (!overlay) return;
-        switchTab(activeTab || "variables");
+        setCheatMode(currentViewMode || "engine");
         overlay.style.display = "flex";
         isMenuOpen = true;
+
+        if (globalObj.RuntimePackVPad && globalObj.RuntimePackVPad.setOverlayModalOpen) {
+            globalObj.RuntimePackVPad.setOverlayModalOpen(true);
+        }
 
         const cheatBtn = document.getElementById("vpad-btn-cheat");
         if (cheatBtn) cheatBtn.classList.add("active");
@@ -940,6 +1180,10 @@
         if (!overlay) return;
         overlay.style.display = "none";
         isMenuOpen = false;
+
+        if (globalObj.RuntimePackVPad && globalObj.RuntimePackVPad.setOverlayModalOpen) {
+            globalObj.RuntimePackVPad.setOverlayModalOpen(false);
+        }
 
         const cheatBtn = document.getElementById("vpad-btn-cheat");
         if (cheatBtn) cheatBtn.classList.remove("active");
@@ -971,6 +1215,21 @@
             document.body.appendChild(topBar);
         }
 
+        function attachTap(el, cb) {
+            if (!el) return;
+            let last = 0;
+            const handler = (e) => {
+                e.stopPropagation();
+                if (e.preventDefault && e.cancelable) e.preventDefault();
+                const now = Date.now();
+                if (now - last < 250) return;
+                last = now;
+                cb(e);
+            };
+            el.addEventListener("touchend", handler);
+            el.addEventListener("click", handler);
+        }
+
         let cheatBtn = document.getElementById("vpad-btn-cheat");
         if (!cheatBtn) {
             cheatBtn = document.createElement("div");
@@ -978,10 +1237,10 @@
             cheatBtn.className = "vpad-top-btn cheat-interactive";
             cheatBtn.title = "Cheat Menu";
             cheatBtn.innerHTML = `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
-            cheatBtn.onclick = function () { CheatMenu.toggle(); };
+            attachTap(cheatBtn, function () { CheatMenu.toggle(); });
             topBar.appendChild(cheatBtn);
         } else {
-            cheatBtn.onclick = function () { CheatMenu.toggle(); };
+            attachTap(cheatBtn, function () { CheatMenu.toggle(); });
         }
 
         if (document.getElementById("fnh-cheat-overlay")) return;
@@ -996,6 +1255,7 @@
                     <span>CHEAT ENGINE</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
+                    <button id="btn-cheat-mode-toggle" class="fnh-cheat-btn">Cheat Menu</button>
                     <button id="btn-cheat-theme-toggle" class="fnh-cheat-btn" style="padding:3px 8px; font-size:10px;">Theme</button>
                     <div class="fnh-cheat-close" id="fnh-cheat-close-btn" title="Close">✕</div>
                 </div>
@@ -1085,16 +1345,135 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- VIEW 5: PROFILE CHEAT MENU (READY-TO-USE PRESETS) -->
+                <div id="fnh-tab-profile-menu" class="fnh-tab-pane" style="display:none;"></div>
             </div>
         `;
         document.body.appendChild(modal);
 
         // Header and Modal Buttons
         const closeBtn = document.getElementById("fnh-cheat-close-btn");
-        if (closeBtn) closeBtn.onclick = function () { CheatMenu.close(); };
+        if (closeBtn) attachTap(closeBtn, function () { CheatMenu.close(); });
 
         const themeBtn = document.getElementById("btn-cheat-theme-toggle");
-        if (themeBtn) themeBtn.onclick = function () { CheatMenu.theme(); };
+        if (themeBtn) attachTap(themeBtn, function () { CheatMenu.theme(); });
+
+        const modeBtn = document.getElementById("btn-cheat-mode-toggle");
+        if (modeBtn) attachTap(modeBtn, function () { toggleCheatMode(); });
+
+        // Profile Cheat Menu Listeners
+        const profilePane = document.getElementById("fnh-tab-profile-menu");
+        if (profilePane) {
+            profilePane.addEventListener("click", function (e) {
+                const target = e.target;
+
+                // Category pill tab switch
+                const catBtn = target.closest ? target.closest(".fnh-cat-btn") : null;
+                if (catBtn) {
+                    activeProfileSecIdx = parseInt(catBtn.getAttribute("data-idx"), 10) || 0;
+                    renderCheatMenuProfile();
+                    return;
+                }
+
+                // Toggle button (ON/OFF)
+                const togBtn = target.closest ? target.closest(".fnh-prof-toggle-btn") : null;
+                if (togBtn) {
+                    const sec = parseInt(togBtn.getAttribute("data-sec"), 10);
+                    const idx = parseInt(togBtn.getAttribute("data-idx"), 10);
+                    if (globalObj.GAME_CHEATS && globalObj.GAME_CHEATS.sections && globalObj.GAME_CHEATS.sections[sec]) {
+                        const item = globalObj.GAME_CHEATS.sections[sec].items[idx];
+                        const isCurrentlyOn = togBtn.classList.contains("fnh-btn-toggle-on");
+                        const nextOn = !isCurrentlyOn;
+                        profileToggles[item.id] = nextOn;
+                        const ce = getCheatEngine();
+                        if (item.action && ce && typeof ce.postCommand === "function" && ce.isNative()) {
+                            ce.postCommand({ action: item.action, value: nextOn });
+                        } else if (item.scriptOn && ce && typeof ce.evalScript === "function") {
+                            ce.evalScript(nextOn ? item.scriptOn : item.scriptOff);
+                        }
+                        togBtn.classList.toggle("fnh-btn-toggle-on", nextOn);
+                        togBtn.textContent = nextOn ? "ON" : "OFF";
+                        showToast(item.name + ": " + (nextOn ? "ON" : "OFF"));
+                    }
+                    return;
+                }
+
+                const actBtn = target.closest ? target.closest(".fnh-prof-action-btn") : null;
+                if (actBtn) {
+                    const sec = parseInt(actBtn.getAttribute("data-sec"), 10);
+                    const idx = parseInt(actBtn.getAttribute("data-idx"), 10);
+                    if (globalObj.GAME_CHEATS && globalObj.GAME_CHEATS.sections && globalObj.GAME_CHEATS.sections[sec]) {
+                        const item = globalObj.GAME_CHEATS.sections[sec].items[idx];
+                        const ce = getCheatEngine();
+                        if (item.action === "recover_all") {
+                            if (ce && ce.recoverAll) ce.recoverAll();
+                            showToast("Executed: " + item.name);
+                        } else if (item.action === "gain_gold") {
+                            if (ce && ce.gainGold) ce.gainGold(item.value || 10000);
+                            showToast("Executed: " + item.name);
+                        } else if (item.action === "save_anywhere" && !ce.isNative()) {
+                            if (typeof SceneManager !== "undefined" && typeof Scene_Save !== "undefined") {
+                                SceneManager.push(Scene_Save);
+                            }
+                            showToast("Executed: " + item.name);
+                        } else if (item.action && ce && typeof ce.postCommand === "function" && ce.isNative()) {
+                            ce.postCommand({ action: item.action });
+                            showToast("Executed: " + item.name);
+                        } else if (item.script) {
+                            if (ce && ce.evalScript) ce.evalScript(item.script);
+                            showToast("Executed: " + item.name);
+                        }
+                    }
+                    return;
+                }
+
+                const swBtn = target.closest ? target.closest(".fnh-prof-switch-btn") : null;
+                if (swBtn) {
+                    const sId = parseInt(swBtn.getAttribute("data-sid"), 10);
+                    const isOn = swBtn.classList.contains("fnh-btn-toggle-on");
+                    const ce = getCheatEngine();
+                    if (ce && typeof ce.setSwitch === "function") {
+                        ce.setSwitch(sId, !isOn);
+                        swBtn.classList.toggle("fnh-btn-toggle-on", !isOn);
+                        swBtn.textContent = !isOn ? "ON" : "OFF";
+                        showToast("Switch #" + sId + ": " + (!isOn ? "ON" : "OFF"));
+                    }
+                    return;
+                }
+
+                const varBtn = target.closest ? target.closest(".fnh-prof-var-btn") : null;
+                if (varBtn) {
+                    const vId = parseInt(varBtn.getAttribute("data-vid"), 10);
+                    const inputId = varBtn.getAttribute("data-input-id");
+                    const inputEl = document.getElementById(inputId);
+                    if (inputEl) {
+                        const val = parseInt(inputEl.value, 10) || 0;
+                        const ce = getCheatEngine();
+                        if (ce && typeof ce.setVariable === "function") {
+                            ce.setVariable(vId, val);
+                            showToast("Variable #" + vId + " set to " + val);
+                        }
+                    }
+                    return;
+                }
+
+                const scrBtn = target.closest ? target.closest(".fnh-prof-script-btn") : null;
+                if (scrBtn) {
+                    const sec = parseInt(scrBtn.getAttribute("data-sec"), 10);
+                    const idx = parseInt(scrBtn.getAttribute("data-idx"), 10);
+                    if (globalObj.GAME_CHEATS && globalObj.GAME_CHEATS.sections && globalObj.GAME_CHEATS.sections[sec]) {
+                        const item = globalObj.GAME_CHEATS.sections[sec].items[idx];
+                        const ce = getCheatEngine();
+                        if (ce && typeof ce.evalScript === "function" && item.script) {
+                            ce.evalScript(item.script);
+                            showToast("Run: " + item.name);
+                        }
+                    }
+                    return;
+                }
+            });
+        }
 
         // Tab Navigation Listeners
         const tabsContainer = document.getElementById("fnh-cheat-tabs");
@@ -1249,11 +1628,11 @@
 
         if (header) {
             header.addEventListener("mousedown", (e) => {
-                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle") return;
+                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle" || e.target.id === "btn-cheat-mode-toggle") return;
                 startDrag(e.clientX, e.clientY);
             });
             header.addEventListener("touchstart", (e) => {
-                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle") return;
+                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle" || e.target.id === "btn-cheat-mode-toggle") return;
                 if (e.touches && e.touches.length === 1) {
                     startDrag(e.touches[0].clientX, e.touches[0].clientY);
                 }
@@ -1298,6 +1677,9 @@
         applyVariableSet: applyVariableSet,
         toggleSwitch: toggleSwitch,
         theme: toggleTheme,
+        toggleMode: toggleCheatMode,
+        setMode: setCheatMode,
+        renderProfile: renderCheatMenuProfile,
         // Legacy helpers for backwards compatibility
         godMode: function () {
             godModeActive = !godModeActive;

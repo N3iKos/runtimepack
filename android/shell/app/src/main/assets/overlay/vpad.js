@@ -514,8 +514,11 @@
         style.textContent = `
             #vpad-root {
                 position: fixed;
-                top: 0; left: 0;
-                width: 100vw; height: 100vh;
+                top: 0; left: 0; right: 0; bottom: 0;
+                width: 100%; height: 100%;
+                overflow: hidden !important;
+                scrollbar-width: none !important;
+                -ms-overflow-style: none !important;
                 pointer-events: none;
                 z-index: 99999;
                 user-select: none;
@@ -524,6 +527,11 @@
                 -webkit-tap-highlight-color: transparent !important;
                 outline: none !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            }
+            #vpad-root ::-webkit-scrollbar {
+                display: none !important;
+                width: 0 !important;
+                height: 0 !important;
             }
             #vpad-root *, .vpad-btn, .vpad-control-item, .vpad-top-btn {
                 -webkit-tap-highlight-color: transparent !important;

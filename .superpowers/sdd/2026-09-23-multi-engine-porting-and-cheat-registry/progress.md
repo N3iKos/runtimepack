@@ -7,3 +7,5 @@
 | Task 2 | Task 3-7 | `profiles/games/` | Cheat profiles per game | Each game uses its own profile folder or neutral fallback |
 | Task 3 | Task 6 | RGSS runtime (`mkxp-z`) | RGSS1 (XP) vs RGSS3 (VX Ace) | Handled by mkxp.json / runtime resolution |
 | Task 4 | Task 5 | Web runtime (`WebActivity.kt`) | MV vs MZ core files | Both routed to WebActivity with VFS streaming and shims |
+
+Task 1: complete (commits caf2e03..2675404, review clean)
