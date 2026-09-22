@@ -91,6 +91,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 
 ### RPG Maker MZ (Web / Chromium)
 *Folder Laporan: `Docs/test_ports/rpgmz_<game_slug>/report.md`*
+- [x] **Forestia** (`Docs/test_ports/rpgmz_forestia/report.md`) — *Status: Lolos Booting, Title Screen, Audio, Virtual Pad, Polyfill Sync FS & Process; Terverifikasi Playtest.*
 - [ ] **The Aquarium Does Not Dance** (`Docs/test_ports/rpgmz_the_aquarium_does_not_dance/report.md`)
 - [ ] **Aria’s Story** (`Docs/test_ports/rpgmz_arias_story/report.md`)
 - [ ] **Project Kat** (`Docs/test_ports/rpgmz_project_kat/report.md`)

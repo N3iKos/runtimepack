@@ -68,8 +68,8 @@ open class RgssActivity : SDLActivity() {
         fun mapJsKey(jsKey: Int): Pair<List<Int>, List<Int>> {
             return when (jsKey) {
                 90 -> Pair(
-                    listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE),
-                    listOf(0x5A, 0x0D, 0x20)
+                    listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_ENTER),
+                    listOf(0x5A, 0x0D)
                 )
                 88 -> Pair(
                     listOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_ESCAPE),
@@ -432,13 +432,10 @@ open class RgssActivity : SDLActivity() {
         val alreadyExtracted = GpackExtractor.isExtracted(gameDir)
 
         if (!alreadyExtracted) {
-            if (GpackExtractor.isEncryptedStreamingMode(this)) {
-                val success = GpackExtractor.prepareStreamingContainer(this, gameDir)
-                if (!success) Log.e(TAG, "Streaming container preparation failed!")
-            } else {
-                Log.i(TAG, "Extracting game assets to internal storage...")
-                val success = GpackExtractor.extract(this, gameDir)
-                if (!success) Log.e(TAG, "Extraction failed!")
+            Log.i(TAG, "Extracting game assets to internal storage...")
+            val success = GpackExtractor.extract(this, gameDir)
+            if (!success) {
+                Log.e(TAG, "Extraction failed!")
             }
         }
         GpackExtractor.installRuntimeFiles(this, gameDir)
@@ -467,6 +464,9 @@ open class RgssActivity : SDLActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             wv.setBackgroundColor(Color.TRANSPARENT)
+            wv.isVerticalScrollBarEnabled = false
+            wv.isHorizontalScrollBarEnabled = false
+            wv.overScrollMode = View.OVER_SCROLL_NEVER
 
             val settings = wv.settings
             settings.javaScriptEnabled = true

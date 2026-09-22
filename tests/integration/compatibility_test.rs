@@ -3,7 +3,7 @@ use runtimepack_core::detection::DetectorRegistry;
 use runtimepack_core::domain::{CompatibilityStatus, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_engine_rgss::{RgssAnalyzer, RpgMakerVxAceDetector};
-use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerWebAnalyzer};
+use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer};
 use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
@@ -161,6 +161,69 @@ fn test_rpgmaker_mv_nwjs_wrapper_normalizes_desktop_dlls() {
                 || i.source_path.as_deref() == Some("nw.dll")
                 || i.source_path.as_deref() == Some("node.dll")),
         "Desktop NW.js runner DLLs outside www/ should not trigger CMP-102 issues"
+    );
+}
+
+#[test]
+fn test_rpgmaker_mz_root_nwjs_wrapper_normalizes_desktop_dlls() {
+    use runtimepack_core::compatibility::Analyzer;
+    use runtimepack_core::detection::Detector;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "runtimepack_mz_root_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("swiftshader")).unwrap();
+    std::fs::write(temp_dir.join("nw.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("node.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("ffmpeg.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("d3dcompiler_47.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("swiftshader/libGLESv2.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("package.json"), "{}").unwrap();
+    std::fs::write(
+        temp_dir.join("js/rmmz_core.js"),
+        "function ImageManager() {}",
+    )
+    .unwrap();
+
+    let idx = GameSourceIndex::build(&temp_dir).unwrap();
+    let candidate = RpgMakerMzDetector.probe(&idx);
+    assert_eq!(candidate.engine, EngineId::RpgMakerMz);
+
+    let desc = runtimepack_core::detection::EngineDescriptor {
+        id: candidate.engine,
+        confidence: candidate.confidence,
+        score: candidate.score,
+        evidence: candidate.evidence,
+        conflicts: candidate.conflicts,
+        detected_version: None,
+        overridden: false,
+    };
+
+    let report = RpgMakerWebAnalyzer.analyze(&idx, &desc);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert_ne!(report.status, CompatibilityStatus::UnsupportedDependency);
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|i| i.code == "CMP-102"),
+        "Desktop NW.js runner DLLs at root should be excluded and not trigger fatal CMP-102"
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.code == "CMP-DESKTOP-EXCLUDED"),
+        "Desktop runner DLLs should emit CMP-DESKTOP-EXCLUDED info diagnostics"
     );
 }
 

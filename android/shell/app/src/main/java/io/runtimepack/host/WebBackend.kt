@@ -58,6 +58,10 @@ class WebBackend : RuntimeBackend {
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView(wv: WebView) {
         val ctx = context ?: return
+        wv.isVerticalScrollBarEnabled = false
+        wv.isHorizontalScrollBarEnabled = false
+        wv.overScrollMode = View.OVER_SCROLL_NEVER
+
         val settings = wv.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true

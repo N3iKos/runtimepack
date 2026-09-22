@@ -112,6 +112,36 @@ begin
   cleanup_state_file
   assert_equal 0, Win32API.call('GetAsyncKeyState', 0x26), "GetAsyncKeyState without state file should return 0"
 
+  # 3b. Test ALT (0x12, VK_MENU) and Direction (0x26, VK_UP) Coexistence
+  puts "Test 3b: ALT (0x12, VK_MENU) and Direction (0x26, VK_UP) Coexistence"
+  combo_buffer = "\0" * 256
+  combo_buffer.setbyte(0x12, 0x80) # VK_MENU (Alt)
+  combo_buffer.setbyte(0x26, 0x80) # VK_UP
+  File.binwrite(STATE_FILE, combo_buffer)
+
+  combo_ptr = DL::CPtr.new(DL.malloc(256))
+  Win32API.call('GetKeyboardState', combo_ptr.to_i)
+  assert_equal 0x80, combo_ptr[0x12], "combo_ptr VK_MENU (0x12) should be 0x80"
+  assert_equal 0x80, combo_ptr[0x26], "combo_ptr VK_UP (0x26) should be 0x80"
+  assert_equal(-32767, Win32API.call('GetAsyncKeyState', 0x12), "GetAsyncKeyState for VK_MENU should return -32767")
+  assert_equal(-32767, Win32API.call('GetAsyncKeyState', 0x26), "GetAsyncKeyState for VK_UP should return -32767")
+
+  # Release Direction (0x26), keep ALT (0x12)
+  combo_buffer.setbyte(0x26, 0x00)
+  File.binwrite(STATE_FILE, combo_buffer)
+  Win32API.call('GetKeyboardState', combo_ptr.to_i)
+  assert_equal 0x80, combo_ptr[0x12], "combo_ptr VK_MENU (0x12) should remain 0x80 after direction release"
+  assert_equal 0, combo_ptr[0x26], "combo_ptr VK_UP (0x26) should be 0 after release"
+  assert_equal(-32767, Win32API.call('GetAsyncKeyState', 0x12), "GetAsyncKeyState for VK_MENU should remain -32767")
+  assert_equal 0, Win32API.call('GetAsyncKeyState', 0x26), "GetAsyncKeyState for VK_UP should return 0 after release"
+
+  # Release ALT (0x12)
+  combo_buffer.setbyte(0x12, 0x00)
+  File.binwrite(STATE_FILE, combo_buffer)
+  Win32API.call('GetKeyboardState', combo_ptr.to_i)
+  assert_equal 0, combo_ptr[0x12], "combo_ptr VK_MENU (0x12) should be 0 after release"
+  assert_equal 0, Win32API.call('GetAsyncKeyState', 0x12), "GetAsyncKeyState for VK_MENU should return 0 after release"
+
   # 4. Test Native Input Fallback Hooks
   puts "Test 4: Native Input Fallback Hooks"
   # Set up mock Input module simulating mkxp-z native Input and Hime AllKey

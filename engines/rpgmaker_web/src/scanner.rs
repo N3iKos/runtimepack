@@ -6,6 +6,41 @@ use runtimepack_core::ingest::GameSourceIndex;
 
 pub struct RpgMakerWebAnalyzer;
 
+impl RpgMakerWebAnalyzer {
+    pub fn is_windows_system_redist(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        filename.starts_with("msvcr")
+            || filename.starts_with("msvcp")
+            || filename.starts_with("vcruntime")
+            || filename.starts_with("ucrtbase")
+            || filename.starts_with("d3d")
+            || filename.starts_with("xinput")
+            || lower.contains("_commonredist")
+    }
+
+    pub fn is_desktop_runner_dll(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        filename == "nw.dll"
+            || filename == "node.dll"
+            || filename == "ffmpeg.dll"
+            || filename == "nw_elf.dll"
+            || filename == "libegl.dll"
+            || filename == "libglesv2.dll"
+            || filename.starts_with("d3dcompiler")
+            || filename.starts_with("vk_swiftshader")
+            || filename.starts_with("vulkan")
+            || filename.starts_with("steam_api")
+            || filename.starts_with("fluidsynth")
+            || filename.starts_with("libfluidsynth")
+            || filename.starts_with("utils")
+            || filename == "discord_game_sdk.dll"
+            || lower.starts_with("swiftshader/")
+            || lower.contains("/swiftshader/")
+    }
+}
+
 impl Analyzer for RpgMakerWebAnalyzer {
     fn supports(&self, engine: EngineId) -> bool {
         matches!(engine, EngineId::RpgMakerMv | EngineId::RpgMakerMz)
@@ -30,6 +65,11 @@ impl Analyzer for RpgMakerWebAnalyzer {
             || source.has_file("www/js/rpg_core.js")
             || source.has_file("www/js/rmmz_core.js");
 
+        let is_desktop_package = source.has_file("package.json")
+            || source.has_file("index.html")
+            || source.has_file("js/rmmz_core.js")
+            || source.has_file("js/rpg_core.js");
+
         for (path, file) in &source.files {
             if is_nwjs_wrapper && !path.starts_with("www/") {
                 continue;
@@ -46,9 +86,38 @@ impl Analyzer for RpgMakerWebAnalyzer {
                     source_path: Some(file.logical_path.clone()),
                     remediation: Some(RemediationCategory::Dependency),
                 });
+                continue;
             }
 
             if path.ends_with(".dll") || path.ends_with(".so") {
+                if Self::is_windows_system_redist(path) {
+                    report.add_issue(CompatibilityIssue {
+                        code: "CMP-REDIST-EXCLUDED".to_string(),
+                        severity: DiagnosticSeverity::Info,
+                        message: format!(
+                            "Windows redistributable DLL '{}' detected; excluded from Android runtime package.",
+                            file.logical_path
+                        ),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: None,
+                    });
+                    continue;
+                }
+
+                if is_desktop_package && Self::is_desktop_runner_dll(path) {
+                    report.add_issue(CompatibilityIssue {
+                        code: "CMP-DESKTOP-EXCLUDED".to_string(),
+                        severity: DiagnosticSeverity::Info,
+                        message: format!(
+                            "Desktop runner/wrapper DLL '{}' detected in web desktop package; excluded from Android mobile runtime.",
+                            file.logical_path
+                        ),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: None,
+                    });
+                    continue;
+                }
+
                 report.add_issue(CompatibilityIssue {
                     code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
                     severity: DiagnosticSeverity::Error,

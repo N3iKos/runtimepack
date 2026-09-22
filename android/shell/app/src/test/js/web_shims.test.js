@@ -110,6 +110,21 @@ function createSandbox(initialStorageManager) {
         fsMod.mkdirSync("save");
         fsMod.writeFileSync("save/file.rpgsave", "data");
     }, "fs mutating methods must safely no-op");
+
+    const processObj = vm.runInContext("process", sb);
+    assert(processObj, "process global must be defined");
+    assert.strictEqual(processObj.mainModule.filename, "index.html");
+
+    const bufferObj = vm.runInContext("Buffer", sb);
+    assert(bufferObj, "Buffer global must be defined");
+    assert.strictEqual(bufferObj.from("test").toString(), "test");
+
+    const cryptoMod = vm.runInContext("require('crypto')", sb);
+    assert(cryptoMod, "require('crypto') must return module");
+    assert.doesNotThrow(() => {
+        cryptoMod.createCipheriv("aes-256-cbc", bufferObj.from("key"), bufferObj.from("iv"));
+        cryptoMod.createDecipheriv("aes-256-cbc", bufferObj.from("key"), bufferObj.from("iv"));
+    });
 }
 
 {
@@ -162,8 +177,10 @@ function createSandbox(initialStorageManager) {
 
 {
     const sb = createSandbox();
+    const originalEval = sb.eval;
     vm.runInContext(shimsCode, sb);
     assert.strictEqual(sb.__runtimepack_shims_installed, true, "__runtimepack_shims_installed must be true");
+    assert.strictEqual(sb.eval, originalEval, "Global eval must remain untouched so plugin direct eval keeps lexical scope");
 
     assert.doesNotThrow(() => {
         vm.runInContext(shimsCode, sb);

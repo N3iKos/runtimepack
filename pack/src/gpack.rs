@@ -72,14 +72,34 @@ impl GpackPacker {
 
     pub fn should_include_in_pack(path: &str) -> bool {
         let lower = path.to_ascii_lowercase();
-        if lower.contains("_commonredist/") {
+        if lower.contains("_commonredist/") || lower.starts_with("swiftshader/") || lower.contains("/swiftshader/") {
             return false;
         }
         let filename = lower.rsplit('/').next().unwrap_or(&lower);
-        if (filename.starts_with("msvcr") || filename.starts_with("msvcp") || filename.starts_with("vcruntime"))
-            && filename.ends_with(".dll")
-        {
-            return false;
+        if filename.ends_with(".dll") {
+            if filename.starts_with("msvcr")
+                || filename.starts_with("msvcp")
+                || filename.starts_with("vcruntime")
+                || filename.starts_with("ucrtbase")
+                || filename.starts_with("d3d")
+                || filename.starts_with("xinput")
+                || filename == "nw.dll"
+                || filename == "node.dll"
+                || filename == "ffmpeg.dll"
+                || filename == "nw_elf.dll"
+                || filename == "libegl.dll"
+                || filename == "libglesv2.dll"
+                || filename.starts_with("d3dcompiler")
+                || filename.starts_with("vk_swiftshader")
+                || filename.starts_with("vulkan")
+                || filename.starts_with("steam_api")
+                || filename.starts_with("fluidsynth")
+                || filename.starts_with("libfluidsynth")
+                || filename.starts_with("utils")
+                || filename == "discord_game_sdk.dll"
+            {
+                return false;
+            }
         }
         true
     }

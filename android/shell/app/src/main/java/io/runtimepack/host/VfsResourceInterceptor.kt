@@ -52,13 +52,13 @@ class VfsResourceInterceptor(
             val cleanPath = path.substringBefore('?').substringBefore('#')
             val ext = cleanPath.substringAfterLast('.', "").lowercase()
             return when (ext) {
-                "png" -> "image/png"
-                "jpg", "jpeg" -> "image/jpeg"
-                "webp" -> "image/webp"
-                "ogg" -> "audio/ogg"
-                "mp3" -> "audio/mpeg"
-                "wav" -> "audio/wav"
-                "m4a" -> "audio/mp4"
+                "png", "png_" -> "image/png"
+                "jpg", "jpeg", "jpg_", "jpeg_" -> "image/jpeg"
+                "webp", "webp_" -> "image/webp"
+                "ogg", "ogg_" -> "audio/ogg"
+                "mp3", "mp3_" -> "audio/mpeg"
+                "wav", "wav_" -> "audio/wav"
+                "m4a", "m4a_" -> "audio/mp4"
                 "js" -> "application/javascript"
                 "json" -> "application/json"
                 "css" -> "text/css"
@@ -128,22 +128,36 @@ class VfsResourceInterceptor(
                 return WebResourceResponse("audio/ogg", "UTF-8", s)
             }
         }
-        if (stream == null && logicalPath.endsWith(".m4a")) {
-            val oggEnc = logicalPath.removeSuffix(".m4a") + ".rpgmvo"
-            val s = streamProvider(oggEnc)
-            if (s != null) {
+        if (stream == null && (logicalPath.endsWith(".m4a") || logicalPath.endsWith(".m4a_"))) {
+            val base = if (logicalPath.endsWith(".m4a_")) logicalPath.removeSuffix(".m4a_") else logicalPath.removeSuffix(".m4a")
+            val oggEnc = base + ".ogg_"
+            val sEnc = streamProvider(oggEnc)
+            if (sEnc != null) {
+                return WebResourceResponse("audio/ogg", "UTF-8", sEnc)
+            }
+            val oggMvEnc = base + ".rpgmvo"
+            val sMvEnc = streamProvider(oggMvEnc)
+            if (sMvEnc != null) {
                 if (rpgMakerKey != null) {
-                    val decrypted = decryptRpgMakerAsset(s.readBytes(), rpgMakerKey)
+                    val decrypted = decryptRpgMakerAsset(sMvEnc.readBytes(), rpgMakerKey)
                     if (decrypted != null) {
                         return WebResourceResponse("audio/ogg", "UTF-8", ByteArrayInputStream(decrypted))
                     }
                 }
-                return WebResourceResponse("audio/ogg", "UTF-8", s)
+                return WebResourceResponse("audio/ogg", "UTF-8", sMvEnc)
             }
-            val oggPlain = logicalPath.removeSuffix(".m4a") + ".ogg"
+            val oggPlain = base + ".ogg"
             val sPlain = streamProvider(oggPlain)
             if (sPlain != null) {
                 return WebResourceResponse("audio/ogg", "UTF-8", sPlain)
+            }
+        }
+        if (stream == null && (logicalPath.endsWith(".ogg") || logicalPath.endsWith(".png"))) {
+            val encPath = logicalPath + "_"
+            val s = streamProvider(encPath)
+            if (s != null) {
+                val mime = getMimeType(logicalPath)
+                return WebResourceResponse(mime, "UTF-8", s)
             }
         }
         if (stream == null) {

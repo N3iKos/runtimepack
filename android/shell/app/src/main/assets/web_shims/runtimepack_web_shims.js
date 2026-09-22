@@ -244,22 +244,128 @@
         }
     };
 
+    if (typeof root.process === "undefined") {
+        root.process = {
+            mainModule: {
+                filename: "index.html"
+            },
+            cwd: function() { return ""; },
+            platform: "android",
+            env: {}
+        };
+    }
+    if (typeof root.window !== "undefined" && typeof root.window.process === "undefined") {
+        root.window.process = root.process;
+    }
+
+    if (typeof root.Buffer === "undefined") {
+        var BufferMock = {
+            from: function(data, enc) {
+                return {
+                    toString: function() { return String(data || ""); }
+                };
+            },
+            concat: function(arr) {
+                return {
+                    toString: function() { return ""; }
+                };
+            },
+            alloc: function(size) {
+                return new Uint8Array(size);
+            }
+        };
+        root.Buffer = BufferMock;
+        if (typeof root.window !== "undefined") {
+            root.window.Buffer = BufferMock;
+        }
+    }
+
+    var cryptoShim = {
+        createCipheriv: function() {
+            return {
+                update: function() { return (root.Buffer && root.Buffer.alloc) ? root.Buffer.alloc(0) : []; },
+                final: function() { return (root.Buffer && root.Buffer.alloc) ? root.Buffer.alloc(0) : []; }
+            };
+        },
+        createDecipheriv: function() {
+            return {
+                update: function() { return (root.Buffer && root.Buffer.alloc) ? root.Buffer.alloc(0) : []; },
+                final: function() { return (root.Buffer && root.Buffer.alloc) ? root.Buffer.alloc(0) : []; }
+            };
+        }
+    };
+
+    function syncFetch(relPath) {
+        if (!relPath) return "";
+        if (typeof XMLHttpRequest === "undefined") return "";
+        try {
+            var cleanPath = String(relPath).replace(/\\/g, '/');
+            cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+\//, '');
+            cleanPath = cleanPath.replace(/^\/+/, '');
+            while (cleanPath.startsWith("./")) {
+                cleanPath = cleanPath.substring(2);
+            }
+            var url = "https://game.local/" + cleanPath;
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", url, false);
+            xhr.send(null);
+            if (xhr.status === 200 || (xhr.status === 0 && xhr.responseText && xhr.responseText.length > 0)) {
+                return xhr.responseText;
+            }
+        } catch (e) {
+            if (root.console && typeof root.console.warn === "function") {
+                root.console.warn("[RuntimePack fsShim] syncFetch error for " + relPath, e);
+            }
+        }
+        return "";
+    }
+
+    function syncExists(relPath) {
+        if (!relPath) return false;
+        if (typeof XMLHttpRequest === "undefined") return false;
+        try {
+            var cleanPath = String(relPath).replace(/\\/g, '/');
+            cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+\//, '');
+            cleanPath = cleanPath.replace(/^\/+/, '');
+            while (cleanPath.startsWith("./")) {
+                cleanPath = cleanPath.substring(2);
+            }
+            if (cleanPath.endsWith("gameenv.iz")) {
+                return false;
+            }
+            var url = "https://game.local/" + cleanPath;
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", url, false);
+            xhr.send(null);
+            return (xhr.status === 200) || (xhr.status === 0 && xhr.responseText && xhr.responseText.length > 0);
+        } catch (e) {
+            return false;
+        }
+    }
+
     var fsShim = {
-        existsSync: function() { return false; },
-        readFileSync: function() { return ""; },
+        existsSync: function(p) {
+            return syncExists(p);
+        },
+        readFileSync: function(p, opt) {
+            return syncFetch(p);
+        },
         mkdirSync: function() {},
         writeFileSync: function() {},
-        statSync: function() {
+        statSync: function(p) {
+            var exists = syncExists(p);
             return {
-                isFile: function() { return false; },
-                isDirectory: function() { return false; }
+                isFile: function() { return exists; },
+                isDirectory: function() { return false; },
+                size: exists ? (syncFetch(p) || "").length : 0
             };
         },
         readdirSync: function() { return []; },
         unlinkSync: function() {},
         readFile: function(file, opt, cb) {
             var callback = typeof opt === "function" ? opt : cb;
-            if (callback) callback(null, "");
+            var data = syncFetch(file);
+            if (callback) callback(null, data);
         },
         writeFile: function(file, data, opt, cb) {
             var callback = typeof opt === "function" ? opt : cb;
@@ -282,6 +388,7 @@
         "nw.gui": nwShim,
         "nw": nwShim,
         "fs": fsShim,
+        "crypto": cryptoShim,
         "greenworks": greenworksShim,
         "Greenworks": greenworksShim
     };
@@ -297,16 +404,7 @@
     };
 
     root.nw = nwShim;
-    try {
-        var _orig_eval = root.eval;
-        root.eval = function(str) {
-            if (typeof str === "string" && str.trim() === "[object Object]") {
-                return {};
-            }
-            return _orig_eval.apply(this, arguments);
-        };
-    } catch (e) {}
-    root.Greenworks = greenworksShim;
+    root.Greenworks = greenworksShim; // Preserve native direct eval semantics for Yanfly formulas.
     root.greenworks = greenworksShim;
     root.executeCheatCmd = executeCheatCmd;
     if (typeof root.window !== "undefined") {
@@ -334,10 +432,13 @@
     function patchAudioManager(am) {
         if (!am || (am.audioFileExt && am.audioFileExt.__patched)) return;
         am.audioFileExt = function() {
+            if (root.Utils && typeof root.Utils.canPlayOgg === "function" && root.Utils.canPlayOgg()) {
+                return '.ogg';
+            }
             if (root.WebAudio && typeof root.WebAudio.canPlayOgg === "function" && root.WebAudio.canPlayOgg()) {
                 return '.ogg';
             }
-            return '.m4a';
+            return '.ogg';
         };
         am.audioFileExt.__patched = true;
     }
