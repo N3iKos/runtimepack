@@ -82,7 +82,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 - [ ] **The Coffin of Andy and Leyley** (`Docs/test_ports/rpgmv_coffin_andy_leyley/report.md`)
 - [ ] **In Stars and Time** (`Docs/test_ports/rpgmv_in_stars_and_time/report.md`)
 - [ ] **Pocket Mirror: Goldener Traum** (`Docs/test_ports/rpgmv_pocket_mirror_goldener_traum/report.md`)
-- [ ] **The Witch’s House MV** (`Docs/test_ports/rpgmv_the_witchs_house_mv/report.md`)
+- [x] **The Witch’s House MV** (`Docs/test_ports/rpgmv_the_witchs_house_mv/report.md`) — *Status: Lolos Booting, Title Screen, Audio, Virtual Pad, Map Opening; Terverifikasi Playtest 30 Menit.*
 - [ ] **Grimm’s Hollow** (`Docs/test_ports/rpgmv_grimms_hollow/report.md`)
 - [ ] **Hylics 2** (`Docs/test_ports/rpgmv_hylics_2/report.md`)
 - [ ] **Ann** (`Docs/test_ports/rpgmv_ann/report.md`)
