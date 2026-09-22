@@ -26,7 +26,15 @@ impl Analyzer for RpgMakerWebAnalyzer {
         let mut found_nwjs_shim = false;
 
         // 1. Scan for forbidden native files (.node, .dll, .so)
+        let is_nwjs_wrapper = source.has_file("www/index.html")
+            || source.has_file("www/js/rpg_core.js")
+            || source.has_file("www/js/rmmz_core.js");
+
         for (path, file) in &source.files {
+            if is_nwjs_wrapper && !path.starts_with("www/") {
+                continue;
+            }
+
             if path.ends_with(".node") {
                 report.add_issue(CompatibilityIssue {
                     code: DiagnosticCode::CMP_NODE_NATIVE_MODULE.to_string(),

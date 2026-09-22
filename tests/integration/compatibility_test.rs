@@ -110,3 +110,57 @@ fn test_renpy_unsupported_pyd_rejected() {
     assert_eq!(report.status, CompatibilityStatus::UnsupportedDependency);
     assert!(report.issues.iter().any(|i| i.code == "CMP-105"));
 }
+
+#[test]
+fn test_rpgmaker_mv_nwjs_wrapper_normalizes_desktop_dlls() {
+    use runtimepack_core::compatibility::Analyzer;
+    use runtimepack_core::detection::Detector;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "runtimepack_nwjs_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    std::fs::create_dir_all(temp_dir.join("www/js")).unwrap();
+    std::fs::write(temp_dir.join("nw.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("node.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("www/index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(
+        temp_dir.join("www/js/rpg_core.js"),
+        "function ImageManager() {}",
+    )
+    .unwrap();
+
+    let idx = GameSourceIndex::build(&temp_dir).unwrap();
+    let candidate = RpgMakerMvDetector.probe(&idx);
+    assert_eq!(candidate.engine, EngineId::RpgMakerMv);
+
+    let desc = runtimepack_core::detection::EngineDescriptor {
+        id: candidate.engine,
+        confidence: candidate.confidence,
+        score: candidate.score,
+        evidence: candidate.evidence,
+        conflicts: candidate.conflicts,
+        detected_version: None,
+        overridden: false,
+    };
+
+    let report = RpgMakerWebAnalyzer.analyze(&idx, &desc);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert_ne!(report.status, CompatibilityStatus::UnsupportedDependency);
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|i| i.code == "CMP-102"
+                || i.source_path.as_deref() == Some("nw.dll")
+                || i.source_path.as_deref() == Some("node.dll")),
+        "Desktop NW.js runner DLLs outside www/ should not trigger CMP-102 issues"
+    );
+}
+

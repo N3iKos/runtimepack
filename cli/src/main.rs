@@ -431,7 +431,15 @@ fn cmd_build(
         None
     };
 
-    let total_bytes = match GpackPacker::pack_directory_with_options(path, &pack_path, encryption_key.as_ref()) {
+    let mut content_source_dir = path.to_path_buf();
+    if matches!(descriptor.id, EngineId::RpgMakerMv | EngineId::RpgMakerMz) {
+        if path.join("www/index.html").exists() || path.join("www/js/rpg_core.js").exists() {
+            println!("Deployed NW.js structure detected. Normalizing content packaging root to 'www/'");
+            content_source_dir = path.join("www");
+        }
+    }
+
+    let total_bytes = match GpackPacker::pack_directory_with_options(&content_source_dir, &pack_path, encryption_key.as_ref()) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[CNT-102] Failed to pack content: {}", e);
