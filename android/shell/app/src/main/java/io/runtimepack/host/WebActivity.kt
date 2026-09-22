@@ -296,6 +296,8 @@ open class WebActivity : Activity() {
                 val response = vfsInterceptor?.intercept(url)
                 if (response == null) {
                     Log.w(TAG, "[VFS Unhandled] $url")
+                } else if (!url.endsWith(".js") && !url.endsWith(".css")) {
+                    Log.i(TAG, "[VFS Handled] $url (${response.mimeType}, enc=${response.encoding})")
                 }
                 return response ?: super.shouldInterceptRequest(view, request)
             }
@@ -306,7 +308,13 @@ open class WebActivity : Activity() {
                 url: String?
             ): WebResourceResponse? {
                 if (url == null) return null
-                return vfsInterceptor?.intercept(url) ?: @Suppress("DEPRECATION") super.shouldInterceptRequest(view, url)
+                val response = vfsInterceptor?.intercept(url)
+                if (response == null) {
+                    Log.w(TAG, "[VFS Unhandled] $url")
+                } else if (!url.endsWith(".js") && !url.endsWith(".css")) {
+                    Log.i(TAG, "[VFS Handled] $url (${response.mimeType}, enc=${response.encoding})")
+                }
+                return response ?: @Suppress("DEPRECATION") super.shouldInterceptRequest(view, url)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -320,6 +328,34 @@ open class WebActivity : Activity() {
                     })();
                 """.trimIndent()
                 view?.evaluateJavascript(firstFrameScript, null)
+
+                val diagScript = """
+                    (function() {
+                        setTimeout(function() {
+                            console.log('[RP_DIAG] URL: ' + window.location.href);
+                            console.log('[RP_DIAG] Title: ' + document.title);
+                            console.log('[RP_DIAG] TYRANO defined: ' + (typeof window.TYRANO));
+                            if (window.TYRANO && window.TYRANO.kag) {
+                                console.log('[RP_DIAG] current_scenario: ' + (window.TYRANO.kag.stat ? window.TYRANO.kag.stat.current_scenario : 'no stat'));
+                            }
+                            var base = document.getElementById('tyrano_base');
+                            console.log('[RP_DIAG] tyrano_base: ' + (base ? base.innerHTML.length + ' chars, children: ' + base.children.length : 'null'));
+                            var imgs = document.querySelectorAll('img');
+                            console.log('[RP_DIAG] Total imgs: ' + imgs.length);
+                            for (var i = 0; i < imgs.length; i++) {
+                                var img = imgs[i];
+                                console.log('[RP_DIAG] img[' + i + ']: src=' + img.src + ' w=' + img.naturalWidth + ' h=' + img.naturalHeight + ' comp=' + img.complete + ' op=' + img.style.opacity);
+                            }
+                            var layers = document.querySelectorAll('.layer');
+                            console.log('[RP_DIAG] Total layers: ' + layers.length);
+                            for (var j = 0; j < Math.min(layers.length, 10); j++) {
+                                var l = layers[j];
+                                console.log('[RP_DIAG] layer[' + j + ']: ' + l.className + ' disp=' + l.style.display + ' vis=' + l.style.visibility + ' op=' + l.style.opacity);
+                            }
+                        }, 2500);
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(diagScript, null)
                 HealthMarker.GAME_STARTED.emit()
             }
         }

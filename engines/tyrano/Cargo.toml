@@ -8,3 +8,4 @@ authors.workspace = true
 [dependencies]
 runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
+serde_json = { workspace = true }

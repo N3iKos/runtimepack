@@ -1,5 +1,23 @@
 # Technical Findings
 
+## [MIME Charset Encoding Mismatch pada Binary Assets di WebResourceResponse]
+**Masalah:** Gambar (`.png`, `.gif`) dan font (`.woff`, `.ttf`) gagal di-decode oleh Chromium WebView atau logcat menampilkan `Image decoding logging dropped!`, menyebabkan elemen visual canvas/DOM tetap kosong/hitam.
+**Penyebab:** Konstruktor `WebResourceResponse(mime, encoding, data)` menerima argumen `encoding = "UTF-8"`. Untuk tipe data biner (gambar, audio, font), spesifikasi Android WebView mengharuskan `encoding = null`. Jika diisi `"UTF-8"`, Chromium mencoba membaca stream byte biner melalui UTF-8 character decoder sehingga byte gambar menjadi rusak.
+**Solusi/workaround:** Di `VfsResourceInterceptor.kt`, buat helper `getEncoding(mimeType)` yang hanya mengembalikan `"UTF-8"` untuk resource berbasis teks (`text/*`, `application/javascript`, `application/json`), dan mengembalikan `null` untuk seluruh binary format.
+**Tags:** #webview #chromium #vfs #mime #encoding
+
+## [TyranoScript Audio Autoplay Blocking pada Tag Scenario]
+**Masalah:** Eksekusi skrip scenario TyranoScript berhenti di tag audio awal (misal `[playbgm storage=title2.mp3]`) tanpa melanjutkan ke tag gambar title berikutnya (`[image storage="title03.gif"]`).
+**Penyebab:** Pada browser standar, TyranoScript memeriksa `$.isNeedClickAudio()`. Jika bernilai `true` (default non-desktop), Tyrano memanggil `this.waitClick(pm)` yang menahan alur skrip KAG sampai ada gesture sentuhan fisik dari user untuk membuka izin WebAudio browser.
+**Solusi/workaround:** Di `runtimepack_web_shims.js`, patch method `$.isNeedClickAudio` agar mengembalikan `false` dan setel `window.TYRANO.kag.tmp.ready_audio = true`, memanfaatkan konfigurasi Android WebView `mediaPlaybackRequiresUserGesture = false` yang mengizinkan autoplay native.
+**Tags:** #tyrano #webaudio #autoplay #user-gesture
+
+## [Undefined process.execPath Crash pada TyranoScript localFilePath]
+**Masalah:** TyranoScript crash saat inisialisasi awal dengan error `Uncaught TypeError: Cannot read properties of undefined (reading 'indexOf') at tyrano/libs.js:64:30`.
+**Penyebab:** Method `$.localFilePath()` di `tyrano/libs.js` mengecek `process.execPath.indexOf("var/folders") != -1`. Di lingkungan Android WebView, object `process` tidak memiliki properti `execPath`.
+**Solusi/workaround:** Di `runtimepack_web_shims.js`, sediakan default `process.execPath = ""` dan `process.env.HOME = ""` pada shim global `process`.
+**Tags:** #tyrano #nodejs #process #shims
+
 ## [Incompatible Encoding Regexp Match pada Zlib-Inflated Ruby Scripts]
 **Masalah:** Skrip RPG Maker VX Ace melempar `Encoding::CompatibilityError: incompatible encoding regexp match (ASCII-8BIT regexp with UTF-8 string)` saat mencocokkan regex literal yang memuat karakter multibyte (seperti fullwidth colon `[\xef\xbc\x9a:]`) terhadap data game ber-encoding UTF-8 (misal `actor.note`).
 **Penyebab:** Dekompresi byte skrip via `Zlib::Inflate.inflate` menghasilkan string dengan default encoding `ASCII-8BIT` (binary). Saat di-`eval`, literal regex di dalamnya mewarisi encoding `ASCII-8BIT`. Di Ruby 1.9+, pencocokan regex ASCII-8BIT terhadap string UTF-8 dilarang jika regex memuat byte di atas `0x7F`.

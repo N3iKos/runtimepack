@@ -54,7 +54,9 @@ class VfsResourceInterceptor(
             return when (ext) {
                 "png", "png_" -> "image/png"
                 "jpg", "jpeg", "jpg_", "jpeg_" -> "image/jpeg"
+                "gif", "gif_" -> "image/gif"
                 "webp", "webp_" -> "image/webp"
+                "svg" -> "image/svg+xml"
                 "ogg", "ogg_" -> "audio/ogg"
                 "mp3", "mp3_" -> "audio/mpeg"
                 "wav", "wav_" -> "audio/wav"
@@ -63,7 +65,22 @@ class VfsResourceInterceptor(
                 "json" -> "application/json"
                 "css" -> "text/css"
                 "html", "htm" -> "text/html"
+                "ks", "tjs", "txt" -> "text/plain"
+                "woff" -> "font/woff"
+                "woff2" -> "font/woff2"
+                "ttf" -> "font/ttf"
+                "otf" -> "font/otf"
                 else -> "application/octet-stream"
+            }
+        }
+
+        fun getEncoding(mimeType: String): String? {
+            return if (mimeType.startsWith("text/") ||
+                mimeType == "application/javascript" ||
+                mimeType == "application/json") {
+                "UTF-8"
+            } else {
+                null
             }
         }
 
@@ -116,7 +133,7 @@ class VfsResourceInterceptor(
                     val decrypted = decryptRpgMakerAsset(encBytes, rpgMakerKey)
                     if (decrypted != null) {
                         val mime = getMimeType(logicalPath)
-                        return WebResourceResponse(mime, "UTF-8", ByteArrayInputStream(decrypted))
+                        return WebResourceResponse(mime, getEncoding(mime), ByteArrayInputStream(decrypted))
                     }
                 }
             }
@@ -125,7 +142,7 @@ class VfsResourceInterceptor(
             val oggEnc = logicalPath.removeSuffix(".rpgmvm") + ".rpgmvo"
             val s = streamProvider(oggEnc)
             if (s != null) {
-                return WebResourceResponse("audio/ogg", "UTF-8", s)
+                return WebResourceResponse("audio/ogg", null, s)
             }
         }
         if (stream == null && (logicalPath.endsWith(".m4a") || logicalPath.endsWith(".m4a_"))) {
@@ -133,7 +150,7 @@ class VfsResourceInterceptor(
             val oggEnc = base + ".ogg_"
             val sEnc = streamProvider(oggEnc)
             if (sEnc != null) {
-                return WebResourceResponse("audio/ogg", "UTF-8", sEnc)
+                return WebResourceResponse("audio/ogg", null, sEnc)
             }
             val oggMvEnc = base + ".rpgmvo"
             val sMvEnc = streamProvider(oggMvEnc)
@@ -141,15 +158,15 @@ class VfsResourceInterceptor(
                 if (rpgMakerKey != null) {
                     val decrypted = decryptRpgMakerAsset(sMvEnc.readBytes(), rpgMakerKey)
                     if (decrypted != null) {
-                        return WebResourceResponse("audio/ogg", "UTF-8", ByteArrayInputStream(decrypted))
+                        return WebResourceResponse("audio/ogg", null, ByteArrayInputStream(decrypted))
                     }
                 }
-                return WebResourceResponse("audio/ogg", "UTF-8", sMvEnc)
+                return WebResourceResponse("audio/ogg", null, sMvEnc)
             }
             val oggPlain = base + ".ogg"
             val sPlain = streamProvider(oggPlain)
             if (sPlain != null) {
-                return WebResourceResponse("audio/ogg", "UTF-8", sPlain)
+                return WebResourceResponse("audio/ogg", null, sPlain)
             }
         }
         if (stream == null && (logicalPath.endsWith(".ogg") || logicalPath.endsWith(".png"))) {
@@ -157,13 +174,13 @@ class VfsResourceInterceptor(
             val s = streamProvider(encPath)
             if (s != null) {
                 val mime = getMimeType(logicalPath)
-                return WebResourceResponse(mime, "UTF-8", s)
+                return WebResourceResponse(mime, getEncoding(mime), s)
             }
         }
         if (stream == null) {
             return null
         }
         val mime = getMimeType(logicalPath)
-        return WebResourceResponse(mime, "UTF-8", stream)
+        return WebResourceResponse(mime, getEncoding(mime), stream)
     }
 }

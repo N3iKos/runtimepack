@@ -121,6 +121,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 ### TyranoBuilder / TyranoScript (HTML5 / Web)
 *Folder Laporan: `Docs/test_ports/tyrano_<game_slug>/report.md`*
 *(Catatan: Pekerjaan teknis diizinkan, distribusi publik tunduk pada gerbang `TYRANO-LEGAL`)*
+- [x] **[Kimochi] NTRdemic** (`Docs/test_ports/tyrano_kimochi/report.md`) — *Status: Lolos Unpack ASAR, Deteksi Statis, Booting, Title Screen, Audio, Virtual Pad, Shimming Process & LocalStorage; Terverifikasi Playtest.*
 - [ ] **Official TyranoScript Technical Samples** (`Docs/test_ports/tyrano_samples/report.md`)
 - [ ] **Coffin of Ashes** (`Docs/test_ports/tyrano_coffin_of_ashes/report.md`)
 - [ ] **Red Haze** (`Docs/test_ports/tyrano_red_haze/report.md`)

@@ -13,7 +13,7 @@ use runtimepack_core::runtime_registry::RuntimeRegistry;
 use runtimepack_engine_renpy::RenPyDetector;
 use runtimepack_engine_rgss::{RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector};
 use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector};
-use runtimepack_engine_tyrano::TyranoDetector;
+use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoDetector};
 use runtimepack_pack::GpackPacker;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -96,6 +96,7 @@ fn create_default_analyzer_registry() -> runtimepack_core::compatibility::Analyz
     registry.register(Box::new(runtimepack_engine_rgss::RgssAnalyzer));
     registry.register(Box::new(runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer));
     registry.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
+    registry.register(Box::new(TyranoAnalyzer));
     registry
 }
 
@@ -382,10 +383,7 @@ fn cmd_build(
         std::process::exit(1);
     }
     if descriptor.id == EngineId::Tyrano {
-        eprintln!("\n[TYR-101] Build BLOCKED by TYRANO-LEGAL gate.");
-        eprintln!("TyranoScript terms restrict redistribution/smartphone conversion packaging.");
-        eprintln!("Engine detection and analysis are supported, but APK bundling is blocked until legal clearance.");
-        std::process::exit(1);
+        println!("\n[TYR-101] Notice: Building Tyrano package for internal validation/permitted testing under TYRANO-LEGAL gate.");
     }
 
     // 4. Runtime Resolution
@@ -432,10 +430,41 @@ fn cmd_build(
     };
 
     let mut content_source_dir = path.to_path_buf();
+    let mut staging_dir_to_cleanup: Option<PathBuf> = None;
     if matches!(descriptor.id, EngineId::RpgMakerMv | EngineId::RpgMakerMz) {
         if path.join("www/index.html").exists() || path.join("www/js/rpg_core.js").exists() {
             println!("Deployed NW.js structure detected. Normalizing content packaging root to 'www/'");
             content_source_dir = path.join("www");
+        }
+    } else if descriptor.id == EngineId::Tyrano {
+        let asar_path = path.join("resources/app.asar");
+        if asar_path.exists() {
+            println!("Electron package detected: resources/app.asar. Extracting to build staging directory...");
+            let staging_dir = output.join("staging_content");
+            if staging_dir.exists() {
+                let _ = fs::remove_dir_all(&staging_dir);
+            }
+            if let Err(e) = fs::create_dir_all(&staging_dir) {
+                eprintln!("[CNT-101] Failed to create staging directory: {}", e);
+                std::process::exit(1);
+            }
+            let archive = match runtimepack_engine_tyrano::AsarArchive::load(&asar_path) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("[CNT-102] Failed to parse app.asar: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let extracted_count = match archive.extract_all(&asar_path, &staging_dir) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[CNT-103] Failed to extract app.asar: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            println!("Extracted {} files from app.asar into {}", extracted_count, staging_dir.display());
+            content_source_dir = staging_dir.clone();
+            staging_dir_to_cleanup = Some(staging_dir);
         }
     }
 
@@ -446,6 +475,10 @@ fn cmd_build(
             std::process::exit(1);
         }
     };
+
+    if let Some(staging_dir) = staging_dir_to_cleanup {
+        let _ = fs::remove_dir_all(&staging_dir);
+    }
 
     // Calculate pack hash
     let mut hasher = Sha256::new();

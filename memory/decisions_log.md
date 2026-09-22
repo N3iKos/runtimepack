@@ -1,6 +1,15 @@
 # Decisions Log
 
-## [2026-09-23] Dukungan Porting & Shimming RPG Maker XP (RGSS1) & To the Moon
+## [2026-09-23] Dukungan Porting & Shimming TyranoScript Electron & NTRdemic
+**Keputusan:**
+1. Mengimplementasikan parser & extractor murni Rust `AsarArchive` (`engines/tyrano/src/asar.rs`) untuk membaca header JSON Electron ASAR dan mengekstrak aset web ke build staging directory sebelum dibundel ke `game.pack`.
+2. Menambahkan aturan deteksi statis paket Electron `resources/app.asar` pada `TyranoDetector` (`engines/tyrano/src/lib.rs`) dengan bobot 120 (Confidence: EXACT).
+3. Mengimplementasikan `TyranoAnalyzer` (`engines/tyrano/src/scanner.rs`) untuk memfilter desktop wrapper DLL (`ffmpeg.dll`, `libEGL.dll`, `libGLESv2.dll`, `vulkan-1.dll`, `d3dcompiler_47.dll`, `vk_swiftshader.dll`) sebagai `CMP-DESKTOP-EXCLUDED` / `CMP-REDIST-EXCLUDED` dan memeriksa ada tidaknya addon biner `.node`.
+4. Menyediakan polyfill `process.execPath: ""` dan `process.env.HOME: ""` di `runtimepack_web_shims.js` untuk mengatasi `TypeError: Cannot read properties of undefined (reading 'indexOf')` saat `tyrano/libs.js` mengevaluasi `$.localFilePath()`.
+5. Mem-patch hook `$.isNeedClickAudio` agar mengembalikan `false` dan menyetel `ready_audio = true`, mencegah blocking eksekusi audio tag browser policy pada WebView Android dengan `mediaPlaybackRequiresUserGesture = false`.
+6. Memperbaiki pemberian charset di `VfsResourceInterceptor.kt`: hanya menyuplai encoding `"UTF-8"` untuk resource teks (`text/*`, `application/javascript`, `application/json`), dan menyuplai `null` untuk seluruh binary asset (`image/*`, `audio/*`, `font/*`).
+**Alasan:** Game TyranoScript desktop yang dikemas dengan Electron membungkus seluruh konten HTML5 di dalam `resources/app.asar` dan mengasumsikan keberadaan API desktop Node.js `process`.
+**Dampak:** Game *[Kimochi] NTRdemic* sukses dibangun menjadi APK mandiri (`NTRdemic.apk`, 158.63 MB) dan booting mulus ke Title Screen interaktif dengan rendering grafis dan audio playback sempurna di MuMu Player.
 **Keputusan:**
 1. Menambahkan aturan deteksi arsip terenkripsi `.rgssad`, `.rgss2a`, `.rgss3a` pada detektor RGSS (`engines/rgss/src/lib.rs`) dengan bobot 120 (Confidence: EXACT).
 2. Menambahkan filter desktop runner DLL (`steam_api`, `fluidsynth`, `utils`) pada `RgssAnalyzer` untuk proyek desktop package (ditandai adanya `mkxp.conf`/`mkxp-console.exe`), mengganti fatal `CMP-102` menjadi issue informatif `CMP-DESKTOP-EXCLUDED`.

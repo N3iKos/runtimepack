@@ -251,8 +251,17 @@
             },
             cwd: function() { return ""; },
             platform: "android",
-            env: {}
+            env: { HOME: "" },
+            execPath: "",
+            __dirname: ""
         };
+    } else {
+        root.process.execPath = root.process.execPath || "";
+        root.process.__dirname = root.process.__dirname || "";
+        root.process.env = root.process.env || { HOME: "" };
+        if (typeof root.process.env.HOME === "undefined") {
+            root.process.env.HOME = "";
+        }
     }
     if (typeof root.window !== "undefined" && typeof root.window.process === "undefined") {
         root.window.process = root.process;
@@ -397,11 +406,90 @@
         if (Object.prototype.hasOwnProperty.call(modules, mod)) {
             return modules[mod];
         }
+        if (typeof mod === "string" && (mod.indexOf("jquery") !== -1 || mod.indexOf("jQuery") !== -1)) {
+            var jq = (typeof root.window !== "undefined" && (root.window.jQuery || root.window.$))
+                || root.jQuery || root.$;
+            if (jq) return jq;
+        }
         if (root.console && typeof root.console.warn === "function") {
             root.console.warn("[RuntimePack] Unhandled require module:", mod);
         }
         return {};
     };
+
+    function setupTyranoHooks() {
+        var w = (typeof root.window !== "undefined") ? root.window : root;
+        var checkAndPatch = function() {
+            var jq = (w && w.$) || (w && w.jQuery);
+            if (jq) {
+                if (jq.isNWJS && !jq.isNWJS.__rp_patched) {
+                    var fnNw = function() { return false; };
+                    fnNw.__rp_patched = true;
+                    jq.isNWJS = fnNw;
+                }
+                if (jq.isElectron && !jq.isElectron.__rp_patched) {
+                    var fnEl = function() { return false; };
+                    fnEl.__rp_patched = true;
+                    jq.isElectron = fnEl;
+                }
+                if (jq.isNeedClickAudio && !jq.isNeedClickAudio.__rp_patched) {
+                    var fnNoClick = function() { return false; };
+                    fnNoClick.__rp_patched = true;
+                    jq.isNeedClickAudio = fnNoClick;
+                }
+                if (jq.setStorage && !jq.setStorage.__rp_patched) {
+                    var origSet = jq.setStorage;
+                    var patchedSet = function(key, val, type) {
+                        if (type === "file") {
+                            if (typeof jq.setStorageWeb === "function") {
+                                return jq.setStorageWeb(key, val);
+                            }
+                        }
+                        return origSet.apply(this, arguments);
+                    };
+                    patchedSet.__rp_patched = true;
+                    jq.setStorage = patchedSet;
+                }
+                if (jq.getStorage && !jq.getStorage.__rp_patched) {
+                    var origGet = jq.getStorage;
+                    var patchedGet = function(key, type) {
+                        if (type === "file") {
+                            if (typeof jq.getStorageWeb === "function") {
+                                return jq.getStorageWeb(key);
+                            }
+                        }
+                        return origGet.apply(this, arguments);
+                    };
+                    patchedGet.__rp_patched = true;
+                    jq.getStorage = patchedGet;
+                }
+            }
+            if (w && w.TYRANO && w.TYRANO.kag && w.TYRANO.kag.tmp) {
+                w.TYRANO.kag.tmp.ready_audio = true;
+            }
+        };
+
+        checkAndPatch();
+        try {
+            if (typeof window !== "undefined" && typeof window.setInterval === "function") {
+                var timer = window.setInterval(checkAndPatch, 50);
+                if (typeof window.setTimeout === "function" && typeof window.clearInterval === "function") {
+                    window.setTimeout(function() { window.clearInterval(timer); }, 10000);
+                }
+            } else if (typeof setInterval === "function") {
+                var timer = setInterval(checkAndPatch, 50);
+                if (typeof setTimeout === "function" && typeof clearInterval === "function") {
+                    setTimeout(function() { clearInterval(timer); }, 10000);
+                }
+            }
+        } catch (_) {}
+        if (typeof w.addEventListener === "function") {
+            w.addEventListener("DOMContentLoaded", checkAndPatch);
+            w.addEventListener("load", checkAndPatch);
+        }
+    }
+
+    setupTyranoHooks();
 
     root.nw = nwShim;
     root.Greenworks = greenworksShim; // Preserve native direct eval semantics for Yanfly formulas.
