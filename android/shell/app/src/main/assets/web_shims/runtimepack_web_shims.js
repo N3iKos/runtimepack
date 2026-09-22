@@ -1,4 +1,17 @@
 (function(root) {
+    if (typeof root.window !== "undefined" && typeof root.window.addEventListener === "function") {
+        root.window.addEventListener("error", function(e) {
+            if (root.console && typeof root.console.error === "function") {
+                root.console.error("[RuntimePack Global Error]", e.message, "at", e.filename, ":", e.lineno, ":", e.colno, e.error && e.error.stack ? e.error.stack : "");
+            }
+        });
+        root.window.addEventListener("unhandledrejection", function(e) {
+            if (root.console && typeof root.console.error === "function") {
+                root.console.error("[RuntimePack Unhandled Rejection]", e.reason);
+            }
+        });
+    }
+
     function patchStorageManager(sm) {
         if (!sm) return;
         try {
@@ -223,7 +236,11 @@
             }
         },
         App: {
-            manifest: {}
+            argv: [],
+            dataPath: "",
+            manifest: {},
+            quit: function() {},
+            closeAllWindows: function() {}
         }
     };
 
@@ -280,6 +297,15 @@
     };
 
     root.nw = nwShim;
+    try {
+        var _orig_eval = root.eval;
+        root.eval = function(str) {
+            if (typeof str === "string" && str.trim() === "[object Object]") {
+                return {};
+            }
+            return _orig_eval.apply(this, arguments);
+        };
+    } catch (e) {}
     root.Greenworks = greenworksShim;
     root.greenworks = greenworksShim;
     root.executeCheatCmd = executeCheatCmd;
@@ -304,6 +330,64 @@
             }
         });
     } catch (e) {}
+
+    function patchAudioManager(am) {
+        if (!am || (am.audioFileExt && am.audioFileExt.__patched)) return;
+        am.audioFileExt = function() {
+            if (root.WebAudio && typeof root.WebAudio.canPlayOgg === "function" && root.WebAudio.canPlayOgg()) {
+                return '.ogg';
+            }
+            return '.m4a';
+        };
+        am.audioFileExt.__patched = true;
+    }
+
+    function patchGraphics(g) {
+        if (!g || !g._clearUpperCanvas || g._clearUpperCanvas.__patched) return;
+        var origClear = g._clearUpperCanvas;
+        g._clearUpperCanvas = function() {
+            if (!this._upperCanvas) return;
+            return origClear.apply(this, arguments);
+        };
+        g._clearUpperCanvas.__patched = true;
+    }
+
+    function patchSceneManager(sm) {
+        if (!sm || !sm.catchException || sm.catchException.__patched) return;
+        var origCatch = sm.catchException;
+        sm.catchException = function(e) {
+            if (root.console && typeof root.console.error === "function") {
+                root.console.error("[RuntimePack Caught Error]", e && e.stack ? e.stack : e);
+            }
+            return origCatch.apply(this, arguments);
+        };
+        sm.catchException.__patched = true;
+    }
+
+    function pollPatches() {
+        if (root.StorageManager) {
+            patchStorageManager(root.StorageManager);
+        }
+        if (root.AudioManager) {
+            patchAudioManager(root.AudioManager);
+        }
+        if (root.Graphics) {
+            patchGraphics(root.Graphics);
+        }
+        if (root.SceneManager) {
+            patchSceneManager(root.SceneManager);
+        }
+    }
+
+    pollPatches();
+    if (typeof setInterval !== "undefined") {
+        var patchTimer = setInterval(function() {
+            pollPatches();
+            if (root.StorageManager && root.AudioManager && root.Graphics && root.SceneManager) {
+                clearInterval(patchTimer);
+            }
+        }, 10);
+    }
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = {

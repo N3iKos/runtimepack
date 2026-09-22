@@ -245,6 +245,13 @@ dependencies {{
             copy_dir_all(overlay_src, &overlay_dst)?;
         }
 
+        // Copy web_shims assets (runtimepack_web_shims.js)
+        let shims_src = Path::new("android/shell/app/src/main/assets/web_shims");
+        if shims_src.exists() {
+            let shims_dst = assets_dir.join("web_shims");
+            copy_dir_all(shims_src, &shims_dst)?;
+        }
+
         // Copy Android resources (launcher icons, mipmaps)
         let res_src = Path::new("android/shell/app/src/main/res");
         if res_src.exists() {

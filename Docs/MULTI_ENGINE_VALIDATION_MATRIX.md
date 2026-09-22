@@ -75,6 +75,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 
 ### RPG Maker MV (Web / Chromium)
 *Folder Laporan: `Docs/test_ports/rpgmv_<game_slug>/report.md`*
+- [ ] **Fear & Hunger 2: Termina** (`Docs/test_ports/rpgmv_fear_and_hunger_2_termina/report.md`) — *Status: Lolos Booting, Title Screen, Audio, Virtual Pad; Menunggu Playtest Lengkap 30 Menit.*
 - [ ] **Fear & Hunger** (`Docs/test_ports/rpgmv_fear_and_hunger/report.md`)
 - [ ] **OMORI** (`Docs/test_ports/rpgmv_omori/report.md`)
 - [ ] **Your Turn to Die** (`Docs/test_ports/rpgmv_your_turn_to_die/report.md`)

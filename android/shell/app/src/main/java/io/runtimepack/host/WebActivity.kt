@@ -19,6 +19,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.RelativeLayout
@@ -96,8 +97,6 @@ open class WebActivity : Activity() {
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         )
 
-        hideSystemUi()
-
         val gameDir = File(filesDir, "game")
         prepareGameContent(gameDir)
         setupVfs(gameDir)
@@ -117,31 +116,39 @@ open class WebActivity : Activity() {
         overlayWebView?.let { rootLayout.addView(it) }
         setContentView(rootLayout)
 
+        hideSystemUi()
+
+        Log.i(TAG, "Starting game loading: https://game.local/index.html")
         gameWebView?.loadUrl("https://game.local/index.html")
     }
 
     private fun hideSystemUi() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            val controller = window.insetsController
-            if (controller != null) {
-                controller.hide(
-                    android.view.WindowInsets.Type.statusBars() or
-                        android.view.WindowInsets.Type.navigationBars()
+        try {
+            val decor = window.peekDecorView() ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(false)
+                val controller = decor.windowInsetsController ?: window.insetsController
+                if (controller != null) {
+                    controller.hide(
+                        android.view.WindowInsets.Type.statusBars() or
+                            android.view.WindowInsets.Type.navigationBars()
+                    )
+                    controller.systemBarsBehavior =
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                decor.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_FULLSCREEN
                 )
-                controller.systemBarsBehavior =
-                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to hide system UI: ${e.message}")
         }
     }
 
@@ -161,9 +168,18 @@ open class WebActivity : Activity() {
                     GpackExtractor.prepareStreamingContainer(this, gameDir)
                 }
             } else {
-                val marker = File(gameDir, ".gpack_extracted")
-                if (!marker.exists() || !File(gameDir, "index.html").exists()) {
-                    GpackExtractor.extract(this, gameDir)
+                val hasPackAsset = try {
+                    val afd = assets.openFd("game.pack")
+                    afd.close()
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+                if (!hasPackAsset) {
+                    val marker = File(gameDir, ".gpack_extracted")
+                    if (!marker.exists() || !File(gameDir, "index.html").exists()) {
+                        GpackExtractor.extract(this, gameDir)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -176,6 +192,7 @@ open class WebActivity : Activity() {
         if (packFile.exists()) {
             try {
                 gpackReader = GpackStreamReader.open(packFile)
+                Log.i(TAG, "Opened game.pack from gameDir: ${packFile.absolutePath}")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not open packFile: ${e.message}")
             }
@@ -184,12 +201,28 @@ open class WebActivity : Activity() {
             try {
                 val afd = assets.openFd("game.pack")
                 gpackReader = GpackStreamReader.open(afd)
+                Log.i(TAG, "Opened game.pack from APK assets (${afd.length} bytes, totalFiles=${gpackReader?.totalFiles})")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not open game.pack from assets: ${e.message}")
             }
         }
 
-        vfsInterceptor = VfsResourceInterceptor(gpackReader) { path ->
+        var rpgMakerKey: String? = null
+        try {
+            val sysStream = gpackReader?.openStream("data/System.json") ?: File(gameDir, "data/System.json").let { if (it.exists()) it.inputStream() else null }
+            sysStream?.bufferedReader()?.use { reader ->
+                val content = reader.readText()
+                val match = Regex(""""encryptionKey"\s*:\s*"([a-fA-F0-9]{32})"""").find(content)
+                if (match != null) {
+                    rpgMakerKey = match.groupValues[1]
+                    Log.i(TAG, "Detected RPG Maker encryption key: $rpgMakerKey")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not check System.json for encryption key: ${e.message}")
+        }
+
+        vfsInterceptor = VfsResourceInterceptor(gpackReader, rpgMakerKey) { path ->
             val resolvedPath = if (path.isEmpty()) "index.html" else path
             val localFile = File(gameDir, resolvedPath)
             if (localFile.exists() && localFile.isFile) {
@@ -224,6 +257,7 @@ open class WebActivity : Activity() {
             loadsImagesAutomatically = true
             useWideViewPort = true
             loadWithOverviewMode = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
         wv.addJavascriptInterface(WebBridge(InternalStorageSaveService(this)), "RuntimePackNative")
@@ -242,7 +276,7 @@ open class WebActivity : Activity() {
         wv.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                 if (consoleMessage != null) {
-                    Log.d(TAG, "[GameConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    Log.i(TAG, "[GameConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                 }
                 return super.onConsoleMessage(consoleMessage)
             }
@@ -259,7 +293,11 @@ open class WebActivity : Activity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
-                return vfsInterceptor?.intercept(url) ?: super.shouldInterceptRequest(view, request)
+                val response = vfsInterceptor?.intercept(url)
+                if (response == null) {
+                    Log.w(TAG, "[VFS Unhandled] $url")
+                }
+                return response ?: super.shouldInterceptRequest(view, request)
             }
 
             @Deprecated("Deprecated in Java")
@@ -307,6 +345,15 @@ open class WebActivity : Activity() {
             domStorageEnabled = true
             allowFileAccess = true
             allowContentAccess = true
+        }
+
+        wv.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                if (consoleMessage != null) {
+                    Log.i(TAG, "[OverlayConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                }
+                return super.onConsoleMessage(consoleMessage)
+            }
         }
 
         wv.addJavascriptInterface(object : Any() {
