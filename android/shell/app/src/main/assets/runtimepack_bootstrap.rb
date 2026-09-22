@@ -13,6 +13,10 @@ class NilClass
   def type
     "NilClass"
   end unless method_defined?(:type)
+
+  def empty?
+    true
+  end unless method_defined?(:empty?)
 end
 
 class Hash
@@ -130,6 +134,37 @@ class << File
   alias_method :runtimepack_original_open, :open
   alias_method :runtimepack_original_read, :read
   alias_method :runtimepack_original_binread, :binread if method_defined?(:binread)
+end
+
+class Regexp
+  unless method_defined?(:rp_orig_match_op)
+    alias_method :rp_orig_match_op, :=~ rescue nil
+    def =~(str)
+      begin
+        rp_orig_match_op(str)
+      rescue Encoding::CompatibilityError
+        rp_orig_match_op(str.to_s.dup.force_encoding("UTF-8")) rescue nil
+      end
+    end
+  end
+end
+
+class String
+  unless method_defined?(:rp_orig_scan)
+    alias_method :rp_orig_scan, :scan rescue nil
+    def scan(pattern, &block)
+      begin
+        rp_orig_scan(pattern, &block)
+      rescue Encoding::CompatibilityError
+        if pattern.is_a?(Regexp)
+          p_utf8 = Regexp.new(pattern.source.dup.force_encoding("UTF-8"), pattern.options) rescue pattern
+          rp_orig_scan(p_utf8, &block) rescue []
+        else
+          []
+        end
+      end
+    end
+  end
 end
 
 module RuntimePackCasePath
@@ -531,9 +566,6 @@ module RuntimePackCheatRunner
   end
 
   def self.install_save_and_cache_hooks
-    return if @save_hooks_installed
-    @save_hooks_installed = true
-
     if defined?(SceneManager)
       class << SceneManager
         unless method_defined?(:rp_orig_scene_call)
@@ -556,6 +588,18 @@ module RuntimePackCheatRunner
 
     if defined?(Cache)
       class << Cache
+        unless method_defined?(:rp_orig_normal_bitmap)
+          alias_method :rp_orig_normal_bitmap, :normal_bitmap rescue nil
+          def normal_bitmap(path)
+            begin
+              rp_orig_normal_bitmap(path)
+            rescue Errno::ENOENT => e
+              puts "[RuntimePack] Missing bitmap in Cache.normal_bitmap: #{path}, falling back to empty bitmap"
+              @cache ||= {}
+              @cache[path] = (Bitmap.new(32, 32) rescue nil)
+            end
+          end
+        end
         unless method_defined?(:rp_orig_savefile_bitmap)
           alias_method :rp_orig_savefile_bitmap, :savefile_bitmap rescue nil
           def savefile_bitmap(path)
@@ -580,14 +624,35 @@ module RuntimePackCheatRunner
               rp_orig_bitmap_new(*args)
             rescue Errno::ENOENT => e
               if args.size == 1 && args[0].is_a?(String)
-                fallback = "Graphics/System/SaveNotFound.png"
-                if File.exist?(fallback)
-                  (rp_orig_bitmap_new(fallback) rescue rp_orig_bitmap_new(32, 32))
+                puts "[RuntimePack] Bitmap not found: #{args[0]}, substituting empty bitmap"
+                if args[0].downcase.include?("save") && File.exist?("Graphics/System/SaveNotFound.png")
+                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
                 else
-                  rp_orig_bitmap_new(32, 32) rescue nil
+                  rp_orig_bitmap_new(32, 32)
                 end
               else
                 raise e
+              end
+            end
+          end
+        end
+      end
+    end
+
+    if defined?(Audio)
+      class << Audio
+        [:se_play, :bgm_play, :bgs_play, :me_play].each do |m|
+          if method_defined?(m)
+            orig_m = :"rp_orig_audio_#{m}"
+            unless method_defined?(orig_m)
+              alias_method orig_m, m rescue nil
+              define_method(m) do |*args|
+                begin
+                  send(orig_m, *args)
+                rescue Errno::ENOENT => e
+                  puts "[RuntimePack] Audio asset not found in #{m}: #{args[0]}"
+                rescue => e
+                end
               end
             end
           end
@@ -935,6 +1000,7 @@ module RuntimePackCheatRunner
   end
 
   def self.hook_engine
+    install_save_and_cache_hooks
     if defined?(Graphics)
       class << Graphics
         unless method_defined?(:rp_orig_cheat_update)
@@ -1069,6 +1135,13 @@ if defined?(load_data) || respond_to?(:load_data, true)
       end
 
       script_source = Zlib::Inflate.inflate(script[2])
+      if script_source.respond_to?(:force_encoding)
+        script_source = script_source.dup.force_encoding("UTF-8")
+        unless script_source.valid_encoding?
+          script_source = script_source.encode("UTF-8", "Shift_JIS", invalid: :replace, undef: :replace, replace: "") rescue script_source.force_encoding("UTF-8")
+        end
+        script_source = "# encoding: utf-8\n" + script_source
+      end
       begin
         eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
       rescue => e
@@ -1083,6 +1156,17 @@ if defined?(load_data) || respond_to?(:load_data, true)
       patch_json_decoder if respond_to?(:patch_json_decoder)
     end
     RuntimePackCompatibility.normalize_input_utils if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:normalize_input_utils)
+    if defined?(Game_Map)
+      class Game_Map
+        if method_defined?(:bmsp_mapfog_update_fog)
+          alias_method :rp_orig_bmsp_mapfog_update_fog, :bmsp_mapfog_update_fog rescue nil
+          def bmsp_mapfog_update_fog
+            return if !@bmsp_fog || !@bmsp_fog.is_a?(Hash) || !@bmsp_fog[:file] || @bmsp_fog[:file].empty?
+            rp_orig_bmsp_mapfog_update_fog
+          end
+        end
+      end
+    end
   end
 end
 

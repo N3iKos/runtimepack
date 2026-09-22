@@ -232,6 +232,11 @@ object GpackExtractor {
         }
 
         val defaultFontSubs = mutableListOf(
+            "VL Gothic>Noto Sans CJK TC",
+            "VL PGothic>Noto Sans CJK TC",
+            "UmePlus Gothic>Noto Sans CJK TC",
+            "MS Gothic>Noto Sans CJK TC",
+            "MS Mincho>Noto Sans CJK TC",
             "Noto Sans CJK TC Black>Noto Sans CJK TC",
             "Noto Sans CJK TC Medium>Noto Sans CJK TC",
             "Source Han Sans Bold>Source Han Sans",

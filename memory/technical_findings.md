@@ -1,5 +1,17 @@
 # Technical Findings
 
+## [Incompatible Encoding Regexp Match pada Zlib-Inflated Ruby Scripts]
+**Masalah:** Skrip RPG Maker VX Ace melempar `Encoding::CompatibilityError: incompatible encoding regexp match (ASCII-8BIT regexp with UTF-8 string)` saat mencocokkan regex literal yang memuat karakter multibyte (seperti fullwidth colon `[\xef\xbc\x9a:]`) terhadap data game ber-encoding UTF-8 (misal `actor.note`).
+**Penyebab:** Dekompresi byte skrip via `Zlib::Inflate.inflate` menghasilkan string dengan default encoding `ASCII-8BIT` (binary). Saat di-`eval`, literal regex di dalamnya mewarisi encoding `ASCII-8BIT`. Di Ruby 1.9+, pencocokan regex ASCII-8BIT terhadap string UTF-8 dilarang jika regex memuat byte di atas `0x7F`.
+**Solusi/workaround:** Di `runtimepack_bootstrap.rb`, paksa string source skrip menjadi UTF-8 (`script_source.force_encoding("UTF-8")`) dan sisipkan `# encoding: utf-8\n` sebelum `eval`. Tambahkan juga monkey-patch pencegah error pada `Regexp#=~` dan `String#scan`.
+**Tags:** #ruby #encoding #utf8 #ascii-8bit #zlib
+
+## [Missing Windows RTP Assets pada Scene_Title Background Layer]
+**Masalah:** Game melempar `Errno::ENOENT: No such file or directory - Graphics/Titles2/Mist` saat Title Screen RGSS3 diinisialisasi.
+**Penyebab:** Game mendeklarasikan `rtp = RPGVXAce` di `Game.ini` dan memanggil layer bawaan template engine (`Mist`) yang tidak dibundel dalam folder game mandiri melainkan ada pada instalasi RTP Windows Enterbrain.
+**Solusi/workaround:** Pasang hook `Bitmap.new` dan `Cache.normal_bitmap` sejak awal bootstrap yang mencegat `Errno::ENOENT` dan mengembalikan empty transparent bitmap (32x32) untuk file grafis yang hilang tanpa menghentikan eksekusi game.
+**Tags:** #rgss3 #rtp #mkxp-z #bitmap-fallback #cache
+
 ## [Inisialisasi Hook Bootstrap Terhambat Evaluasi Main pada RPG Maker XP]
 **Masalah:** Hook input (`patch_input_fallbacks`) dan cheat runner (`RuntimePackCheatRunner.hook_engine`) tidak pernah terpasang pada game RPG Maker XP, menyebabkan input virtual pad tidak merespons.
 **Penyebab:** Pada `runtimepack_bootstrap.rb`, hook sebelumnya dipasang pada kondisi `idx == scripts.size - 1`. Pada RPG Maker XP, skrip `Main` (yang berisi loop `while $scene != nil; $scene.main; end`) berada sebelum index terakhir (misal index 122 dari 124), sehingga evaluasi skrip tidak pernah kembali sampai game ditutup. Akibatnya hook tidak sempat dieksekusi.

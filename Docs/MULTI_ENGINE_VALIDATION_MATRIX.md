@@ -68,7 +68,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 - [ ] **Deadly Sin 2** (`Docs/test_ports/rpgvxa_deadly_sin_2/report.md`)
 - [ ] **Forever Home** (`Docs/test_ports/rpgvxa_forever_home/report.md`)
 - [ ] **Ara Fell** (`Docs/test_ports/rpgvxa_ara_fell/report.md`)
-- [ ] **Black Souls** (`Docs/test_ports/rpgvxa_black_souls/report.md`)
+- [x] **Black Souls** (`Docs/test_ports/rpgvxa_black_souls/report.md`) — *Status: Lolos Booting, Title Screen, Audio, Virtual Pad, Map & Dialogue Prologue; Terverifikasi Playtest.*
 - [ ] **Black Souls II** (`Docs/test_ports/rpgvxa_black_souls_2/report.md`)
 
 ---
