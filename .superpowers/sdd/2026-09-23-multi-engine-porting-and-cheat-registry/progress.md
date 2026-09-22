@@ -9,3 +9,4 @@
 | Task 4 | Task 5 | Web runtime (`WebActivity.kt`) | MV vs MZ core files | Both routed to WebActivity with VFS streaming and shims |
 
 Task 1: complete (commits caf2e03..2675404, review clean)
+Task 2: complete (commits 2675404..2665a8c, review clean)

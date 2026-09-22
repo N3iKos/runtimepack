@@ -1,5 +1,17 @@
 # Technical Findings
 
+## [Inisialisasi Hook Bootstrap Terhambat Evaluasi Main pada RPG Maker XP]
+**Masalah:** Hook input (`patch_input_fallbacks`) dan cheat runner (`RuntimePackCheatRunner.hook_engine`) tidak pernah terpasang pada game RPG Maker XP, menyebabkan input virtual pad tidak merespons.
+**Penyebab:** Pada `runtimepack_bootstrap.rb`, hook sebelumnya dipasang pada kondisi `idx == scripts.size - 1`. Pada RPG Maker XP, skrip `Main` (yang berisi loop `while $scene != nil; $scene.main; end`) berada sebelum index terakhir (misal index 122 dari 124), sehingga evaluasi skrip tidak pernah kembali sampai game ditutup. Akibatnya hook tidak sempat dieksekusi.
+**Solusi/workaround:** Pasang hook secara eksplisit sebelum skrip `Main` dievaluasi: `if script_name.downcase == 'main' || idx == scripts.size - 1`.
+**Tags:** #rgss1 #ruby #main-loop #bootstrap-hooks
+
+## [Uninitialized Constant MKXP pada Port Desktop Game RPG Maker XP]
+**Masalah:** Porting game RPG Maker XP desktop mkxp crash saat booting dengan `uninitialized constant StartGame::MKXP (NameError)`.
+**Penyebab:** Upstream mkxp desktop menyediakan modul `MKXP` (dengan method `data_directory`, `raw_key_states`, `title`, dll.), sementara `mkxp-z` modern pada Android tidak lagi mengekspos seluruh namespace modul tersebut ke Ruby binding.
+**Solusi/workaround:** Tambahkan modul stub `MKXP` di `runtimepack_bootstrap.rb` dengan method `data_directory` mengembalikan `"./."` dan `method_missing` yang mengembalikan nil tanpa exception.
+**Tags:** #mkxp #ruby #mkxp-z #data-directory
+
 ## [Argument 0: Expected bool pada setter visible= RGSS3]
 **Masalah:** Game crash saat inisialisasi script pencahayaan (`460_KHAS_LightLib.rb:1334`) dengan pesan error `Argument 0: Expected bool`.
 **Penyebab:** Skrip game berisi typo `@sprite.visible = @sprite`. Di Windows RGSS asli, nilai truthy non-boolean diterima sebagai `true`. Namun implementasi binding C++ `mkxp-z` memeriksa tipe boolean secara ketat.
@@ -52,3 +64,39 @@ end
 **Penyebab:** Di Ruby, `SyntaxError` diturunkan dari `ScriptError < Exception`, bukan `StandardError`. Pernyataan `rescue => err` hanya menangkap turunan `StandardError`.
 **Solusi/workaround:** Tangkap error secara eksplisit menggunakan `rescue Exception => err` pada blok `eval` dan `process_cmd` agar seluruh error kompilasi dan runtime Ruby ditangkap lalu dituliskan ke file hasil `rp_cheat_eval_res.txt`.
 **Tags:** #ruby #syntax-error #exception-handling #eval
+
+## [Font setter strict bool dan glyph tombol arah pada mkxp-z Android]
+**Masalah:** Popup NPC/SKIP crash dengan `Argument 0: Expected bool`, sementara tutorial menampilkan `ALT + □ □ □ □`.
+**Penyebab:** Script Galv menetapkan `font.shadow = 20`, tetapi binding mkxp-z mewajibkan boolean murni. InputUtils juga memakai U+2B06/U+2B07/U+2B05/U+27A1 yang tidak dirender konsisten pada runtime Android.
+**Solusi/workaround:** Bootstrap mengoersi setter boolean `Font` dan menormalisasi mapping `InputUtils.@keySYM_in_UI` menjadi label ASCII `Up`, `Down`, `Left`, `Right` setelah semua script game dimuat.
+**Tags:** #rgss #mkxp-z #font #glyph #android
+
+## [ALT dan multi-touch D-Pad tidak terkirim ke game RGSS]
+**Masalah:** Kombinasi ALT + arah tidak mengubah arah kamera; sebagian tombol multi-touch melepas tombol lain lebih awal.
+**Penyebab:** `vpad.js` mengirim Alt sebagai keycode JS 18, tetapi `RgssActivity.mapJsKey()` tidak memetakannya sehingga event dibuang sebelum SDL dan `rp_input_state.bin`. Handler tombol juga memanggil `btnOnUp` pada `touchend` mana pun, sehingga melepas satu jari ikut melepas tombol yang masih ditahan jari lain.
+**Solusi/workaround:** Tambahkan mapping JS 18 ke `KEYCODE_ALT_LEFT` + VK `0x12` (VK_MENU) dan lengkapi F1–F12/Delete; lacak `buttonActiveTouchId` sehingga tombol hanya dilepas saat sentuhannya sendiri berakhir.
+**Tags:** #rgss #mkxp-z #input #multitouch #android
+
+## [Font bawaan game tidak ter-resolve oleh mkxp-z (kotak glyph)]
+**Masalah:** Karakter fullwidth colon `：` (U+FF1A) di nama pembicara dan panah U+2B06/07/05/27A1 di tutorial tampil sebagai kotak.
+**Penyebab:** mkxp-z me-resolve font via FreeType `TTF_FontFaceFamilyName` yang mengembalikan *typographic family* (name_id 16). Font `SYS-DEFAULT-NotoSansCJKtc-Black.otf` terdaftar sebagai `Noto Sans CJK TC`, sedangkan script game meminta *full name* `Noto Sans CJK TC Black` (name_id 4). Tidak cocok → mkxp-z jatuh ke font built-in Liberation Sans/Arimo yang tidak punya glyph CJK/fullwidth.
+**Solusi/workaround:** Tambahkan `fontSub` di `mkxp.json` (dibuat `GpackExtractor.kt`) yang memetakan full name ke typographic family: `Noto Sans CJK TC Black>Noto Sans CJK TC`, `Noto Sans CJK TC Medium>Noto Sans CJK TC`, `Source Han Sans Bold>Source Han Sans`, `Noto Sans LRPG Black>Noto Sans LRPG`.
+**Tags:** #rgss #mkxp-z #font #freetype #android
+
+## [Normalisasi glyph gagal karena perbedaan encoding string Ruby]
+**Masalah:** Normalisasi `InputUtils.@keySYM_in_UI` tidak berjalan meski sudah dipasang.
+**Penyebab:** Script game di-`Zlib::Inflate` dan `eval` sebagai string ASCII-8BIT, sehingga nilai glyph adalah byte binary. `DIRECTION_LABELS` di bootstrap adalah UTF-8. `==`/`Hash#key?` lintas encoding dengan byte non-ASCII bernilai false.
+**Solusi/workaround:** `value.dup.force_encoding(Encoding::UTF_8)` sebelum lookup; test memakai string binary agar tidak lolos palsu.
+**Tags:** #ruby #encoding #rgss #android
+
+## [Keyboard fisik tidak sampai ke SDL karena WebView overlay]
+**Masalah:** Tombol keyboard fisik tidak terbaca game saat overlay virtual pad aktif.
+**Penyebab:** `SDLActivity.dispatchKeyEvent` meneruskan tombol ke view yang fokus; WebView overlay dapat mengambil fokus sehingga tombol masuk ke WebView, bukan SDL.
+**Solusi/workaround:** Override `dispatchKeyEvent` di `RgssActivity` untuk meneruskan tombol ke `SDLActivity.handleKeyEvent` selama input teks overlay tidak fokus; flag fokus di-set oleh bridge `setOverlayTextFocused` dari listener `focusin`/`focusout` overlay, dan di-reset di `onPause`/`onDestroy` serta saat window blur/hidden.
+**Tags:** #sdl2 #android #keyboard #webview #input
+
+## [MuMu Player Multi-Display & ADB Input Tap Routing]
+**Masalah:** Perintah `adb shell input tap 35 235` tidak membuka menu cheat dan tampak tidak merespons layar game di MuMu Player.
+**Penyebab:** (1) Toolbar button icon petir (Cheat) berada di koordinat fisik (x=40, y=170), sedangkan y=235 adalah tombol linktree. (2) MuMu Player mengelola multi-display SurfaceFlinger/WindowManager di mana display 0 adalah launcher desktop, dan aktivitas game berjalan pada display sekunder (`displayId=4`). Command `input tap` bawaan Android default ke display 0 jika opsi `-d` tidak diberikan.
+**Solusi/workaround:** Kirim tap menggunakan flag display `-d 4` (atau broadcast multi-display) pada koordinat tombol yang tepat: `adb shell input -d 4 tap 35 170`. Tombol toggle header `[ Cheat Menu ]` berada di koordinat (818, 103).
+**Tags:** #mumu #adb #input #multi-display #cheat-overlay

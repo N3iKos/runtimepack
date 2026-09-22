@@ -9,9 +9,10 @@ RuntimePack adalah build-time compatibility packager untuk mengubah game desktop
 - **Gunakan Systematic Debugging & TDD:** Jangan menebak error; ambil bukti konkret (logcat, dump window, backtrace) dan tulis failing test sebelum menerapkan perbaikan.
 
 ## Status terkini (1 baris, detail di progress.md)
-Milestone 0-9 selesai; Milestone 4 RGSS native slice aktif; Lona RPG (VX Ace) terbukti sukses booting dan merender Title Screen interaktif di emulator Android.
+Milestone 0-9 selesai; fokus hardening RGSS3 Android untuk Lona RPG; APK terbaru `dist/lona/LonaRPG.apk` SHA-256 `a0cc92f0...`.
 
 ## Preferensi user / gaya kerja
 - Komunikasi langsung ke poin utama (*concise, direct*), hindari penjelasan bertele-tele kecuali diminta detail.
-- Utamakan aksi nyata dan perbaikan mandiri sampai tuntas ("langsung selesaikan semua secara iterasi").
+- **Wajib Superpowers & Sub-Agent Driven:** Selalu gunakan alur superpowers dan delegasikan tugas/inspeksi/eksekusi ke sub-agent untuk efisiensi token context window.
+- **Dilarang Asal Build / Eksekusi Tanpa Konfirmasi:** Jangan langsung memicu build berat atau mengambil asumsi sendiri; jika ada instruksi ambigu, wajib klarifikasi/tanya ke user terlebih dahulu.
 - Mengadopsi standar kontrol `rpgmaker-android-suite`: layout `vpad.js` (5 preset, 4 ikon toolbar pojok kiri atas, Clean Slate & Retro OSD theme) dan arsitektur dua lapis Profile-Driven Cheat Engine.

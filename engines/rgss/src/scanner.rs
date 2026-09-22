@@ -25,6 +25,16 @@ impl RgssAnalyzer {
             || lower.contains("_commonredist")
     }
 
+    pub fn is_desktop_runner_dll(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        filename.starts_with("steam_api")
+            || filename.starts_with("fluidsynth")
+            || filename.starts_with("libfluidsynth")
+            || filename.starts_with("utils")
+            || filename == "discord_game_sdk.dll"
+    }
+
     pub fn is_known_shimmable_dll(path: &str) -> Option<(&'static str, &'static str, &'static str)> {
         let lower = path.to_ascii_lowercase();
         if lower.contains("lonamousewheel") || lower.contains("mousewhee") {
@@ -70,6 +80,10 @@ impl Analyzer for RgssAnalyzer {
 
         let mut has_unsupported_dll = false;
 
+        let is_desktop_package = source.has_file("mkxp.conf")
+            || source.has_file("mkxp-console.exe")
+            || source.has_file("mkxp.json");
+
         // 1. Scan for Native Windows PE DLLs
         for (path, file) in &source.files {
             if path.ends_with(".dll") {
@@ -84,6 +98,20 @@ impl Analyzer for RgssAnalyzer {
                         severity: DiagnosticSeverity::Info,
                         message: format!(
                             "Windows Visual C++ redistributable DLL '{}' detected; excluded from Android runtime package.",
+                            file.logical_path
+                        ),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: None,
+                    });
+                    continue;
+                }
+
+                if is_desktop_package && Self::is_desktop_runner_dll(path) {
+                    report.add_issue(CompatibilityIssue {
+                        code: "CMP-DESKTOP-EXCLUDED".to_string(),
+                        severity: DiagnosticSeverity::Info,
+                        message: format!(
+                            "Desktop runner/wrapper DLL '{}' detected in RGSS desktop package; excluded from Android mobile runtime.",
                             file.logical_path
                         ),
                         source_path: Some(file.logical_path.clone()),

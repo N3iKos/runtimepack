@@ -25,8 +25,7 @@ object GpackExtractor {
     fun isExtracted(destDir: File): Boolean {
         val marker = File(destDir, ".gpack_extracted")
         val ini = File(destDir, "Game.ini")
-        val pack = File(destDir, "game.pack")
-        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && (ini.exists() || pack.exists())
+        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && ini.exists()
     }
 
     fun isEncryptedStreamingMode(context: Context): Boolean {
@@ -164,19 +163,105 @@ object GpackExtractor {
             Log.w(TAG, "Could not copy runtimepack_bootstrap.rb from assets: ${e.message}")
         }
 
+        var detectedExecName: String? = null
+        val rtpList = mutableListOf<String>()
+        val extraFontSubs = mutableListOf<String>()
+
+        val mkxpConf = File(destDir, "mkxp.conf")
+        if (mkxpConf.exists()) {
+            try {
+                mkxpConf.forEachLine { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("#") || !trimmed.contains("=")) return@forEachLine
+                    val eqIdx = trimmed.indexOf('=')
+                    val key = trimmed.substring(0, eqIdx).trim()
+                    val value = trimmed.substring(eqIdx + 1).trim()
+                    when (key) {
+                        "execName" -> if (value.isNotEmpty()) detectedExecName = value
+                        "RTP" -> if (value.isNotEmpty()) rtpList.add(value)
+                        "fontSub" -> if (value.isNotEmpty()) extraFontSubs.add(value)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error reading mkxp.conf: ${e.message}")
+            }
+        }
+
+        val archives = destDir.listFiles { _, name ->
+            val l = name.lowercase()
+            l.endsWith(".rgssad") || l.endsWith(".rgss2a") || l.endsWith(".rgss3a")
+        } ?: emptyArray()
+
+        if (detectedExecName == null && archives.isNotEmpty()) {
+            val baseName = archives[0].name.substringBeforeLast('.')
+            detectedExecName = baseName
+        }
+
+        val finalExecName = detectedExecName ?: "Game"
+
+        // Ensure Game.* archive aliases exist for mkxp-z fallback
+        for (archive in archives) {
+            val ext = archive.name.substring(archive.name.lastIndexOf('.'))
+            val target = File(destDir, "Game$ext")
+            if (!target.exists() && archive.name != target.name) {
+                try {
+                    android.system.Os.symlink(archive.absolutePath, target.absolutePath)
+                    Log.i(TAG, "Symlinked ${archive.name} -> ${target.name}")
+                } catch (e: Throwable) {
+                    try {
+                        archive.copyTo(target, overwrite = false)
+                        Log.i(TAG, "Copied ${archive.name} -> ${target.name}")
+                    } catch (e2: Exception) {
+                        Log.w(TAG, "Could not alias archive: ${e2.message}")
+                    }
+                }
+            }
+        }
+
+        // Ensure Game.ini exists if custom ini present
+        val gameIni = File(destDir, "Game.ini")
+        if (!gameIni.exists() && detectedExecName != null) {
+            val customIni = File(destDir, "$detectedExecName.ini")
+            if (customIni.exists()) {
+                try {
+                    customIni.copyTo(gameIni, overwrite = false)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not copy $customIni to Game.ini: ${e.message}")
+                }
+            }
+        }
+
+        val defaultFontSubs = mutableListOf(
+            "Noto Sans CJK TC Black>Noto Sans CJK TC",
+            "Noto Sans CJK TC Medium>Noto Sans CJK TC",
+            "Source Han Sans Bold>Source Han Sans",
+            "Noto Sans LRPG Black>Noto Sans LRPG"
+        )
+        for (fs in extraFontSubs) {
+            if (!defaultFontSubs.contains(fs)) {
+                defaultFontSubs.add(fs)
+            }
+        }
+
+        val rtpJson = if (rtpList.isNotEmpty()) {
+            val items = rtpList.joinToString(",\n                    ") { "\"$it\"" }
+            ",\n                \"RTP\": [\n                    $items\n                ]"
+        } else {
+            ""
+        }
+
+        val fontSubJson = defaultFontSubs.joinToString(",\n                    ") { "\"$it\"" }
+
         val mkxpConfig = """
             {
                 "fixedAspectRatio": true,
                 "smoothScaling": true,
-                "pathCache": true,
+                "pathCache": false,
                 "subImageFix": true,
-                "execName": "Game",
-                "customScript": "runtimepack_bootstrap.rb",
+                "execName": "$finalExecName",
+                "customScript": "runtimepack_bootstrap.rb"$rtpJson,
                 "fontSub": [
-                    "Noto Sans CJK TC Black>Noto Sans CJK TC",
-                    "Noto Sans CJK TC Medium>Noto Sans CJK TC",
-                    "Source Han Sans Bold>Source Han Sans",
-                    "Noto Sans LRPG Black>Noto Sans LRPG"
+                    $fontSubJson
                 ]
             }
         """.trimIndent()

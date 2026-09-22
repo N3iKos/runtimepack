@@ -1,11 +1,35 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Menyelesaikan integrasi Milestone 4 RGSS native slice, shimming kompatibilitas Lona RPG, dan setup file memori/dokumentasi proyek.
-- **Next step:** Pengujian gameplay in-game Lona RPG (New Game, map transition, combat, save/load) dan optimasi runtime web backend untuk engine MV/MZ.
+- **Sedang kerjain apa:** Task 3 selesai — Porting & validasi *To the Moon* (RPG Maker XP / RGSS1) berhasil 100% dan terverifikasi live di MuMu emulator (`127.0.0.1:16384`).
+- **Next step:** Melanjutkan porting & validasi engine selanjutnya sesuai plan multi-engine.
 - **Blocker:** Tidak ada blocker aktif.
+- **Catatan fokus:** Dukungan RGSS1 (XP) telah aktif dengan polyfill Ruby 1.8, modul stub `MKXP`, symlink arsip `*.rgssad -> Game.rgssad`, dynamic `mkxp.conf` parser (RTP `lang.dat`, fontSub), dan title screen sequence.
 
 ## Selesai
+- [2026-09-23] Task 3 Porting & Validasi RPG Maker XP (RGSS1) *To the Moon* Selesai & Terverifikasi: APK mandiri `dist/to_the_moon/ToTheMoon.apk` (154.45 MB, SHA-256 `5fc35430...`) sukses dikompilasi, diinstal, dan dijalankan di MuMu Player 12. Menambahkan aturan deteksi arsip terenkripsi `.rgssad`/`.rgss2a`/`.rgss3a` (Confidence: EXACT), filtering desktop runner DLL (`steam_api.dll`, `fluidsynth.dll`, `Utils.dll`), dynamic parser `mkxp.conf` dan symlink arsip di `GpackExtractor.kt`, polyfill Ruby 1.8 (`NilClass#id`, `NilClass#type`, `Hash#index`, `Array#to_s`), modul stub `MKXP` (`data_directory` -> `"./."`, `raw_key_states`), serta inisialisasi `.lang` default ke bahasa Inggris. Title screen interaktif (Lighthouse, Full Moon, Begin/Load/Exit) terverifikasi via screenshot 960x540 `Docs/test_ports/rpgxp_to_the_moon/screenshot.png`. Matriks `Docs/MULTI_ENGINE_VALIDATION_MATRIX.md` diperbarui `[x] To the Moon`.
+- [2026-09-22] Milestone 5 RPG Maker MV Web Runtime Selesai & Terverifikasi: *Fear & Hunger 2: Termina* sukses di-build langsung dari folder desktop NW.js menjadi APK standalone (`dist/termina/Termina.apk`, 1,528 MB, SHA-256 `861D75D5...`). Terverifikasi booting ke Title Screen interaktif ("Permainan Baru", "Lanjutkan", "Options") dengan overlay virtual gamepad aktif di MuMu Player (screenshot `termina_boot_test.png`).
+- [2026-09-22] Implementasi `WebActivity.kt` hardware-accelerated WebView, `VfsResourceInterceptor` on-the-fly RPG Maker asset decrypter (`.rpgmvp` / `.rpgmvo`), `runtimepack_web_shims.js` (Node path, NW.js, Greenworks, StorageManager IndexedDB), dan normalisasi deployed NW.js packaging di Rust CLI (`cli/src/main.rs`).
+- [2026-09-22] Verifikasi build, install, dan in-game visual test Lona RPG: kompilasi APK `dist/lona/LonaRPG.apk` (exit 0, 779.66 MB), fresh install (`pm clear`) ke MuMu emulator (`127.0.0.1:16384`), booting Title Screen, New Game, dan advance dialogue terverifikasi. Screenshot `lona_hud_fixed_verified.png` (960x540) membuktikan area gameplay dan pojok kanan atas 100% bersih tanpa black bar / scrollbar artifact.
+- [2026-09-20] Penonaktifan total scrollbar WebView overlay: mematikan `isVerticalScrollBarEnabled` dan `isHorizontalScrollBarEnabled` di `RgssActivity.kt`/`WebBackend.kt`, menambahkan aturan CSS anti-scrollbar, serta memverifikasi bahwa kapsul scrollbar hitam di pojok kanan atas telah hilang sepenuhnya via screenshot `lona_no_scrollbar.png`.
+- [2026-09-20] Fix freeze/crash menu makan (`undefined method 'key_item?' for nil:NilClass` di `191_menu_07Items.rb:348`): memisahkan tombol SPACE dari tombol virtual A di `RgssActivity.kt`, menambahkan patch eksklusif `if ... elsif` serta null-safety check di `Menu_Items` (`runtimepack_bootstrap.rb`), terverifikasi in-game via screenshot `lona_item_consume_test.png`.
+- [2026-09-20] Verifikasi live in-game Save Menu Anywhere: kompilasi APK `dist/lona/LonaRPG.apk` (exit status 0), fresh install (`pm clear`) ke MuMu emulator (`127.0.0.1:16384`), eksekusi "Open Save Menu Anywhere" dari tab "System & Save" di Cheat Menu modal, dan verifikasi tangkapan layar `save_menu_fixed.png` (960x540). Terverifikasi: menu Save (`Scene_Save`) terbuka 100% bersih tanpa glitch, tidak ada pesan `fucking return #<Scene_Map:...>`, dan tidak ada error missing `UserData/Save01.png`.
+- [2026-09-20] Verifikasi clean reboot & boot sequence Lona RPG: kompilasi APK `dist/lona/LonaRPG.apk` (exit status 0, 779.63 MB), fresh install (`pm clear`) ke MuMu emulator (`127.0.0.1:16384`), auto-ekstraksi 15.789 file GPACK v1 sukses dalam ~16 detik, booting sempurna ke Title Screen interaktif (terverifikasi via screenshot 960x540 `lona_reboot_stable.png`), dan logcat bersih tanpa force close (SDL, OpenAL, mkxp-z running).
+- [2026-09-20] Verifikasi Early Access Beta Test APK: kompilasi APK `dist/lona/LonaRPG.apk` (SHA-256 `6233B7BD86F6C8ED113EBC4171E15477AB9F8282B99B8F81C445E26E76A6F576`, 779.61 MB / 817,481,290 bytes), instalasi ke MuMu emulator (`127.0.0.1:16384`), booting ke Title Screen interaktif, dan verifikasi watermark permanen "Beta Test Veldra Works" di pojok kanan atas via tangkapan layar `beta_test_wm_title.png` (960x540).
+- [2026-09-20] Verifikasi live in-game pipeline penuh: kompilasi APK `dist/lona/LonaRPG.apk` (SHA-256 `ACF97460010EEA1D5EDB55CF1A7A1F817FB326D124056F36E7954C9E2A78BAF7`, 779.61 MB), instalasi ke MuMu emulator (`127.0.0.1:16384`), navigasi Cheat Menu ⇄ "System & Save" category pill (Open Save Menu, Open Load Menu, Quick Save, Quick Load) terverifikasi 100% via tangkapan layar `cheat_clean_system_save.png`.
+- [2026-09-20] Build ulang `dist/lona/LonaRPG.apk` (SHA-256 `CA0F7949ED8EE43809D33285ACE0DBC9D6BA03892188FC6CD487080482B31B64`, 779.61 MB) sukses dipaketkan.
+- [2026-09-20] Navigasi Cheat Menu per kategori (Vitals, Medical, Combat, Economy) dengan icon SVG, tanpa deskripsi teks panjang, dan tombol toggle ON/OFF.
+- [2026-09-20] Implementasi persistent hook God Mode dan 1-Hit Kill di `runtimepack_bootstrap.rb` dan sinkronisasi ke cheat IPC.
+- [2026-09-20] Sinkronisasi keyboard fisik penuh (A-Z, 0-9, F1-F12, Space, Enter, Esc, Shift, Ctrl, Alt) langsung ke buffer Win32 `rp_input_state.bin` untuk skrip Hime AllKey di Lona RPG.
+- [2026-09-20] Verifikasi live in-game build, install, booting, modal Cheat Engine, dan toggle Lona RPG Quick Cheats (`cheat_profile.js`) pada emulator MuMu Player; seluruh fungsi terverifikasi bekerja 100% via tangkapan layar.
+- [2026-09-20] Build ulang `dist/lona/LonaRPG.apk` (SHA-256 `F27A99C6575B7D083429CF09770927FFA2D818C858B24A255EB76ADF09CDB663`, 779.59 MB) dengan asset icon Android mipmap, keyboard & mouse pass-through, vpad updates, dan cheat profile modular.
+- [2026-09-20] Ekstraksi icon asli dari `Game.exe`, pembuatan launcher mipmap Android (mdpi..xxxhdpi, persegi & bulat), dan konfigurasi `android:icon` di `generator.rs`.
+- [2026-09-20] Pembaruan URL komunitas ke `https://linktr.ee/Veldra.Works` pada seluruh overlay HTML, JS, dan test suite.
+- [2026-09-20] Pengisian `cheat_profile.js` dengan kumpulan cheat spesifik Lona RPG (Survival & Vitals, Medical & Organ Recovery, Progression & QoL).
+- [2026-09-20] Implementasi toggle Cheat Engine ⇄ Cheat Menu di header modal cheat (`cheat_menu.js`) dan pembuatan template siap pakai `cheat_profile.js` untuk AI Agent / Programmer.
+- [2026-09-20] Ekspansi seluruh tombol keyboard standar PC (A-Z, 0-9, Numpad, F1-F12, Arrows, Navigation, Punctuation/Symbols) di `vpad.js` dan `RgssActivity.kt`.
+- [2026-09-20] Implementasi Mode Hide Gamepad → Keyboard/Mouse Mode dan fix pass-through hardware keyboard serta mouse ke SDL dan Win32 `rp_input_state.bin`.
+- [2026-09-20] Verifikasi build Android shell (`assembleDebug`), unit tests Android (17/17 lulus), dan test suite Rust workspace (41/41 lulus).
 - [2026-09-18] Inisialisasi git repository dan konfigurasi `.gitignore`
 - [2026-09-18] Setup toolchain Rust `stable-x86_64-pc-windows-gnullvm` dengan LLVM-MinGW UCRT
 - [2026-09-18] Implementasi Milestone 0 (arsitektur workspace Cargo, domain types, error taxonomy, schemas, toolchain lock)
@@ -32,3 +56,10 @@
 - [2026-09-18] Implementasi Engine-Agnostic Core Cheat Runner di runtimepack_bootstrap.rb, RgssActivity atomic IPC bridge, dan cheat_engine.js universal primitives
 - [2026-09-18] Implementasi JoiPlay/M-Tool style dynamic cheat UI di cheat_menu.js (Variables browser, Switches browser, Item spawner, M-Tool script console & snippet manager) serta test suite cheat_menu.test.js
 - [2026-09-18] Task 6: Kompilasi end-to-end APK Lona RPG, sinkronisasi assets ke dist/lona/android-project, instalasi dan verifikasi fungsional in-game pada MuMu Player (input state bin, cheat IPC evaluation, robust JSON serialization & exception handling)
+- [2026-09-19] Riset evidence-first MTool Smart Fix (RGSS3/mkxp-z) disimpan di `Docs/Riset_MTool_Smart_Fix_RGSS3_mkxp-z.md`; kesimpulan: mekanisme internal MTool tetap UNKNOWN, adopsi pola Smart Resolver deterministik + fail-closed.
+- [2026-09-19] Fix crash popup NPC/SKIP (`Font#shadow=` strict bool) via boolean coercion setter Font di bootstrap
+- [2026-09-19] Fix ALT + D-Pad tidak berfungsi (JS 18 tidak terpetakan) dan bug multi-touch melepas tombol lain; audit mapping JS→Android→VK (termasuk F1–F12, Delete)
+- [2026-09-19] Fix glyph kotak (fullwidth colon & panah) via `fontSub` di mkxp.json karena mkxp-z memakai typographic family FreeType
+- [2026-09-19] Fix normalisasi glyph gagal karena mismatch encoding ASCII-8BIT vs UTF-8
+- [2026-09-19] Fix keyboard fisik tidak sampai ke SDL saat overlay aktif via override `dispatchKeyEvent` + bridge `setOverlayTextFocused`
+- [2026-09-19] Build ulang `dist/lona/LonaRPG.apk` (SHA-256 `23E1C473...`) berisi seluruh fix di atas

@@ -4,6 +4,82 @@
 Encoding.default_external = Encoding::UTF_8
 Encoding.default_internal = Encoding::UTF_8
 
+# Ruby 1.8 compatibility helpers for RGSS1 (RPG Maker XP) and RGSS2 (RPG Maker VX)
+class NilClass
+  def id
+    4
+  end unless method_defined?(:id)
+
+  def type
+    "NilClass"
+  end unless method_defined?(:type)
+end
+
+class Hash
+  def index(*args)
+    key(*args)
+  end unless method_defined?(:index)
+end
+
+class Array
+  def to_s
+    join
+  end
+end
+
+module MKXP
+  def self.puts(*args)
+    Kernel.puts(*args)
+  end
+
+  def self.print(*args)
+    Kernel.print(*args)
+  end
+
+  def self.p(*args)
+    Kernel.p(*args)
+  end
+
+  def self.raw_key_states
+    "\0" * 256
+  end
+
+  def self.data_directory
+    "./."
+  end
+
+  def self.save_directory
+    "./."
+  end
+
+  def self.custom_save_directory
+    "./."
+  end
+
+  def self.title
+    "To the Moon"
+  end
+
+  def self.title=(t)
+  end
+
+  def self.platform
+    "android"
+  end
+
+  def self.ready
+    true
+  end
+
+  def self.method_missing(method_name, *args, &block)
+    nil
+  end
+
+  def self.const_missing(const_name)
+    nil
+  end
+end
+
 module Kernel
   alias_method :runtimepack_orig_open, :open rescue nil
   def open(name, *args, &block)
@@ -248,7 +324,8 @@ class Win32API
          'schedule_mode', 'execute'
       0
     else
-      0
+      # Default stub returns 1 (Win32 TRUE / success for wrapper DLLs like Utils, Steamworks)
+      1
     end
   end
 end
@@ -266,6 +343,45 @@ end
     end
   end
 end
+
+module RuntimePackCompatibility
+  FONT_SETTERS = [:shadow, :outline, :bold, :italic]
+  DIRECTION_LABELS = {
+    "\u2b06" => "Up",
+    "\u2b07" => "Down",
+    "\u2b05" => "Left",
+    "\u27a1" => "Right"
+  }
+
+  def self.install_font_setters
+    return unless defined?(Font)
+    FONT_SETTERS.each do |name|
+      setter = "#{name}=".to_sym
+      original = "runtimepack_orig_#{name}=".to_sym
+      next unless Font.method_defined?(setter)
+      next if Font.method_defined?(original)
+      Font.class_eval do
+        alias_method original, setter
+        define_method(setter) do |val|
+          send(original, val ? true : false)
+        end
+      end
+    end
+  end
+
+  def self.normalize_input_utils
+    return unless defined?(InputUtils)
+    mapping = InputUtils.instance_variable_get(:@keySYM_in_UI)
+    return unless mapping.is_a?(Hash)
+    mapping.each do |key, value|
+      next unless value.is_a?(String)
+      candidate = value.dup.force_encoding(Encoding::UTF_8)
+      mapping[key] = DIRECTION_LABELS[candidate] if DIRECTION_LABELS.key?(candidate)
+    end
+  end
+end
+
+RuntimePackCompatibility.install_font_setters
 
 def patch_json_decoder
   if defined?(JSON)
@@ -350,13 +466,298 @@ if defined?(Input)
   end
 end
 
+$runtimepack_god_mode = false unless defined?($runtimepack_god_mode)
+$runtimepack_one_hit_kill = false unless defined?($runtimepack_one_hit_kill)
+
 module RuntimePackCheatRunner
   CMD_FILE = "rp_cheat_cmd.json"
   STATE_FILE = "rp_cheat_state.json"
   EVAL_FILE = "rp_cheat_eval_res.txt"
   ERROR_FILE = "rp_cheat_error.txt"
 
+  def self.install_battle_hooks
+    return if @battle_hooks_installed
+    battle_modules = []
+    battle_modules << Battle_System if defined?(Battle_System) && Battle_System.is_a?(Module)
+    battle_modules << BattleSystem if defined?(BattleSystem) && BattleSystem.is_a?(Module)
+
+    if !battle_modules.empty?
+      @battle_hooks_installed = true
+      battle_modules.each do |mod|
+        mod.module_eval do
+          unless method_defined?(:rp_orig_take_damage)
+            alias_method :rp_orig_take_damage, :take_damage rescue nil
+            def take_damage(user, skill, force_hit = false, back_stabed = false)
+              if $runtimepack_one_hit_kill && defined?($game_player) && $game_player
+                is_player = (user == $game_player.actor || (user.respond_to?(:map_token) && user.map_token == $game_player))
+                if is_player && (self != $game_player.actor && !(self.respond_to?(:map_token) && self.map_token == $game_player))
+                  if self.respond_to?(:battle_stat) && self.battle_stat
+                    self.battle_stat.set_stat("health", 0) rescue nil
+                    self.battle_stat.set_stat("sta", -100) rescue nil
+                  end
+                  self.health = 0 if self.respond_to?(:health=)
+                  self.sta = -100 if self.respond_to?(:sta=)
+                end
+              end
+              rp_orig_take_damage(user, skill, force_hit, back_stabed) if respond_to?(:rp_orig_take_damage)
+            end
+          end
+
+          unless method_defined?(:rp_orig_take_skill_effect)
+            alias_method :rp_orig_take_skill_effect, :take_skill_effect rescue nil
+            def take_skill_effect(user, skill, can_sap = false, force_hit = false)
+              if $runtimepack_god_mode && defined?($game_player) && $game_player &&
+                 (self == $game_player.actor || (self.respond_to?(:map_token) && self.map_token == $game_player))
+                return
+              end
+              rp_orig_take_skill_effect(user, skill, can_sap, force_hit) if respond_to?(:rp_orig_take_skill_effect)
+            end
+          end
+        end
+      end
+    end
+
+    if defined?(Game_Actor) && Game_Actor.is_a?(Class)
+      Game_Actor.class_eval do
+        unless method_defined?(:rp_orig_determine_death)
+          alias_method :rp_orig_determine_death, :determine_death rescue nil
+          def determine_death
+            return if $runtimepack_god_mode
+            rp_orig_determine_death if respond_to?(:rp_orig_determine_death)
+          end
+        end
+      end
+    end
+  end
+
+  def self.install_save_and_cache_hooks
+    return if @save_hooks_installed
+    @save_hooks_installed = true
+
+    if defined?(SceneManager)
+      class << SceneManager
+        unless method_defined?(:rp_orig_scene_call)
+          alias_method :rp_orig_scene_call, :call rescue nil
+          def call(scene_class)
+            @stack ||= []
+            @stack.push(@scene)
+            @scene = scene_class.new
+          end
+        end
+        unless method_defined?(:rp_orig_scene_return)
+          alias_method :rp_orig_scene_return, :return rescue nil
+          def return
+            @stack ||= []
+            @scene = @stack.pop
+          end
+        end
+      end
+    end
+
+    if defined?(Cache)
+      class << Cache
+        unless method_defined?(:rp_orig_savefile_bitmap)
+          alias_method :rp_orig_savefile_bitmap, :savefile_bitmap rescue nil
+          def savefile_bitmap(path)
+            begin
+              rp_orig_savefile_bitmap(path)
+            rescue Errno::ENOENT, StandardError
+              @cache_savefile_bitmap ||= {}
+              fallback = "Graphics/System/SaveNotFound.png"
+              @cache_savefile_bitmap[path] = (File.exist?(fallback) ? Bitmap.new(fallback) : Bitmap.new(264, 160)) rescue Bitmap.new(32, 32)
+            end
+          end
+        end
+      end
+    end
+
+    if defined?(Bitmap)
+      class << Bitmap
+        unless method_defined?(:rp_orig_bitmap_new)
+          alias_method :rp_orig_bitmap_new, :new rescue nil
+          def new(*args)
+            begin
+              rp_orig_bitmap_new(*args)
+            rescue Errno::ENOENT => e
+              if args.size == 1 && args[0].is_a?(String)
+                fallback = "Graphics/System/SaveNotFound.png"
+                if File.exist?(fallback)
+                  (rp_orig_bitmap_new(fallback) rescue rp_orig_bitmap_new(32, 32))
+                else
+                  rp_orig_bitmap_new(32, 32) rescue nil
+                end
+              else
+                raise e
+              end
+            end
+          end
+        end
+      end
+    end
+
+    if defined?(Menu_Items) && Menu_Items.is_a?(Class)
+      Menu_Items.class_eval do
+        unless method_defined?(:rp_orig_update_input)
+          alias_method :rp_orig_update_input, :update_input rescue nil
+          def update_input
+            if @phase == 4
+              # Use exclusive if-elsif to ensure USE and DROP can never be triggered concurrently
+              if Input.trigger?(:C) || (defined?(WolfPad) && WolfPad.trigger?(:Z_LINK))
+                item_use_confirm_scr_use
+              elsif Input.trigger?(:UI_DeleteItem)
+                item_use_confirm_scr_dorp
+              elsif Input.trigger?(:B) || (defined?(WolfPad) && WolfPad.trigger?(:X_LINK))
+                item_use_confirm_scr_cancel
+              end
+            else
+              rp_orig_update_input if respond_to?(:rp_orig_update_input)
+            end
+          end
+        end
+
+        unless method_defined?(:rp_orig_item_use_confirm_scr_dorp)
+          alias_method :rp_orig_item_use_confirm_scr_dorp, :item_use_confirm_scr_dorp rescue nil
+          def item_use_confirm_scr_dorp
+            return unless @phase == 4
+            item = @container ? @container[@real_index] : nil
+            return if item.nil?
+            SndLib.sound_equip_armor(80) rescue nil
+            process_item_drop
+          end
+        end
+
+        unless method_defined?(:rp_orig_process_item_drop)
+          alias_method :rp_orig_process_item_drop, :process_item_drop rescue nil
+          def process_item_drop
+            item = @container ? @container[@real_index] : nil
+            if item.nil?
+              @phase = (@container.nil? || @container.empty?) ? 2 : 3
+              @confirm_back.visible = @confirm_layer.visible = false if @confirm_back && @confirm_layer
+              return
+            end
+            return SndLib.sys_buzzer if item.respond_to?(:key_item?) && item.key_item?
+
+            if Input.press?(:SHIFT)
+              tmpCount = [5, $game_party.item_number(item)].min
+              $game_party.lose_item(item, $game_party.item_number(item))
+              tmpCount.times { $game_temp.register_item_drop([item.item_name]) rescue nil } if defined?($game_temp)
+            else
+              $game_party.lose_item(item, 1)
+              $game_temp.register_item_drop([item.item_name]) rescue nil if defined?($game_temp)
+            end
+            set_container rescue nil
+            post_consumtion rescue nil
+            @gauge.refresh rescue nil if @gauge
+            @menu_pages[0].refresh rescue nil if @menu_pages && @menu_pages[0]
+            @menu_pages[1].refresh rescue nil if @menu_pages && @menu_pages[1]
+            refresh_info rescue nil
+            @phase = (@container.nil? || @container.empty?) ? 2 : 3
+            @confirm_back.visible = @confirm_layer.visible = false if @confirm_back && @confirm_layer
+          end
+        end
+      end
+    end
+  end
+
+  def self.install_map_hud_hooks
+    return if @map_hud_hooked
+    if defined?(Map_Hud) && Map_Hud.is_a?(Class)
+      @map_hud_hooked = true
+      Map_Hud.class_eval do
+        unless method_defined?(:rp_orig_initialize)
+          alias_method :rp_orig_initialize, :initialize rescue nil
+          def initialize(*args)
+            rp_orig_initialize(*args)
+            # Immediately sanitize all wound sprites upon instantiation
+            refresh_wound_layout rescue nil
+          end
+        end
+
+        unless method_defined?(:rp_orig_refresh_wound_layout)
+          alias_method :rp_orig_refresh_wound_layout, :refresh_wound_layout rescue nil
+          def refresh_wound_layout
+            total_wounds = 0
+            total_wounds += refresh_wound_total rescue 0
+
+            # Safely hide or show silhouette background
+            if @wound_layout
+              @wound_layout.opacity = (total_wounds > 0 ? 255 : 0)
+              @wound_layout.visible = (total_wounds > 0)
+            end
+
+            # Safely update each limb wound layer (clamp src_rect.y >= 0 and hide if 0)
+            update_limb = lambda do |sprite, stat_key, max_val|
+              next unless sprite
+              val = (@actor && @actor.stat) ? (@actor.stat[stat_key] || 0) : 0
+              if val > 0
+                sprite.visible = true
+                sprite.opacity = 255
+                target_y = [26 * (val - 1), max_val].min
+                sprite.src_rect.y = target_y if sprite.src_rect && sprite.src_rect.y != target_y
+              else
+                sprite.visible = false
+                sprite.opacity = 0
+                sprite.src_rect.y = 0 if sprite.src_rect
+              end
+            end
+
+            update_limb.call(@wound_head, "WoundHead", 52)
+            update_limb.call(@wound_chest, "WoundChest", 52)
+            update_limb.call(@wound_sarm, "WoundSArm", 52)
+            update_limb.call(@wound_marm, "WoundMArm", 52)
+            update_limb.call(@wound_belly, "WoundBelly", 52)
+            update_limb.call(@wound_groin, "WoundGroin", 52)
+            update_limb.call(@wound_mthigh, "WoundMThigh", 52)
+            update_limb.call(@wound_sthigh, "WoundSThigh", 52)
+
+            if @wound_Cuff
+              val = (@actor && @actor.stat) ? (@actor.stat["WoundCuff"] || 0) : 0
+              @wound_Cuff.visible = (val >= 1)
+              @wound_Cuff.opacity = (val >= 1 ? 255 : 0)
+            end
+
+            if @wound_Collar
+              val = (@actor && @actor.stat) ? (@actor.stat["WoundCollar"] || 0) : 0
+              @wound_Collar.visible = (val >= 1)
+              @wound_Collar.opacity = (val >= 1 ? 255 : 0)
+            end
+
+            @total_wounds = total_wounds
+          end
+        end
+      end
+    end
+  end
+
   def self.update
+    install_battle_hooks unless @battle_hooks_installed
+    install_save_and_cache_hooks
+    install_map_hud_hooks unless @map_hud_hooked
+
+    # Enforce God Mode in frame loop if enabled, or clear when untoggled
+    if $runtimepack_god_mode
+      @was_god_mode = true
+      if defined?($game_player) && $game_player && $game_player.respond_to?(:actor) && $game_player.actor
+        a = $game_player.actor
+        a.immune_damage = true if a.respond_to?(:immune_damage=)
+        a.immune_state_effect = true if a.respond_to?(:immune_state_effect=)
+        a.health = 200 if a.respond_to?(:health) && a.respond_to?(:health=) && a.health.to_f < 200
+        a.sta = 100 if a.respond_to?(:sta) && a.respond_to?(:sta=) && a.sta.to_f < 100
+        a.sat = 100 if a.respond_to?(:sat) && a.respond_to?(:sat=) && a.sat.to_f < 100
+        a.mood = 100 if a.respond_to?(:mood) && a.respond_to?(:mood=) && a.mood.to_f < 100
+        if a.respond_to?(:wound_state_list) && a.wound_state_list.is_a?(Array)
+          a.wound_state_list.each { |w| a.remove_state(w) if a.respond_to?(:remove_state) }
+        end
+      end
+    elsif @was_god_mode
+      @was_god_mode = false
+      if defined?($game_player) && $game_player && $game_player.respond_to?(:actor) && $game_player.actor
+        a = $game_player.actor
+        a.immune_damage = false if a.respond_to?(:immune_damage=)
+        a.immune_state_effect = false if a.respond_to?(:immune_state_effect=)
+      end
+    end
+
     cmd_file = File.exist?(CMD_FILE) ? CMD_FILE : (File.exist?("../#{CMD_FILE}") ? "../#{CMD_FILE}" : nil)
     return unless cmd_file
     begin
@@ -366,6 +767,9 @@ module RuntimePackCheatRunner
 
       # Parse command (handle single hash or array of hashes)
       cmds = (JSON.decode(content) rescue nil) || (JSON.parse(content) rescue nil)
+      if cmds.nil? && content =~ /"action"\s*:\s*"eval"\s*,\s*"code"\s*:\s*"([^"]+)"/
+        cmds = [{"action" => "eval", "code" => $1}]
+      end
       cmds = [cmds] if cmds.is_a?(Hash)
       return unless cmds.is_a?(Array)
 
@@ -410,6 +814,63 @@ module RuntimePackCheatRunner
         item = db[id] if db && db.respond_to?(:[])
         $game_party.gain_item(item, amt) if item
       end
+    when "toggle_god_mode"
+      $runtimepack_god_mode = cmd.key?("value") ? (cmd["value"] ? true : false) : !$runtimepack_god_mode
+      if !$runtimepack_god_mode
+        @was_god_mode = false
+        if defined?($game_player) && $game_player && $game_player.respond_to?(:actor) && $game_player.actor
+          a = $game_player.actor
+          a.immune_damage = false if a.respond_to?(:immune_damage=)
+          a.immune_state_effect = false if a.respond_to?(:immune_state_effect=)
+        end
+      else
+        @was_god_mode = true
+      end
+      dump_game_state
+    when "toggle_one_hit_kill"
+      $runtimepack_one_hit_kill = cmd.key?("value") ? (cmd["value"] ? true : false) : !$runtimepack_one_hit_kill
+      dump_game_state
+    when "save_anywhere"
+      begin
+        $story_stats["MenuSysSavegameOff"] = 0 if defined?($story_stats) && $story_stats
+        SceneManager.goto(Scene_Save) if defined?(SceneManager) && defined?(Scene_Save)
+        File.open(EVAL_FILE, "wb") { |f| f.write("Save Menu Opened") } rescue nil
+      rescue Exception => e
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-003] #{e.message}") } rescue nil
+      end
+    when "load_anywhere"
+      begin
+        $story_stats["MenuSysSavegameOff"] = 0 if defined?($story_stats) && $story_stats
+        SceneManager.goto(Scene_Load_OnGameMenu) if defined?(SceneManager) && defined?(Scene_Load_OnGameMenu)
+        File.open(EVAL_FILE, "wb") { |f| f.write("Load Menu Opened") } rescue nil
+      rescue Exception => e
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-003] #{e.message}") } rescue nil
+      end
+    when "quick_save"
+      begin
+        if defined?(DataManager) && DataManager.respond_to?(:save_custom_without_header)
+          DataManager.save_custom_without_header("SavQuick")
+          File.open(EVAL_FILE, "wb") { |f| f.write("Quick Saved to SavQuick") } rescue nil
+        end
+      rescue Exception => e
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-003] #{e.message}") } rescue nil
+      end
+    when "quick_load"
+      begin
+        if defined?(DataManager) && DataManager.respond_to?(:load_custom_without_rescue)
+          if DataManager.load_custom_without_rescue("SavQuick")
+            $game_system.on_after_load if defined?($game_system) && $game_system.respond_to?(:on_after_load)
+            SceneManager.goto(Scene_Map) if defined?(SceneManager) && defined?(Scene_Map)
+            $game_player.refresh_chs if defined?($game_player) && $game_player.respond_to?(:refresh_chs)
+            $game_player.actor.portrait.update rescue nil if defined?($game_player) && $game_player && $game_player.actor && $game_player.actor.respond_to?(:portrait)
+            File.open(EVAL_FILE, "wb") { |f| f.write("Quick Loaded from SavQuick") } rescue nil
+          else
+            File.open(EVAL_FILE, "wb") { |f| f.write("No SavQuick file found") } rescue nil
+          end
+        end
+      rescue Exception => e
+        File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-003] #{e.message}") } rescue nil
+      end
     when "dump_state"
       dump_game_state
     when "eval"
@@ -441,7 +902,13 @@ module RuntimePackCheatRunner
         switches[i.to_s] = s if s
       end
     end
-    payload = { "gold" => gold, "variables" => vars, "switches" => switches }
+    payload = {
+      "gold" => gold,
+      "variables" => vars,
+      "switches" => switches,
+      "god_mode" => ($runtimepack_god_mode ? true : false),
+      "one_hit_kill" => ($runtimepack_one_hit_kill ? true : false)
+    }
     # Write JSON
     encoded = serialize_fallback(payload)
     File.open(STATE_FILE, "wb") { |f| f.write(encoded.to_s) } rescue nil
@@ -535,19 +1002,87 @@ def patch_input_fallbacks
   end
 end
 
-if (defined?(load_data) || respond_to?(:load_data, true)) && File.exist?('Data/Scripts.rvdata2')
-  scripts = load_data('Data/Scripts.rvdata2')
-  scripts.each_with_index do |script, idx|
-    if idx == scripts.size - 1
-      patch_input_fallbacks
-      RuntimePackCheatRunner.hook_engine
+if defined?(load_data) || respond_to?(:load_data, true)
+  if (File.exist?('preload/ruby18_comp.rb') rescue false)
+    begin
+      load 'preload/ruby18_comp.rb'
+    rescue => e
+      puts "[RuntimePack] Warning loading preload/ruby18_comp.rb: #{e}"
     end
-    script_id = script[0]
-    script_name = script[1].to_s
-    script_source = Zlib::Inflate.inflate(script[2])
-    eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
-    BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
-    patch_json_decoder
+  end
+
+  script_candidates = []
+  ['To the Moon.ini', 'Game.ini'].each do |ini|
+    if (File.exist?(ini) rescue false)
+      content = (File.read(ini) rescue '')
+      if content =~ /Scripts\s*=\s*(.+)/i
+        script_candidates << $1.strip.tr('\\', '/')
+      end
+    end
+  end
+  script_candidates += ['Data/Scripts.rxdata', 'Data/Scripts.rvdata', 'Data/Scripts.rvdata2']
+
+  scripts = nil
+  script_path_used = nil
+  script_candidates.uniq.each do |cand|
+    begin
+      s = load_data(cand)
+      if s && s.is_a?(Array) && !s.empty?
+        scripts = s
+        script_path_used = cand
+        break
+      end
+    rescue => e
+      # continue to next candidate
+    end
+  end
+
+  if scripts
+    puts "[RuntimePack] Loading scripts from #{script_path_used} (#{scripts.size} entries)..."
+    File.open("all_script_names.txt", "w") do |f|
+      scripts.each_with_index { |s, i| f.puts("#{i}: #{s[1]}") }
+    end rescue nil
+    scripts.each_with_index do |s, i|
+      name = s[1].to_s
+      if name.downcase.include?('lang') || name.downcase.include?('splash') || name.downcase.include?('mouse') || name.downcase.include?('input') || name.downcase.include?('main') || name.downcase.include?('title')
+        src = (Zlib::Inflate.inflate(s[2]) rescue '')
+        File.open("script_#{i}_#{name.gsub(/[^a-zA-Z0-9_]/, '_')}.txt", "wb") { |f| f.write(src) } rescue nil
+      end
+    end rescue nil
+    scripts.each_with_index do |script, idx|
+      script_id = script[0]
+      script_name = script[1].to_s
+
+      # If this is the main game script or the last script, prepare all hooks and defaults beforehand
+      if script_name.downcase == 'main' || idx == scripts.size - 1
+        if defined?(TR) && TR.respond_to?(:lang_setting_file_path)
+          begin
+            path = TR.lang_setting_file_path
+            File.open(path, "wb") { |f| f.write("en") } unless (File.exist?(path) rescue false)
+            puts "[RuntimePack] Set default language 'en' at #{path}"
+          rescue => e
+            puts "[RuntimePack] Failed setting default language: #{e}"
+          end
+        end
+        patch_input_fallbacks
+        RuntimePackCheatRunner.hook_engine
+      end
+
+      script_source = Zlib::Inflate.inflate(script[2])
+      begin
+        eval(script_source, TOPLEVEL_BINDING, "{#{script_id.to_s.rjust(4, '0')}}:#{script_name}")
+      rescue => e
+        puts "=================================================="
+        puts "[FATAL SCRIPT ERROR in #{script_name}]: #{e.class}: #{e.message}"
+        puts e.backtrace
+        puts "=================================================="
+        File.open("Error.log", "wb") { |f| f.write("[FATAL]: #{e.class}: #{e.message}\n#{e.backtrace.join("\n")}") } rescue nil
+        raise
+      end
+      BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
+      patch_json_decoder if respond_to?(:patch_json_decoder)
+    end
+    RuntimePackCompatibility.normalize_input_utils if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:normalize_input_utils)
   end
 end
 

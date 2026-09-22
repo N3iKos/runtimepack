@@ -25,6 +25,19 @@ impl Detector for RpgMakerXpDetector {
             });
         }
 
+        for (path, _) in &source.files {
+            if path.to_ascii_lowercase().ends_with(".rgssad") {
+                score += 120;
+                evidence.push(Evidence {
+                    rule: "DET-RGSS-XP-005".to_string(),
+                    path: path.clone(),
+                    weight: 120,
+                    description: "RGSSAD encrypted archive exists (RPG Maker XP)".to_string(),
+                });
+                break;
+            }
+        }
+
         if source.has_file("Game.ini") {
             if let Some(ini_text) = source.read_small_text("Game.ini", 4096) {
                 let lower = ini_text.to_ascii_lowercase();
@@ -90,6 +103,19 @@ impl Detector for RpgMakerVxDetector {
             });
         }
 
+        for (path, _) in &source.files {
+            if path.to_ascii_lowercase().ends_with(".rgss2a") {
+                score += 120;
+                evidence.push(Evidence {
+                    rule: "DET-RGSS-VX-005".to_string(),
+                    path: path.clone(),
+                    weight: 120,
+                    description: "RGSS2A encrypted archive exists (RPG Maker VX)".to_string(),
+                });
+                break;
+            }
+        }
+
         if source.has_file("Game.ini") {
             if let Some(ini_text) = source.read_small_text("Game.ini", 4096) {
                 let lower = ini_text.to_ascii_lowercase();
@@ -153,6 +179,19 @@ impl Detector for RpgMakerVxAceDetector {
                 weight: 120,
                 description: "Scripts.rvdata2 archive exists".to_string(),
             });
+        }
+
+        for (path, _) in &source.files {
+            if path.to_ascii_lowercase().ends_with(".rgss3a") {
+                score += 120;
+                evidence.push(Evidence {
+                    rule: "DET-RGSS-VXA-005".to_string(),
+                    path: path.clone(),
+                    weight: 120,
+                    description: "RGSS3A encrypted archive exists (RPG Maker VX Ace)".to_string(),
+                });
+                break;
+            }
         }
 
         if source.has_file("Game.ini") {

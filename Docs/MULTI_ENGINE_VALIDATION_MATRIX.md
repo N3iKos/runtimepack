@@ -36,7 +36,7 @@ Setiap game harus lulus kriteria berikut sebelum ditandai `[x]`:
 
 ### RPG Maker XP (RGSS1)
 *Folder Laporan: `Docs/test_ports/rpgxp_<game_slug>/report.md`*
-- [ ] **To the Moon** (`Docs/test_ports/rpgxp_to_the_moon/report.md`)
+- [x] **To the Moon** (`Docs/test_ports/rpgxp_to_the_moon/report.md`) — *Status: Lolos Booting, Title Screen, Audio, Virtual Pad, Multi-Language; Terverifikasi Playtest 30 Menit.*
 - [ ] **OneShot** (`Docs/test_ports/rpgxp_oneshot/report.md`)
 - [ ] **Aveyond: Rhen’s Quest** (`Docs/test_ports/rpgxp_aveyond_rhens_quest/report.md`)
 - [ ] **Exit Fate** (`Docs/test_ports/rpgxp_exit_fate/report.md`)
