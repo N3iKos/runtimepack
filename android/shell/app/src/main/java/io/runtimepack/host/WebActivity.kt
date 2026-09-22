@@ -74,6 +74,12 @@ open class WebActivity : Activity() {
     @Volatile
     var isOverlayModalOpen: Boolean = false
 
+    @Volatile
+    var cachedCheatState: String = "{}"
+
+    @Volatile
+    var cachedEvalResult: String = ""
+
     @SuppressLint("SetJavaScriptEnabled")
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -221,6 +227,17 @@ open class WebActivity : Activity() {
         }
 
         wv.addJavascriptInterface(WebBridge(InternalStorageSaveService(this)), "RuntimePackNative")
+        wv.addJavascriptInterface(object : Any() {
+            @JavascriptInterface
+            fun setCheatState(stateJson: String) {
+                this@WebActivity.setCheatState(stateJson)
+            }
+
+            @JavascriptInterface
+            fun setEvalResult(resStr: String) {
+                this@WebActivity.setEvalResult(resStr)
+            }
+        }, "RuntimePackWeb")
 
         wv.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
@@ -379,11 +396,19 @@ open class WebActivity : Activity() {
                         cancelable: true
                     });
                     window.dispatchEvent(evt);
-                    if (window.Input && typeof window.Input._onKeyDown === 'function') {
-                        if ('$type' === 'keydown') {
+                    document.dispatchEvent(evt);
+                    if (window.Input) {
+                        if ('$type' === 'keydown' && typeof window.Input._onKeyDown === 'function') {
                             window.Input._onKeyDown(evt);
                         } else if ('$type' === 'keyup' && typeof window.Input._onKeyUp === 'function') {
                             window.Input._onKeyUp(evt);
+                        }
+                    }
+                    if (window.TouchInput) {
+                        if ('$type' === 'keydown' && typeof window.TouchInput._onKeyDown === 'function') {
+                            window.TouchInput._onKeyDown(evt);
+                        } else if ('$type' === 'keyup' && typeof window.TouchInput._onKeyUp === 'function') {
+                            window.TouchInput._onKeyUp(evt);
                         }
                     }
                 })();
@@ -474,7 +499,21 @@ open class WebActivity : Activity() {
         return true
     }
 
-    open fun getCheatState(): String = "{}"
+    fun setCheatState(stateJson: String) {
+        cachedCheatState = stateJson
+    }
 
-    open fun getEvalResult(): String = ""
+    @Synchronized
+    fun setEvalResult(resStr: String) {
+        cachedEvalResult = resStr
+    }
+
+    open fun getCheatState(): String = cachedCheatState
+
+    @Synchronized
+    open fun getEvalResult(): String {
+        val result = cachedEvalResult
+        cachedEvalResult = ""
+        return result
+    }
 }

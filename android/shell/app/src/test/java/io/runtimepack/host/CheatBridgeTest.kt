@@ -64,4 +64,21 @@ class CheatBridgeTest {
         assertFalse(evalFile.exists())
         assertEquals("", activity.getEvalResult())
     }
+
+    @Test
+    fun testWebActivityCheatStateAndEvalResult() {
+        val activity = WebActivity()
+
+        assertEquals("{}", activity.getCheatState())
+        assertEquals("", activity.getEvalResult())
+
+        val testState = """{"gold":9999,"variables":{"1":100},"switches":{"5":true}}"""
+        activity.setCheatState(testState)
+        assertEquals(testState, activity.getCheatState())
+
+        val testEval = "42"
+        activity.setEvalResult(testEval)
+        assertEquals("42", activity.getEvalResult())
+        assertEquals("", activity.getEvalResult())
+    }
 }

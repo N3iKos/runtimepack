@@ -15,9 +15,111 @@
         }
     }
 
+    function executeCheatCmd(cmd) {
+        if (!cmd || typeof cmd !== "object") return;
+        var action = cmd.action || cmd.type;
+        var rpw = root.RuntimePackWeb || (typeof window !== "undefined" ? window.RuntimePackWeb : null);
+
+        switch (action) {
+            case "set_variable":
+                if (root.$gameVariables && typeof root.$gameVariables.setValue === "function") {
+                    root.$gameVariables.setValue(cmd.id, cmd.value);
+                }
+                break;
+            case "set_switch":
+                if (root.$gameSwitches && typeof root.$gameSwitches.setValue === "function") {
+                    root.$gameSwitches.setValue(cmd.id, Boolean(cmd.value));
+                }
+                break;
+            case "gain_gold":
+                if (root.$gameParty && typeof root.$gameParty.gainGold === "function") {
+                    root.$gameParty.gainGold(cmd.amount);
+                }
+                break;
+            case "recover_all":
+                if (root.$gameParty) {
+                    var members = null;
+                    if (typeof root.$gameParty.members === "function") {
+                        members = root.$gameParty.members();
+                    } else if (Array.isArray(root.$gameParty.members)) {
+                        members = root.$gameParty.members;
+                    }
+                    if (Array.isArray(members)) {
+                        members.forEach(function(m) {
+                            if (m && typeof m.recoverAll === "function") {
+                                m.recoverAll();
+                            }
+                        });
+                    }
+                }
+                break;
+            case "gain_item":
+                if (root.$gameParty && typeof root.$gameParty.gainItem === "function") {
+                    var dataItems = root.$dataItems || (typeof window !== "undefined" ? window.$dataItems : null);
+                    var dataWeapons = root.$dataWeapons || (typeof window !== "undefined" ? window.$dataWeapons : null);
+                    var dataArmors = root.$dataArmors || (typeof window !== "undefined" ? window.$dataArmors : null);
+                    var item = null;
+                    if (cmd.type === "weapon" && dataWeapons) {
+                        item = dataWeapons[cmd.id];
+                    } else if (cmd.type === "armor" && dataArmors) {
+                        item = dataArmors[cmd.id];
+                    } else if (cmd.type === "item" && dataItems) {
+                        item = dataItems[cmd.id];
+                    }
+                    if (!item) {
+                        item = (dataItems && dataItems[cmd.id]) ||
+                               (dataWeapons && dataWeapons[cmd.id]) ||
+                               (dataArmors && dataArmors[cmd.id]) || null;
+                    }
+                    if (item) {
+                        var amount = cmd.amount !== undefined ? cmd.amount : 1;
+                        root.$gameParty.gainItem(item, amount);
+                    }
+                }
+                break;
+            case "eval":
+                try {
+                    var res = (0, eval)(cmd.code);
+                    var resStr = res !== undefined ? String(res) : "";
+                    if (rpw && typeof rpw.setEvalResult === "function") {
+                        rpw.setEvalResult(resStr);
+                    }
+                } catch (e) {
+                    var errStr = "[CHT-002] " + (e && e.message ? e.message : String(e));
+                    if (rpw && typeof rpw.setEvalResult === "function") {
+                        rpw.setEvalResult(errStr);
+                    }
+                }
+                break;
+            case "dump_state":
+                var gold = (root.$gameParty && typeof root.$gameParty.gold === "function")
+                    ? root.$gameParty.gold()
+                    : 0;
+                var varsData = (root.$gameVariables && root.$gameVariables._data !== undefined)
+                    ? root.$gameVariables._data
+                    : {};
+                var switchesData = (root.$gameSwitches && root.$gameSwitches._data !== undefined)
+                    ? root.$gameSwitches._data
+                    : {};
+                var payload = {
+                    gold: gold,
+                    variables: varsData,
+                    switches: switchesData
+                };
+                if (rpw && typeof rpw.setCheatState === "function") {
+                    rpw.setCheatState(JSON.stringify(payload));
+                }
+                break;
+        }
+    }
+
     if (root.__runtimepack_shims_installed) {
         if (typeof root.StorageManager !== "undefined") {
             patchStorageManager(root.StorageManager);
+        }
+        root.executeCheatCmd = executeCheatCmd;
+        if (typeof root.window !== "undefined") {
+            root.window.executeCheatCmd = executeCheatCmd;
         }
         return;
     }
@@ -180,6 +282,10 @@
     root.nw = nwShim;
     root.Greenworks = greenworksShim;
     root.greenworks = greenworksShim;
+    root.executeCheatCmd = executeCheatCmd;
+    if (typeof root.window !== "undefined") {
+        root.window.executeCheatCmd = executeCheatCmd;
+    }
 
     if (typeof root.StorageManager !== "undefined") {
         patchStorageManager(root.StorageManager);
@@ -205,7 +311,8 @@
             nw: root.nw,
             Greenworks: root.Greenworks,
             greenworks: root.greenworks,
-            StorageManager: root.StorageManager
+            StorageManager: root.StorageManager,
+            executeCheatCmd: executeCheatCmd
         };
     }
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

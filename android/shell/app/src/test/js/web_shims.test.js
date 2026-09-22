@@ -181,4 +181,108 @@ function createSandbox(initialStorageManager) {
     assert(sb._warned.length > 0, "Warning should be logged for unhandled module");
 }
 
+{
+    const sb = createSandbox();
+    vm.runInContext(shimsCode, sb);
+
+    assert(typeof sb.window.executeCheatCmd === "function", "window.executeCheatCmd must be a function");
+
+    // Mock $gameVariables
+    let setVarCalled = null;
+    sb.$gameVariables = {
+        _data: [0, 10, 20],
+        setValue: function(id, val) {
+            setVarCalled = { id: id, val: val };
+        }
+    };
+
+    // Mock $gameSwitches
+    let setSwitchCalled = null;
+    sb.$gameSwitches = {
+        _data: [false, true, false],
+        setValue: function(id, val) {
+            setSwitchCalled = { id: id, val: val };
+        }
+    };
+
+    // Mock $gameParty
+    let gainGoldCalled = null;
+    let recoveredActors = 0;
+    let gainItemCalled = null;
+    sb.$gameParty = {
+        gold: function() { return 5000; },
+        gainGold: function(amount) { gainGoldCalled = amount; },
+        members: function() {
+            return [
+                { recoverAll: function() { recoveredActors++; } },
+                { recoverAll: function() { recoveredActors++; } }
+            ];
+        },
+        gainItem: function(item, amount) { gainItemCalled = { item: item, amount: amount }; }
+    };
+
+    // Mock $dataItems, $dataWeapons, $dataArmors
+    sb.$dataItems = { 1: { id: 1, name: "Potion" } };
+    sb.$dataWeapons = { 2: { id: 2, name: "Iron Sword" } };
+    sb.$dataArmors = { 3: { id: 3, name: "Leather Shield" } };
+
+    // Mock RuntimePackWeb
+    let recordedCheatState = null;
+    let recordedEvalResult = null;
+    sb.RuntimePackWeb = {
+        setCheatState: function(stateJson) { recordedCheatState = stateJson; },
+        setEvalResult: function(resStr) { recordedEvalResult = resStr; }
+    };
+
+    // Test set_variable
+    sb.window.executeCheatCmd({ action: "set_variable", id: 1, value: 99 });
+    assert.deepStrictEqual(setVarCalled, { id: 1, val: 99 }, "executeCheatCmd set_variable should call $gameVariables.setValue");
+
+    // Test set_switch
+    sb.window.executeCheatCmd({ action: "set_switch", id: 2, value: 1 });
+    assert.deepStrictEqual(setSwitchCalled, { id: 2, val: true }, "executeCheatCmd set_switch should call $gameSwitches.setValue with boolean");
+
+    // Test gain_gold
+    sb.window.executeCheatCmd({ action: "gain_gold", amount: 1500 });
+    assert.strictEqual(gainGoldCalled, 1500, "executeCheatCmd gain_gold should call $gameParty.gainGold");
+
+    // Test recover_all
+    sb.window.executeCheatCmd({ action: "recover_all" });
+    assert.strictEqual(recoveredActors, 2, "executeCheatCmd recover_all should call recoverAll on all party members");
+
+    // Test gain_item (item)
+    sb.window.executeCheatCmd({ action: "gain_item", id: 1, amount: 5 });
+    assert.deepStrictEqual(gainItemCalled, { item: { id: 1, name: "Potion" }, amount: 5 }, "executeCheatCmd gain_item should find $dataItems and call $gameParty.gainItem");
+
+    // Test gain_item (weapon fallback)
+    sb.window.executeCheatCmd({ action: "gain_item", id: 2, amount: 1 });
+    assert.deepStrictEqual(gainItemCalled, { item: { id: 2, name: "Iron Sword" }, amount: 1 }, "executeCheatCmd gain_item should fallback to $dataWeapons");
+
+    // Test gain_item (armor fallback)
+    sb.window.executeCheatCmd({ action: "gain_item", id: 3, amount: 2 });
+    assert.deepStrictEqual(gainItemCalled, { item: { id: 3, name: "Leather Shield" }, amount: 2 }, "executeCheatCmd gain_item should fallback to $dataArmors");
+
+    // Test eval
+    sb.window.executeCheatCmd({ action: "eval", code: "5 * 6" });
+    assert.strictEqual(recordedEvalResult, "30", "executeCheatCmd eval should evaluate code and report to RuntimePackWeb.setEvalResult");
+
+    // Test eval error handling
+    sb.window.executeCheatCmd({ action: "eval", code: "throw new Error('test eval error')" });
+    assert(recordedEvalResult && recordedEvalResult.startsWith("[CHT-002]"), "executeCheatCmd eval error should report [CHT-002]");
+
+    // Test graceful handling when engine objects are missing
+    const emptySb = createSandbox();
+    vm.runInContext(shimsCode, emptySb);
+    assert.doesNotThrow(() => {
+        emptySb.window.executeCheatCmd(null);
+        emptySb.window.executeCheatCmd({});
+        emptySb.window.executeCheatCmd({ action: "set_variable", id: 1, value: 10 });
+        emptySb.window.executeCheatCmd({ action: "set_switch", id: 1, value: true });
+        emptySb.window.executeCheatCmd({ action: "gain_gold", amount: 50 });
+        emptySb.window.executeCheatCmd({ action: "recover_all" });
+        emptySb.window.executeCheatCmd({ action: "gain_item", id: 1, amount: 1 });
+        emptySb.window.executeCheatCmd({ action: "dump_state" });
+    }, "executeCheatCmd must safely no-op when game globals are undefined");
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");
