@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -58,6 +59,100 @@ open class WebActivity : Activity() {
                 else -> keyCode
             }
         }
+
+        @JvmStatic
+        fun isTouchInsideToolbar(x: Float, y: Float, density: Float): Boolean {
+            val toolbarMaxX = 70f * density
+            val toolbarMaxY = 260f * density
+            return x in 0f..toolbarMaxX && y in 0f..toolbarMaxY
+        }
+
+        @JvmStatic
+        fun isTouchInsideModal(
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float
+        ): Boolean {
+            val modalWidth = minOf(screenWidth * 0.92f, 520f * density)
+            val modalHeight = screenHeight * 0.86f
+            val left = (screenWidth - modalWidth) / 2f
+            val right = (screenWidth + modalWidth) / 2f
+            val top = (screenHeight - modalHeight) / 2f
+            val bottom = (screenHeight + modalHeight) / 2f
+            return x in left..right && y in top..bottom
+        }
+
+        @JvmStatic
+        fun isTouchInsideVirtualGamepad(
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float
+        ): Boolean {
+            // 1. D-Pad / Joystick zone (bottom-left)
+            val dpadMaxX = maxOf(screenWidth * 0.35f, 220f * density)
+            val dpadMinY = minOf(screenHeight * 0.50f, screenHeight - 240f * density)
+            if (x in 0f..dpadMaxX && y in dpadMinY..screenHeight) {
+                return true
+            }
+
+            // 2. Action buttons zone (bottom-right)
+            val actionMinX = minOf(screenWidth * 0.65f, screenWidth - 240f * density)
+            val actionMinY = minOf(screenHeight * 0.50f, screenHeight - 240f * density)
+            if (x in actionMinX..screenWidth && y in actionMinY..screenHeight) {
+                return true
+            }
+
+            // 3. Top utility buttons zone (top-center)
+            val utilMinX = screenWidth * 0.35f
+            val utilMaxX = screenWidth * 0.65f
+            val utilMaxY = maxOf(screenHeight * 0.15f, 60f * density)
+            if (x in utilMinX..utilMaxX && y in 0f..utilMaxY) {
+                return true
+            }
+
+            return false
+        }
+
+        @JvmStatic
+        fun isTouchOnActiveControls(
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float,
+            isGamepadHidden: Boolean,
+            isOverlayModalOpen: Boolean
+        ): Boolean {
+            if (isTouchInsideToolbar(x, y, density)) {
+                return true
+            }
+            if (isOverlayModalOpen && isTouchInsideModal(x, y, screenWidth, screenHeight, density)) {
+                return true
+            }
+            if (!isGamepadHidden && isTouchInsideVirtualGamepad(x, y, screenWidth, screenHeight, density)) {
+                return true
+            }
+            return false
+        }
+
+        @JvmStatic
+        fun shouldForwardTouchToGame(
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float,
+            isGamepadHidden: Boolean,
+            isOverlayModalOpen: Boolean
+        ): Boolean {
+            return !isTouchOnActiveControls(
+                x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen
+            )
+        }
     }
 
     var gameWebView: WebView? = null
@@ -80,6 +175,8 @@ open class WebActivity : Activity() {
 
     @Volatile
     var cachedEvalResult: String = ""
+
+    private var isTouchCapturedByGame: Boolean = false
 
     @SuppressLint("SetJavaScriptEnabled")
     @Suppress("DEPRECATION")
@@ -527,6 +624,38 @@ open class WebActivity : Activity() {
         }
 
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+        val screenHeight = resources.displayMetrics.heightPixels.toFloat()
+
+        val action = event.actionMasked
+        if (action == MotionEvent.ACTION_DOWN) {
+            isTouchCapturedByGame = shouldForwardTouchToGame(
+                event.x,
+                event.y,
+                screenWidth,
+                screenHeight,
+                density,
+                isGamepadHidden,
+                isOverlayModalOpen
+            )
+        }
+
+        if (isTouchCapturedByGame) {
+            try {
+                gameWebView?.dispatchTouchEvent(event)
+            } catch (ignored: Exception) {
+            }
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                isTouchCapturedByGame = false
+            }
+            return true
+        }
+
+        return super.dispatchTouchEvent(event)
     }
 
     override fun onPause() {

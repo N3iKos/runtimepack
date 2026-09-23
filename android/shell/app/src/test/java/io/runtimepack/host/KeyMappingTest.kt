@@ -400,4 +400,97 @@ class KeyMappingTest {
         activity.webShimsScript = "test script"
         assertEquals("test script", activity.webShimsScript)
     }
+
+    @Test
+    fun testWebActivityToolbarBoundingBox() {
+        val density = 2.0f
+        // Toolbar is at (0, 0) up to (70dp * density = 140px, 260dp * density = 520px)
+        assertTrue(WebActivity.isTouchInsideToolbar(0f, 0f, density))
+        assertTrue(WebActivity.isTouchInsideToolbar(50f, 100f, density))
+        assertTrue(WebActivity.isTouchInsideToolbar(140f, 520f, density))
+
+        // Outside toolbar
+        assertFalse(WebActivity.isTouchInsideToolbar(150f, 100f, density))
+        assertFalse(WebActivity.isTouchInsideToolbar(50f, 530f, density))
+        assertFalse(WebActivity.isTouchInsideToolbar(-1f, 100f, density))
+    }
+
+    @Test
+    fun testWebActivityModalBoundingBox() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+        // modalWidth = min(1920 * 0.92 = 1766.4, 520 * 2.0 = 1040) = 1040
+        // modalHeight = 1080 * 0.86 = 928.8
+        // left = 440, right = 1480, top = 75.6, bottom = 1004.4
+
+        // Inside modal
+        assertTrue(WebActivity.isTouchInsideModal(960f, 540f, screenWidth, screenHeight, density))
+        assertTrue(WebActivity.isTouchInsideModal(500f, 500f, screenWidth, screenHeight, density))
+        assertTrue(WebActivity.isTouchInsideModal(1400f, 900f, screenWidth, screenHeight, density))
+
+        // Outside modal
+        assertFalse(WebActivity.isTouchInsideModal(100f, 540f, screenWidth, screenHeight, density))
+        assertFalse(WebActivity.isTouchInsideModal(1800f, 540f, screenWidth, screenHeight, density))
+        assertFalse(WebActivity.isTouchInsideModal(960f, 50f, screenWidth, screenHeight, density))
+        assertFalse(WebActivity.isTouchInsideModal(960f, 1050f, screenWidth, screenHeight, density))
+    }
+
+    @Test
+    fun testWebActivityVirtualGamepadBoundingBox() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // D-Pad zone (bottom-left)
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(100f, 900f, screenWidth, screenHeight, density))
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(200f, 700f, screenWidth, screenHeight, density))
+
+        // Action buttons zone (bottom-right)
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(1800f, 900f, screenWidth, screenHeight, density))
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(1500f, 800f, screenWidth, screenHeight, density))
+
+        // Utility buttons zone (top-center)
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(960f, 30f, screenWidth, screenHeight, density))
+
+        // Map / game canvas (center) -> NOT inside virtual gamepad
+        assertFalse(WebActivity.isTouchInsideVirtualGamepad(960f, 540f, screenWidth, screenHeight, density))
+        assertFalse(WebActivity.isTouchInsideVirtualGamepad(960f, 900f, screenWidth, screenHeight, density))
+        assertFalse(WebActivity.isTouchInsideVirtualGamepad(200f, 300f, screenWidth, screenHeight, density))
+    }
+
+    @Test
+    fun testWebActivityTouchPassThroughLogic() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // Case A: Gamepad hidden, modal closed (isGamepadHidden = true, isOverlayModalOpen = false)
+        // Map center passes through to game
+        assertTrue(WebActivity.shouldForwardTouchToGame(960f, 540f, screenWidth, screenHeight, density, isGamepadHidden = true, isOverlayModalOpen = false))
+        // D-Pad area passes through to game when hidden
+        assertTrue(WebActivity.shouldForwardTouchToGame(100f, 900f, screenWidth, screenHeight, density, isGamepadHidden = true, isOverlayModalOpen = false))
+        // Action buttons area passes through to game when hidden
+        assertTrue(WebActivity.shouldForwardTouchToGame(1800f, 900f, screenWidth, screenHeight, density, isGamepadHidden = true, isOverlayModalOpen = false))
+        // Toolbar stays with overlay (does NOT forward)
+        assertFalse(WebActivity.shouldForwardTouchToGame(50f, 50f, screenWidth, screenHeight, density, isGamepadHidden = true, isOverlayModalOpen = false))
+
+        // Case B: Gamepad visible, modal closed (isGamepadHidden = false, isOverlayModalOpen = false)
+        // Map center passes through to game!
+        assertTrue(WebActivity.shouldForwardTouchToGame(960f, 540f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false))
+        // D-Pad stays with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(100f, 900f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false))
+        // Action buttons stay with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(1800f, 900f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false))
+        // Top utility buttons stay with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(960f, 30f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false))
+        // Toolbar stays with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(50f, 50f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false))
+
+        // Case C: Modal is open (isOverlayModalOpen = true)
+        // Modal center stays with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(960f, 540f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = true))
+        // Toolbar stays with overlay
+        assertFalse(WebActivity.shouldForwardTouchToGame(50f, 50f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = true))
+    }
 }
