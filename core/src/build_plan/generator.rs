@@ -291,7 +291,136 @@ dependencies {{
         manifest: &BuildManifest,
         packed_content_path: Option<&Path>,
     ) -> Result<(), DiagnosticError> {
-        Self::emit_project_with_source(project_dir, manifest, packed_content_path, None)
+        Self::emit_project_with_source(
+            project_dir,
+            manifest,
+            packed_content_path,
+            None,
+            manifest.flavor.as_deref().or(manifest.provenance.flavor.as_deref()),
+        )
+    }
+
+    pub fn find_overlay_src() -> Option<PathBuf> {
+        let p1 = Path::new("android/shell/app/src/main/assets/overlay");
+        if p1.exists() {
+            return Some(p1.to_path_buf());
+        }
+        let p2 = Path::new("../android/shell/app/src/main/assets/overlay");
+        if p2.exists() {
+            return Some(p2.to_path_buf());
+        }
+        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            let p3 = Path::new(&manifest_dir).join("android/shell/app/src/main/assets/overlay");
+            if p3.exists() {
+                return Some(p3);
+            }
+            if let Some(parent) = Path::new(&manifest_dir).parent() {
+                let p4 = parent.join("android/shell/app/src/main/assets/overlay");
+                if p4.exists() {
+                    return Some(p4);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn configure_overlay_watermark(
+        overlay_dir: &Path,
+        flavor: &str,
+    ) -> std::io::Result<()> {
+        if !overlay_dir.exists() {
+            fs::create_dir_all(overlay_dir)?;
+        }
+
+        let is_beta = flavor.eq_ignore_ascii_case("beta");
+        let vpad_path = overlay_dir.join("vpad.js");
+        let index_path = overlay_dir.join("index.html");
+
+        if vpad_path.exists() {
+            let mut vpad_content = fs::read_to_string(&vpad_path)?;
+            if is_beta {
+                // 1. In vpad.js HTML template:
+                if let Some(start_idx) = vpad_content.find("<div id=\"fnh-watermark\">") {
+                    if let Some(outer_end) = vpad_content[start_idx..].find("<!-- Top Left") {
+                        let before = &vpad_content[..start_idx];
+                        let after = &vpad_content[start_idx + outer_end..];
+                        vpad_content = format!(
+                            "{before}<div id=\"fnh-watermark\">\n                <div>Beta Test</div>\n                <div>Veldra Community</div>\n            </div>\n\n            {after}"
+                        );
+                    } else if let Some(end_offset) = vpad_content[start_idx..].find("</div>") {
+                        let end_idx = start_idx + end_offset + 6;
+                        vpad_content = format!(
+                            "{before}<div id=\"fnh-watermark\">\n                <div>Beta Test</div>\n                <div>Veldra Community</div>\n            </div>{after}",
+                            before = &vpad_content[..start_idx],
+                            after = &vpad_content[end_idx..]
+                        );
+                    }
+                }
+
+                // 2. In vpad.js CSS:
+                let beta_css = "\n            #fnh-watermark { display: block !important; opacity: 0.8 !important; pointer-events: none; }\n";
+                if !vpad_content.contains("opacity: 0.8 !important") {
+                    if let Some(style_idx) = vpad_content.find("/* Watermark Top-Right") {
+                        vpad_content.insert_str(style_idx, beta_css);
+                    } else {
+                        vpad_content.push_str(beta_css);
+                    }
+                }
+            } else {
+                // Release mode: cleanly disable watermark and omit watermark text
+                if let Some(start_idx) = vpad_content.find("<div id=\"fnh-watermark\">") {
+                    if let Some(outer_end) = vpad_content[start_idx..].find("<!-- Top Left") {
+                        let before = &vpad_content[..start_idx];
+                        let after = &vpad_content[start_idx + outer_end..];
+                        vpad_content = format!(
+                            "{before}<div id=\"fnh-watermark\" style=\"display: none !important;\">\n            </div>\n\n            {after}"
+                        );
+                    } else if let Some(end_offset) = vpad_content[start_idx..].find("</div>") {
+                        let end_idx = start_idx + end_offset + 6;
+                        vpad_content = format!(
+                            "{before}<div id=\"fnh-watermark\" style=\"display: none !important;\"></div>{after}",
+                            before = &vpad_content[..start_idx],
+                            after = &vpad_content[end_idx..]
+                        );
+                    }
+                }
+
+                let release_css = "\n            #fnh-watermark { display: none !important; }\n            #fnh-watermark * { display: none !important; }\n";
+                if let Some(style_idx) = vpad_content.find("/* Watermark Top-Right") {
+                    vpad_content.insert_str(style_idx, release_css);
+                } else {
+                    vpad_content.push_str(release_css);
+                }
+            }
+            fs::write(&vpad_path, vpad_content)?;
+        }
+
+        if index_path.exists() {
+            let mut index_content = fs::read_to_string(&index_path)?;
+            let watermark_style = if is_beta {
+                "    <style id=\"fnh-watermark-style\">\n        #fnh-watermark { display: block !important; opacity: 0.8 !important; pointer-events: none; }\n    </style>\n</head>"
+            } else {
+                "    <style id=\"fnh-watermark-style\">\n        #fnh-watermark { display: none !important; }\n    </style>\n</head>"
+            };
+            if index_content.contains("</head>") {
+                index_content = index_content.replace("</head>", watermark_style);
+            } else {
+                index_content.push_str(watermark_style);
+            }
+
+            if !vpad_path.exists() && is_beta && !index_content.contains("<div id=\"fnh-watermark\">") {
+                let watermark_div = "\n    <div id=\"fnh-watermark\">\n        <div>Beta Test</div>\n        <div>Veldra Community</div>\n    </div>\n</body>";
+                if index_content.contains("</body>") {
+                    index_content = index_content.replace("</body>", watermark_div);
+                } else {
+                    index_content.push_str(watermark_div);
+                }
+            }
+
+            fs::write(&index_path, index_content)?;
+        }
+
+        Ok(())
     }
 
     pub fn emit_project_with_source(
@@ -299,6 +428,7 @@ dependencies {{
         manifest: &BuildManifest,
         packed_content_path: Option<&Path>,
         game_source_dir: Option<&Path>,
+        flavor: Option<&str>,
     ) -> Result<(), DiagnosticError> {
         let app_dir = project_dir.join("app");
         let src_dir = app_dir.join("src/main/java");
@@ -361,13 +491,20 @@ dependencies {{
         }
 
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
-        let overlay_src = Path::new("android/shell/app/src/main/assets/overlay");
         let overlay_dst = assets_dir.join("overlay");
+        let overlay_src = Self::find_overlay_src().unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
         if overlay_src.exists() {
-            copy_dir_all(overlay_src, &overlay_dst)?;
+            copy_dir_all(&overlay_src, &overlay_dst)?;
         }
         // Inject game-specific cheat profile or fallback to neutral template
         Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
+
+        // Configure watermark injection into assets/overlay based on flavor
+        let effective_flavor = flavor
+            .or(manifest.flavor.as_deref())
+            .or(manifest.provenance.flavor.as_deref())
+            .unwrap_or("beta");
+        Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
 
         // Copy web_shims assets (runtimepack_web_shims.js)
         let shims_src = Path::new("android/shell/app/src/main/assets/web_shims");

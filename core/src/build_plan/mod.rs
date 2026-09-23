@@ -167,6 +167,8 @@ pub struct BuildManifest {
     pub runtimepack_version: String,
     pub git_commit: Option<String>,
     pub build_timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavor: Option<String>,
     pub app: AppConfig,
     pub engine: EngineManifestEntry,
     pub runtime: RuntimeManifestEntry,
@@ -222,5 +224,7 @@ pub struct ProvenanceManifestEntry {
     pub source_hash: String,
     pub config_hash: String,
     pub apk_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavor: Option<String>,
     pub toolchain: ToolchainProvenance,
 }

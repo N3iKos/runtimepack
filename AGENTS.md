@@ -890,6 +890,22 @@ The project is intended to be maintainable by multiple autonomous agents. Predic
 
 ---
 
+## 23. Workflow Superpowers, Sub-Agent Driven & Klarifikasi Wajib
+
+1. **Wajib Workflow Superpowers & Sub-Agent Driven:**
+   - Wajib mengikuti alur Superpowers dan memanfaatkan arsitektur **sub-agent driven** (`task` tool) untuk riset, inspeksi, dan eksekusi tugas multi-langkah agar menghemat token sesi utama.
+   - Hindari debugging interaktif/monolitik yang boros token di main context tanpa perencanaan yang jelas.
+
+2. **Dilarang Asal Build / Eksekusi Tanpa Konfirmasi:**
+   - Jangan langsung menjalankan build berat atau modifikasi besar secara mandiri tanpa konfirmasi user.
+   - Jika instruksi user terasa ambigu, memiliki opsi ganda, atau memerlukan asumsi, agen **WAJIB** berhenti sejenak, bertanya, dan mengonfirmasi ke user terlebih dahulu sebelum mengeksekusi.
+
+3. **Mandatory Build Flavor Policy (`--flavor beta`):**
+   - Autonomous subagents MUST ALWAYS build using `--flavor beta` unless explicitly instructed otherwise by the user.
+   - Builds produced with `--flavor beta` automatically enforce the permanent Beta Watermark (`Beta Test Veldra Community`) and diagnostic test tooling for transparent validation.
+
+---
+
 # Memory Protocol
 Di awal SETIAP sesi baru, baca berurutan:
 1. memory/memory.md

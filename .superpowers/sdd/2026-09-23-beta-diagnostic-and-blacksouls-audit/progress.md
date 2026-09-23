@@ -9,3 +9,5 @@
 | Task 4 | Task 5 | `audit_report.json` | Stress test outputs JSON file to storage | Adb pullable from `/data/user/0/<pkg>/files/` |
 
 Task 1: complete (commits 7b1a346..3c3a8a3, review clean)
+Task 2: complete (commits 3c3a8a3..d5a3334, review clean)
+Task 3: complete (tests passing, review clean)

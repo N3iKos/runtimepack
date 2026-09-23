@@ -1,5 +1,16 @@
 # Decisions Log
 
+## [2026-09-23] Pipeline Build Flavor (--flavor beta vs --flavor release) & Permanent Beta Watermark
+**Keputusan:**
+1. Menambahkan CLI argument `--flavor` pada `runtimepack build` (default `"beta"`), dengan validasi strict hanya menerima `"beta"` atau `"release"` (case-insensitive) dan me-return diagnostic `BLD-101` jika invalid.
+2. Mencatat build flavor di `BuildManifest` (baik pada `manifest.flavor` maupun `manifest.provenance.flavor`).
+3. Mengonfigurasi layer overlay HTML/JS/CSS secara dinamis saat project emission:
+   - Jika `flavor == "beta"`: menginjeksi watermark permanen `#fnh-watermark` (`Beta Test / Veldra Community`) dengan style `display: block !important; opacity: 0.8 !important; pointer-events: none;`.
+   - Jika `flavor == "release"`: menonaktifkan watermark secara tuntas (`display: none !important;`) dan mengosongkan teks watermark.
+4. Menegakkan kebijakan wajib di `AGENTS.md` (Section 23): Seluruh autonomous subagent wajib menjalankan build dengan `--flavor beta` secara default.
+**Alasan:** Memastikan build testing/evaluasi selalu memuat identitas komunitas dan watermark visual transparan yang persisten di semua scene, sekaligus menyediakan jalur bersih untuk release resmi.
+**Dampak:** CLI dan Build Planner mendukung build flavor modular, teruji penuh pada test suite integration (`test_build_flavor_beta_injects_watermark`, `test_build_flavor_release_omits_watermark`).
+
 ## [2026-09-23] Dukungan Porting & Shimming TyranoScript Electron & NTRdemic
 **Keputusan:**
 1. Mengimplementasikan parser & extractor murni Rust `AsarArchive` (`engines/tyrano/src/asar.rs`) untuk membaca header JSON Electron ASAR dan mengekstrak aset web ke build staging directory sebelum dibundel ke `game.pack`.

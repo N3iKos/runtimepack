@@ -53,24 +53,30 @@ enum Commands {
         path: PathBuf,
     },
     /// Build standalone Android APK/AAB from a game
-    Build {
-        /// Path to game source directory
-        path: PathBuf,
-        /// Application package ID (e.g. com.example.game)
-        #[arg(long)]
-        package: Option<String>,
-        /// Application display name
-        #[arg(long)]
-        name: Option<String>,
-        /// Content mode: plain, packed, encrypted-streaming
-        #[arg(long, default_value = "packed")]
-        content_mode: String,
-        /// Output directory
-        #[arg(short, long, default_value = "./dist")]
-        output: PathBuf,
-    },
+    Build(BuildArgs),
     /// Display third-party notices and licenses
     Licenses,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct BuildArgs {
+    /// Path to game source directory
+    pub path: PathBuf,
+    /// Application package ID (e.g. com.example.game)
+    #[arg(long)]
+    pub package: Option<String>,
+    /// Application display name
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Content mode: plain, packed, encrypted-streaming
+    #[arg(long, default_value = "packed")]
+    pub content_mode: String,
+    /// Build flavor: beta or release
+    #[arg(long, default_value = "beta")]
+    pub flavor: String,
+    /// Output directory
+    #[arg(short, long, default_value = "./dist")]
+    pub output: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -328,15 +334,22 @@ fn cmd_explain(path: &Path) {
     }
 }
 
-fn cmd_build(
-    path: &Path,
-    package: Option<String>,
-    name: Option<String>,
-    content_mode: String,
-    output: &Path,
-) {
+fn cmd_build(args: BuildArgs) {
+    let normalized_flavor = args.flavor.to_lowercase();
+    if normalized_flavor != "beta" && normalized_flavor != "release" {
+        eprintln!("[BLD-101] Invalid build flavor '{}'. Must be 'beta' or 'release'.", args.flavor);
+        std::process::exit(1);
+    }
+
+    let path = &args.path;
+    let package = args.package;
+    let name = args.name;
+    let content_mode = args.content_mode;
+    let output = &args.output;
+
     println!("RuntimePack Build — Starting build pipeline\n");
     println!("Source game:   {}", path.display());
+    println!("Build flavor:  {}", normalized_flavor);
     println!("Output target: {}", output.display());
 
     // 1. Ingest
@@ -503,6 +516,7 @@ fn cmd_build(
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: Utc::now().to_rfc3339(),
+        flavor: Some(normalized_flavor.clone()),
         app: AppConfig {
             name: app_name.clone(),
             package: pkg_id.clone(),
@@ -538,6 +552,7 @@ fn cmd_build(
             source_hash: source_index.source_hash.clone(),
             config_hash: "".to_string(),
             apk_hash: None,
+            flavor: Some(normalized_flavor.clone()),
             toolchain: ToolchainProvenance {
                 agp_version: Some("8.3.0".to_string()),
                 gradle_version: Some("8.7".to_string()),
@@ -551,7 +566,13 @@ fn cmd_build(
     // 8. Generate Android Project
     println!("\nGenerating standalone Android project structure...");
     let android_project_dir = output.join("android-project");
-    if let Err(e) = AndroidProjectGenerator::emit_project_with_source(&android_project_dir, &manifest, Some(&pack_path), Some(path)) {
+    if let Err(e) = AndroidProjectGenerator::emit_project_with_source(
+        &android_project_dir,
+        &manifest,
+        Some(&pack_path),
+        Some(path),
+        Some(&normalized_flavor),
+    ) {
         eprintln!("[AND-101] Project generation error: {}", e);
         std::process::exit(1);
     }
@@ -668,13 +689,7 @@ fn main() {
         Some(Commands::Runtime { sub: RuntimeCommands::List }) => cmd_runtime_list(),
         Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
         Some(Commands::Explain { path }) => cmd_explain(&path),
-        Some(Commands::Build {
-            path,
-            package,
-            name,
-            content_mode,
-            output,
-        }) => cmd_build(&path, package, name, content_mode, &output),
+        Some(Commands::Build(args)) => cmd_build(args),
         Some(Commands::Licenses) => cmd_licenses(),
         None => {
             println!("runtimepack 0.1.0");

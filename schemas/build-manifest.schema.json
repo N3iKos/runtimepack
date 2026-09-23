@@ -18,6 +18,7 @@
     "runtimepack_version": { "type": "string" },
     "git_commit": { "type": ["string", "null"] },
     "build_timestamp": { "type": "string", "format": "date-time" },
+    "flavor": { "type": ["string", "null"] },
     "app": {
       "type": "object",
       "required": ["name", "package", "version_name", "version_code"],
@@ -76,6 +77,7 @@
         "source_hash": { "type": "string" },
         "config_hash": { "type": "string" },
         "apk_hash": { "type": ["string", "null"] },
+        "flavor": { "type": ["string", "null"] },
         "toolchain": {
           "type": "object",
           "properties": {

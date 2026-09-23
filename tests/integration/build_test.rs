@@ -331,6 +331,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        flavor: None,
         app: AppConfig {
             name: "Test VFS".to_string(),
             package: "com.example.testvfs".to_string(),
@@ -366,6 +367,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
             source_hash: "dummy_src".to_string(),
             config_hash: "".to_string(),
             apk_hash: None,
+            flavor: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -419,6 +421,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        flavor: None,
         app: AppConfig {
             name: "Test Web Game".to_string(),
             package: "com.example.testwebgame".to_string(),
@@ -454,6 +457,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
             source_hash: "dummy_src".to_string(),
             config_hash: "".to_string(),
             apk_hash: None,
+            flavor: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -486,6 +490,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        flavor: None,
         app: AppConfig {
             name: "Neutral Game".to_string(),
             package: "com.example.neutral".to_string(),
@@ -521,6 +526,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
             source_hash: "dummy_src".to_string(),
             config_hash: "".to_string(),
             apk_hash: None,
+            flavor: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -575,6 +581,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
             runtimepack_version: "0.1.0".to_string(),
             git_commit: None,
             build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+            flavor: None,
             app: AppConfig {
                 name: "Custom Game".to_string(),
                 package: "com.example.custom".to_string(),
@@ -610,6 +617,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
                 source_hash: "dummy_src".to_string(),
                 config_hash: "".to_string(),
                 apk_hash: None,
+                flavor: None,
                 toolchain: ToolchainProvenance {
                     agp_version: None,
                     gradle_version: None,
@@ -625,6 +633,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
             &manifest,
             None,
             Some(source_dir),
+            None,
         )
         .unwrap();
 
@@ -742,4 +751,192 @@ fn test_cheat_profile_registry_matching_and_fallback() {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+#[test]
+fn test_build_flavor_beta_injects_watermark() {
+    let temp_dir = std::env::temp_dir().join(format!("build_test_flavor_beta_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        app: AppConfig {
+            name: "Beta Flavor Game".to_string(),
+            package: "com.example.betaflavor".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rgss".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+    )
+    .unwrap();
+
+    let overlay_dir = project_dir.join("app/src/main/assets/overlay");
+    let vpad_js_path = overlay_dir.join("vpad.js");
+    let index_html_path = overlay_dir.join("index.html");
+
+    assert!(overlay_dir.exists(), "Overlay dir must exist");
+
+    let mut combined_content = String::new();
+    if vpad_js_path.exists() {
+        combined_content.push_str(&std::fs::read_to_string(&vpad_js_path).unwrap());
+    }
+    if index_html_path.exists() {
+        combined_content.push_str(&std::fs::read_to_string(&index_html_path).unwrap());
+    }
+
+    assert!(combined_content.contains("Beta Test"), "Overlay must contain 'Beta Test'");
+    assert!(combined_content.contains("Veldra Community"), "Overlay must contain 'Veldra Community'");
+    assert!(
+        combined_content.contains("#fnh-watermark") && combined_content.contains("display: block !important"),
+        "Watermark must have display: block !important"
+    );
+    assert!(
+        combined_content.contains("opacity: 0.8 !important"),
+        "Watermark must have opacity: 0.8 !important"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_flavor_release_omits_watermark() {
+    let temp_dir = std::env::temp_dir().join(format!("build_test_flavor_release_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        app: AppConfig {
+            name: "Release Flavor Game".to_string(),
+            package: "com.example.releaseflavor".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rgss".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let overlay_dir = project_dir.join("app/src/main/assets/overlay");
+    let vpad_js_path = overlay_dir.join("vpad.js");
+    let index_html_path = overlay_dir.join("index.html");
+
+    assert!(overlay_dir.exists(), "Overlay dir must exist");
+
+    let mut combined_content = String::new();
+    if vpad_js_path.exists() {
+        combined_content.push_str(&std::fs::read_to_string(&vpad_js_path).unwrap());
+    }
+    if index_html_path.exists() {
+        combined_content.push_str(&std::fs::read_to_string(&index_html_path).unwrap());
+    }
+
+    assert!(!combined_content.contains("Beta Test"), "Release build must NOT contain 'Beta Test'");
+    assert!(!combined_content.contains("Veldra Community"), "Release build must NOT contain 'Veldra Community'");
+    assert!(
+        combined_content.contains("#fnh-watermark") && combined_content.contains("display: none !important"),
+        "Watermark must be disabled with display: none !important"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
 
