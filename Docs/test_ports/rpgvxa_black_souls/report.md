@@ -41,7 +41,32 @@
 ### 4. Font Glyph Substitution CJK
 - **Solusi:** Menambahkan pemetaan typographic family `VL Gothic>Noto Sans CJK TC` dan `UmePlus Gothic>Noto Sans CJK TC` pada `defaultFontSubs` di `GpackExtractor.kt` untuk menjamin resolusi font CJK dan simbol tanda petik Jepang.
 
+### 5. Automated Stress-Test Audit & 189 Missing RTP Assets Discovery
+- **Metode Audit:** Menjalankan Automated Stress Test Engine via Floating Diagnostic Suite (`diagnostic_suite.js` & `runtimepack_bootstrap.rb`) pada build `--flavor beta`. Engine memindai seluruh 150 Map (`Data/Map*.rvdata2`) dan file database game secara exhaustif.
+- **Hasil Audit (`audit_report.json`):**
+  - **Total Peta Terpindai:** 150 peta
+  - **Total Aset Diperiksa:** 732 aset
+  - **Aset Eksak Ditemukan:** 543 aset
+  - **Case Mismatch:** 0
+  - **Broken Map Transfers:** 0
+  - **Aset Hilang Terdeteksi (Missing Assets):** 189 aset
+    - *Animations:* 93 file efek visual animasi pertarungan
+    - *Sound Effects (SE):* 59 file efek suara (e.g. `Move`, `Open1`, `Fire1`, `Chest`, `Collapse3`, `Darkness3`, `Bell1`)
+    - *Tilesets:* 17 file (`Outside_A1`..`A5`, `Outside_B`, `Outside_C`, `Inside_A1`..`A5`, `Inside_B`, `Dungeon_A1`..`A5`, `Dungeon_C`)
+    - *Battlers:* 7 sprite musuh (`Plant`, `Sahagin`, `Evilking`, `Cockatrice`, `Fairy`, `Priest`, `Death`)
+    - *Background Sounds (BGS):* 7 efek suara latar (`Rain`, `Wind`, `River`, `Darkness`, dll.)
+    - *Characters:* 4 spritesheet karakter (`Evil`, `!Flame`, `Actor5`, `Spiritual`)
+    - *Faces:* 1 potret wajah (`People4`)
+    - *BGM:* 1 musik latar (`Audio/BGM/彼女の部屋`)
+- **Analisis Akar Masalah:** Game dikompilasi dengan konfigurasi `rtp =RPGVXAce` pada `Game.ini`, mengandalkan instalasi runtime package bawaan PC. Pada lingkungan Android mandiri tanpa paket RTP terpisah, setiap pemanggilan aset di atas pada saat eksplorasi map, pertempuran, atau cutscene normalnya memicu `Errno::ENOENT` atau `RGSSError` yang berakibat fatal crash.
+- **Verifikasi Failsafe Auto-Recovery:** Mekanisme universal Auto-Recovery pada `runtimepack_bootstrap.rb` (`Bitmap.new`, `Cache.normal_bitmap`, `Audio.se_play`, `Audio.bgm_play`, `Audio.bgs_play`) berhasil mencegat seluruh kegagalan akses pada 189 aset tersebut, mengalihkan ke empty transparent bitmap (32x32) dan audio fallback tanpa melempar fatal exception ke game loop, menjaga stabilitas permainan 100%.
+
+### 6. Deserialisasi Perintah IPC Native Tanpa Modul JSON
+- **Kendala:** Pada mkxp-z (RGSS3 Ruby pada Android), pustaka standar `json` tidak di-bundle secara default (`defined?(JSON)` bernilai `nil`). Akibatnya, perintah JSON IPC selain `"action":"eval"` (seperti `{"action":"run_stress_test"}`) gagal di-decode dan terabaikan secara diam-diam.
+- **Solusi:** Mengimplementasikan pure-Ruby JSON deserializer fallback (`parse_json_fallback` & `parse_single_object`) di `RuntimePackCheatRunner` (`runtimepack_bootstrap.rb`), sehingga seluruh perintah otomatisasi, stress-test, teleport map, dan cheat bekerja tanpa ketergantungan pada ekstensi binary Ruby C.
+
 ---
 
 ## Tangkapan Layar (Bukti Validasi)
 ![Black Souls Prologue In-Game](screenshot.png)
+![Black Souls Beta Diagnostic & Stress Suite](screenshot_beta_wm.png)

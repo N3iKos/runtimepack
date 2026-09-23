@@ -197,6 +197,26 @@ begin
     FileUtils.remove_entry_secure(tmp_test_dir) rescue nil
   end
 
+  # --------------------------------------------------------------------------
+  # 4. Test parse_json_fallback directly
+  # --------------------------------------------------------------------------
+  puts "Test 4: parse_json_fallback without standard JSON library"
+  cmd_single = '{"action":"run_stress_test"}'
+  parsed_single = RuntimePackCheatRunner.parse_json_fallback(cmd_single)
+  assert_equal [{"action" => "run_stress_test"}], parsed_single, "Single object should parse into array of 1 hash"
+
+  cmd_params = '{"action":"teleport_map","map_id":77,"x":12,"y":34}'
+  parsed_params = RuntimePackCheatRunner.parse_json_fallback(cmd_params)
+  assert_equal [{"action" => "teleport_map", "map_id" => 77, "x" => 12, "y" => 34}], parsed_params, "Parameters should parse with integers"
+
+  cmd_arr = '[{"action":"set_variable","id":5,"value":100},{"action":"run_stress_test"}]'
+  parsed_arr = RuntimePackCheatRunner.parse_json_fallback(cmd_arr)
+  assert_equal 2, parsed_arr.size, "Array of commands should parse 2 items"
+  assert_equal "set_variable", parsed_arr[0]["action"]
+  assert_equal 5, parsed_arr[0]["id"]
+  assert_equal 100, parsed_arr[0]["value"]
+  assert_equal "run_stress_test", parsed_arr[1]["action"]
+
 ensure
   cleanup_files
 end

@@ -868,6 +868,44 @@ module RuntimePackCheatRunner
     end
   end
 
+  def self.parse_single_object(s)
+    res = {}
+    s.scan(/"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*("(?:[^"\\]*(?:\\.[^"\\]*)*)"|-?\d+(?:\.\d+)?|true|false|null)/) do |k, v|
+      val = if v.start_with?('"')
+        v[1..-2].gsub(/\\"/, '"').gsub(/\\\\/, '\\')
+      elsif v == "true"
+        true
+      elsif v == "false"
+        false
+      elsif v == "null"
+        nil
+      elsif v =~ /\./
+        (v.to_f rescue v)
+      else
+        (v.to_i rescue v)
+      end
+      res[k] = val
+    end
+    res.empty? ? nil : res
+  end
+
+  def self.parse_json_fallback(str)
+    return nil if str.nil? || str.strip.empty?
+    s = str.strip
+    if s.start_with?("[") && s.end_with?("]")
+      items = []
+      s.scan(/\{[^{}]*\}/) do |obj_str|
+        parsed = parse_single_object(obj_str)
+        items << parsed if parsed
+      end
+      return items unless items.empty?
+    elsif s.start_with?("{") && s.end_with?("}")
+      parsed = parse_single_object(s)
+      return parsed ? [parsed] : nil
+    end
+    nil
+  end
+
   def self.update
     install_battle_hooks unless @battle_hooks_installed
     install_save_and_cache_hooks
@@ -905,7 +943,7 @@ module RuntimePackCheatRunner
       return if content.nil? || content.strip.empty?
 
       # Parse command (handle single hash or array of hashes)
-      cmds = (JSON.decode(content) rescue nil) || (JSON.parse(content) rescue nil)
+      cmds = (JSON.decode(content) rescue nil) || (JSON.parse(content) rescue nil) || parse_json_fallback(content)
       if cmds.nil? && content =~ /"action"\s*:\s*"eval"\s*,\s*"code"\s*:\s*"([^"]+)"/
         cmds = [{"action" => "eval", "code" => $1}]
       end
