@@ -1022,7 +1022,331 @@ module RuntimePackCheatRunner
         File.open(EVAL_FILE, "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") } rescue nil
         File.open("../#{EVAL_FILE}", "wb") { |f| f.write("[CHT-002] #{err.class}: #{err.message}") } rescue nil
       end
+    when "teleport_map"
+      map_id = (cmd["map_id"] || cmd["mapId"] || 1).to_i
+      x = (cmd["x"] || 0).to_i
+      y = (cmd["y"] || 0).to_i
+      teleport_map(map_id, x, y)
+    when "export_bug_report"
+      export_bug_report
+    when "run_stress_test"
+      run_stress_test
     end
+  end
+
+  def self.teleport_map(map_id, x, y)
+    if defined?($game_player) && $game_player
+      if $game_player.respond_to?(:reserve_transfer)
+        $game_player.reserve_transfer(map_id, x, y)
+      elsif defined?($game_temp) && $game_temp
+        $game_temp.player_transferring = true
+        $game_temp.player_new_map_id = map_id
+        $game_temp.player_new_x = x
+        $game_temp.player_new_y = y
+      end
+      if defined?(SceneManager) && defined?(Scene_Map) && SceneManager.respond_to?(:goto)
+        SceneManager.goto(Scene_Map) if SceneManager.scene.class != Scene_Map rescue nil
+      end
+      msg = "Teleported to Map #{map_id} (#{x}, #{y})"
+      File.open(EVAL_FILE, "wb") { |f| f.write(msg) } rescue nil
+      File.open("../#{EVAL_FILE}", "wb") { |f| f.write(msg) } rescue nil
+      return true
+    end
+    false
+  end
+
+  def self.export_bug_report
+    scene_name = if defined?(SceneManager) && SceneManager.respond_to?(:scene) && SceneManager.scene
+      SceneManager.scene.class.name
+    elsif defined?($scene) && $scene
+      $scene.class.name
+    else
+      "Unknown"
+    end
+    map_id = (defined?($game_map) && $game_map && $game_map.respond_to?(:map_id)) ? ($game_map.map_id rescue nil) : nil
+    player_x = (defined?($game_player) && $game_player && $game_player.respond_to?(:x)) ? ($game_player.x rescue nil) : nil
+    player_y = (defined?($game_player) && $game_player && $game_player.respond_to?(:y)) ? ($game_player.y rescue nil) : nil
+    gold = (defined?($game_party) && $game_party && $game_party.respond_to?(:gold)) ? ($game_party.gold rescue 0) : 0
+
+    bug_report = {
+      "timestamp" => Time.now.to_s,
+      "scene" => scene_name,
+      "map_id" => map_id,
+      "player" => { "x" => player_x, "y" => player_y },
+      "gold" => gold,
+      "ruby_version" => RUBY_VERSION,
+      "platform" => RUBY_PLATFORM,
+      "god_mode" => ($runtimepack_god_mode ? true : false),
+      "one_hit_kill" => ($runtimepack_one_hit_kill ? true : false)
+    }
+    if File.exist?(ERROR_FILE)
+      bug_report["recent_error"] = (File.read(ERROR_FILE) rescue nil)
+    elsif File.exist?("../#{ERROR_FILE}")
+      bug_report["recent_error"] = (File.read("../#{ERROR_FILE}") rescue nil)
+    end
+
+    json_str = (defined?(JSON) && JSON.respond_to?(:pretty_generate)) ? JSON.pretty_generate(bug_report) : serialize_fallback(bug_report)
+    File.open("bug_report.json", "wb") { |f| f.write(json_str) } rescue nil
+    File.open("../bug_report.json", "wb") { |f| f.write(json_str) } rescue nil
+    File.open("game/bug_report.json", "wb") { |f| f.write(json_str) } rescue nil if File.directory?("game")
+
+    msg = "Bug report exported: Scene=#{scene_name}, Map=#{map_id}, Player=(#{player_x}, #{player_y})"
+    File.open(EVAL_FILE, "wb") { |f| f.write(msg) } rescue nil
+    File.open("../#{EVAL_FILE}", "wb") { |f| f.write(msg) } rescue nil
+    bug_report
+  end
+
+  def self.verify_disk_asset(base_path, extensions = [""])
+    norm = base_path.to_s.tr('\\', '/').sub(/^\.?\//, '')
+    norm_without_ext = norm.sub(/\.[^.\/]+$/, "")
+    has_ext = (norm != norm_without_ext)
+
+    exts = has_ext ? [""] : extensions
+    prefixes = ["", "game/"]
+    found_case_mismatch = nil
+
+    prefixes.each do |prefix|
+      exts.each do |ext|
+        candidate = "#{prefix}#{norm}#{ext}"
+        exact_found = if File.respond_to?(:runtimepack_original_exist?)
+          File.runtimepack_original_exist?(candidate)
+        else
+          File.exist?(candidate)
+        end
+
+        return { "status" => "EXACT", "path" => candidate } if exact_found
+
+        if defined?(RuntimePackCasePath) && RuntimePackCasePath.respond_to?(:resolve)
+          resolved = RuntimePackCasePath.resolve(candidate) rescue candidate
+          res_found = if File.respond_to?(:runtimepack_original_exist?)
+            File.runtimepack_original_exist?(resolved)
+          else
+            File.exist?(resolved)
+          end
+          if res_found
+            if resolved == candidate
+              return { "status" => "EXACT", "path" => candidate }
+            else
+              found_case_mismatch ||= { "status" => "CASE_MISMATCH", "path" => candidate, "resolved" => resolved }
+            end
+          end
+        end
+      end
+    end
+
+    return found_case_mismatch if found_case_mismatch
+    { "status" => "MISSING", "path" => norm }
+  end
+
+  def self.load_game_data(path)
+    if defined?(load_data) || Kernel.respond_to?(:load_data, true)
+      begin
+        return load_data(path)
+      rescue Exception
+      end
+      if path.start_with?("game/")
+        begin
+          return load_data(path.sub(/^game\//, ''))
+        rescue Exception
+        end
+      end
+    end
+    if File.exist?(path)
+      begin
+        return File.open(path, "rb") { |f| Marshal.load(f) }
+      rescue Exception
+      end
+    end
+    nil
+  end
+
+  def self.run_stress_test
+    checked_assets = {}
+    scanned_maps = []
+    all_transfers = []
+    broken_transfers = []
+    case_mismatches = []
+    missing_assets = []
+    exact_assets_count = 0
+
+    audit_asset = lambda do |asset_path, exts, asset_type|
+      next if asset_path.nil? || asset_path.to_s.strip.empty?
+      clean = asset_path.to_s.strip
+      key = "#{clean}:#{exts.join(',')}"
+      next if checked_assets.key?(key)
+
+      res = verify_disk_asset(clean, exts)
+      checked_assets[key] = res["status"]
+      case res["status"]
+      when "EXACT"
+        exact_assets_count += 1
+      when "CASE_MISMATCH"
+        case_mismatches << { "referenced" => clean, "resolved" => res["resolved"], "type" => asset_type }
+      when "MISSING"
+        missing_assets << { "referenced" => clean, "type" => asset_type }
+      end
+    end
+
+    audit_commands = lambda do |cmd_list, from_id|
+      next unless cmd_list.is_a?(Array)
+      cmd_list.each do |c|
+        next unless c && c.respond_to?(:code)
+        params = c.parameters || []
+        case c.code
+        when 201 # Transfer player
+          target_id = params[1].to_i
+          if params[0] == 0 || params.size > 1
+            all_transfers << { "from_map" => from_id, "target_map_id" => target_id, "x" => params[2].to_i, "y" => params[3].to_i }
+          end
+        when 231 # Show picture
+          pic_name = params[1].to_s
+          audit_asset.call("Graphics/Pictures/#{pic_name}", [".png", ".jpg", ".jpeg"], "Picture") unless pic_name.empty?
+        when 241 # Play BGM
+          bgm = params[0]
+          name = (bgm.respond_to?(:name) ? bgm.name : bgm.to_s)
+          audit_asset.call("Audio/BGM/#{name}", [".ogg", ".wav", ".mp3", ".mid"], "BGM") unless name.empty?
+        when 245 # Play BGS
+          bgs = params[0]
+          name = (bgs.respond_to?(:name) ? bgs.name : bgs.to_s)
+          audit_asset.call("Audio/BGS/#{name}", [".ogg", ".wav", ".mp3"], "BGS") unless name.empty?
+        when 250 # Play SE
+          se = params[0]
+          name = (se.respond_to?(:name) ? se.name : se.to_s)
+          audit_asset.call("Audio/SE/#{name}", [".ogg", ".wav", ".mp3"], "SE") unless name.empty?
+        when 322 # Change Actor Graphic
+          char_name = params[1].to_s
+          face_name = params[3].to_s
+          audit_asset.call("Graphics/Characters/#{char_name}", [".png", ".jpg", ".jpeg"], "Character") unless char_name.empty?
+          audit_asset.call("Graphics/Faces/#{face_name}", [".png", ".jpg", ".jpeg"], "Face") unless face_name.empty?
+        end
+      end
+    end
+
+    map_files = (Dir.glob("Data/Map[0-9]*.[rR]*") + Dir.glob("game/Data/Map[0-9]*.[rR]*")).uniq.sort
+    known_map_ids = {}
+
+    map_files.each do |mf|
+      next if mf =~ /MapInfos/i
+      m_id = (mf =~ /Map(\d+)/i) ? $1.to_i : nil
+      known_map_ids[m_id] = true if m_id
+
+      map_obj = load_game_data(mf)
+      next unless map_obj
+
+      scanned_maps << { "map_id" => m_id, "file" => mf }
+
+      if map_obj.respond_to?(:autoplay_bgm) && map_obj.autoplay_bgm && map_obj.respond_to?(:bgm) && map_obj.bgm
+        bgm_name = map_obj.bgm.name.to_s
+        audit_asset.call("Audio/BGM/#{bgm_name}", [".ogg", ".wav", ".mp3", ".mid"], "BGM") unless bgm_name.empty?
+      end
+      if map_obj.respond_to?(:autoplay_bgs) && map_obj.autoplay_bgs && map_obj.respond_to?(:bgs) && map_obj.bgs
+        bgs_name = map_obj.bgs.name.to_s
+        audit_asset.call("Audio/BGS/#{bgs_name}", [".ogg", ".wav", ".mp3"], "BGS") unless bgs_name.empty?
+      end
+
+      if map_obj.respond_to?(:events) && map_obj.events.is_a?(Hash)
+        map_obj.events.values.each do |ev|
+          next unless ev && ev.respond_to?(:pages) && ev.pages.is_a?(Array)
+          ev.pages.each do |page|
+            next unless page && page.respond_to?(:list)
+            audit_commands.call(page.list, m_id)
+          end
+        end
+      end
+    end
+
+    # Inspect Database files
+    db_candidates = [
+      ["Actors", ["Data/Actors.rvdata2", "Data/Actors.rvdata", "Data/Actors.rxdata", "game/Data/Actors.rvdata2"]],
+      ["Enemies", ["Data/Enemies.rvdata2", "Data/Enemies.rvdata", "Data/Enemies.rxdata", "game/Data/Enemies.rvdata2"]],
+      ["Tilesets", ["Data/Tilesets.rvdata2", "Data/Tilesets.rvdata", "Data/Tilesets.rxdata", "game/Data/Tilesets.rvdata2"]],
+      ["Animations", ["Data/Animations.rvdata2", "Data/Animations.rvdata", "Data/Animations.rxdata", "game/Data/Animations.rvdata2"]],
+      ["CommonEvents", ["Data/CommonEvents.rvdata2", "Data/CommonEvents.rvdata", "Data/CommonEvents.rxdata", "game/Data/CommonEvents.rvdata2"]]
+    ]
+
+    db_candidates.each do |db_name, paths|
+      path = paths.find { |p| File.exist?(p) }
+      next unless path
+      data = load_game_data(path)
+      next unless data.is_a?(Array)
+
+      data.compact.each do |entry|
+        case db_name
+        when "Actors"
+          if entry.respond_to?(:character_name) && !entry.character_name.to_s.empty?
+            audit_asset.call("Graphics/Characters/#{entry.character_name}", [".png", ".jpg", ".jpeg"], "Character")
+          end
+          if entry.respond_to?(:face_name) && !entry.face_name.to_s.empty?
+            audit_asset.call("Graphics/Faces/#{entry.face_name}", [".png", ".jpg", ".jpeg"], "Face")
+          end
+          if entry.respond_to?(:battler_name) && !entry.battler_name.to_s.empty?
+            audit_asset.call("Graphics/Battlers/#{entry.battler_name}", [".png", ".jpg", ".jpeg"], "Battler")
+          end
+        when "Enemies"
+          if entry.respond_to?(:battler_name) && !entry.battler_name.to_s.empty?
+            audit_asset.call("Graphics/Battlers/#{entry.battler_name}", [".png", ".jpg", ".jpeg"], "Battler")
+          end
+        when "Tilesets"
+          if entry.respond_to?(:tileset_names) && entry.tileset_names.is_a?(Array)
+            entry.tileset_names.each do |tn|
+              audit_asset.call("Graphics/Tilesets/#{tn}", [".png", ".jpg", ".jpeg"], "Tileset") unless tn.to_s.empty?
+            end
+          end
+          if entry.respond_to?(:tileset_name) && !entry.tileset_name.to_s.empty?
+            audit_asset.call("Graphics/Tilesets/#{entry.tileset_name}", [".png", ".jpg", ".jpeg"], "Tileset")
+          end
+          if entry.respond_to?(:autotile_names) && entry.autotile_names.is_a?(Array)
+            entry.autotile_names.each do |an|
+              audit_asset.call("Graphics/Autotiles/#{an}", [".png", ".jpg", ".jpeg"], "Autotile") unless an.to_s.empty?
+            end
+          end
+        when "Animations"
+          if entry.respond_to?(:animation1_name) && !entry.animation1_name.to_s.empty?
+            audit_asset.call("Graphics/Animations/#{entry.animation1_name}", [".png", ".jpg", ".jpeg"], "Animation")
+          end
+          if entry.respond_to?(:animation2_name) && !entry.animation2_name.to_s.empty?
+            audit_asset.call("Graphics/Animations/#{entry.animation2_name}", [".png", ".jpg", ".jpeg"], "Animation")
+          end
+        when "CommonEvents"
+          if entry.respond_to?(:list) && entry.list.is_a?(Array)
+            audit_commands.call(entry.list, 0)
+          end
+        end
+      end
+    end
+
+    all_transfers.each do |tr|
+      target_id = tr["target_map_id"]
+      if target_id > 0 && !known_map_ids.key?(target_id)
+        broken_transfers << tr
+      end
+    end
+
+    stats = {
+      "total_maps_scanned" => scanned_maps.size,
+      "total_assets_checked" => checked_assets.size,
+      "exact_count" => exact_assets_count,
+      "case_mismatch_count" => case_mismatches.size,
+      "missing_count" => missing_assets.size,
+      "broken_transfers_count" => broken_transfers.size
+    }
+    report = {
+      "timestamp" => Time.now.to_s,
+      "stats" => stats,
+      "broken_transfers" => broken_transfers,
+      "case_mismatches" => case_mismatches,
+      "missing_assets" => missing_assets,
+      "scanned_maps" => scanned_maps
+    }
+    json_str = (defined?(JSON) && JSON.respond_to?(:pretty_generate)) ? JSON.pretty_generate(report) : serialize_fallback(report)
+    File.open("audit_report.json", "wb") { |f| f.write(json_str) } rescue nil
+    File.open("../audit_report.json", "wb") { |f| f.write(json_str) } rescue nil
+    File.open("game/audit_report.json", "wb") { |f| f.write(json_str) } rescue nil if File.directory?("game")
+
+    msg = "Stress test completed: #{stats['total_maps_scanned']} maps, #{stats['exact_count']} exact assets, #{stats['case_mismatch_count']} case mismatches, #{stats['missing_count']} missing."
+    File.open(EVAL_FILE, "wb") { |f| f.write(msg) } rescue nil
+    File.open("../#{EVAL_FILE}", "wb") { |f| f.write(msg) } rescue nil
+    report
   end
 
   def self.dump_game_state

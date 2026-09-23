@@ -287,6 +287,54 @@ function createSandbox(initialStorageManager) {
     sb.window.executeCheatCmd({ action: "eval", code: "throw new Error('test eval error')" });
     assert(recordedEvalResult && recordedEvalResult.startsWith("[CHT-002]"), "executeCheatCmd eval error should report [CHT-002]");
 
+    // Test teleport_map
+    let teleportCalled = null;
+    sb.$gamePlayer = {
+        reserveTransfer: function(mapId, x, y, d, fade) {
+            teleportCalled = { mapId, x, y, d, fade };
+        },
+        x: 10,
+        y: 20
+    };
+    sb.SceneManager = {
+        _scene: { constructor: { name: "Scene_Map" } },
+        goto: function() {}
+    };
+    sb.window.executeCheatCmd({ action: "teleport_map", map_id: 7, x: 12, y: 15 });
+    assert.deepStrictEqual(teleportCalled, { mapId: 7, x: 12, y: 15, d: 2, fade: 0 }, "executeCheatCmd teleport_map should call reserveTransfer");
+    assert(recordedEvalResult && recordedEvalResult.includes("Teleported to Map 7"), "teleport_map should report status to RuntimePackWeb");
+
+    // Test export_bug_report
+    sb.$gameMap = { mapId: function() { return 7; } };
+    sb.window.executeCheatCmd({ action: "export_bug_report" });
+    assert(sb.__runtimepack_bug_report, "export_bug_report should set __runtimepack_bug_report");
+    assert.strictEqual(sb.__runtimepack_bug_report.scene, "Scene_Map");
+    assert.strictEqual(sb.__runtimepack_bug_report.map_id, 7);
+    assert.strictEqual(sb.__runtimepack_bug_report.player.x, 10);
+    assert.strictEqual(sb.__runtimepack_bug_report.player.y, 20);
+
+    // Test run_stress_test
+    sb.$dataMap = {
+        events: {
+            1: {
+                pages: [
+                    {
+                        list: [
+                            { code: 201, parameters: [0, 999, 0, 0] }, // Broken transfer
+                            { code: 231, parameters: [1, "test_pic"] },
+                            { code: 241, parameters: [{ name: "test_bgm" }] }
+                        ]
+                    }
+                ]
+            }
+        }
+    };
+    sb.window.executeCheatCmd({ action: "run_stress_test" });
+    assert(sb.__runtimepack_audit_report, "run_stress_test should generate __runtimepack_audit_report");
+    assert.strictEqual(sb.__runtimepack_audit_report.stats.total_maps_scanned, 1);
+    assert(sb.__runtimepack_audit_report.broken_transfers.length > 0, "Broken transfer to Map 999 should be detected");
+    assert(recordedEvalResult && recordedEvalResult.includes("Stress test completed"), "Stress test should report summary to RuntimePackWeb");
+
     // Test graceful handling when engine objects are missing
     const emptySb = createSandbox();
     vm.runInContext(shimsCode, emptySb);
@@ -299,6 +347,9 @@ function createSandbox(initialStorageManager) {
         emptySb.window.executeCheatCmd({ action: "recover_all" });
         emptySb.window.executeCheatCmd({ action: "gain_item", id: 1, amount: 1 });
         emptySb.window.executeCheatCmd({ action: "dump_state" });
+        emptySb.window.executeCheatCmd({ action: "teleport_map", map_id: 1, x: 0, y: 0 });
+        emptySb.window.executeCheatCmd({ action: "export_bug_report" });
+        emptySb.window.executeCheatCmd({ action: "run_stress_test" });
     }, "executeCheatCmd must safely no-op when game globals are undefined");
 }
 

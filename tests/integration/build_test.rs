@@ -844,6 +844,11 @@ fn test_build_flavor_beta_injects_watermark() {
         combined_content.contains("opacity: 0.8 !important"),
         "Watermark must have opacity: 0.8 !important"
     );
+    let index_html_content = std::fs::read_to_string(&index_html_path).unwrap();
+    assert!(
+        index_html_content.contains("diagnostic_suite.js"),
+        "Beta index.html must load diagnostic_suite.js script tag"
+    );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -935,6 +940,11 @@ fn test_build_flavor_release_omits_watermark() {
     assert!(
         combined_content.contains("#fnh-watermark") && combined_content.contains("display: none !important"),
         "Watermark must be disabled with display: none !important"
+    );
+    let index_html_content = std::fs::read_to_string(&index_html_path).unwrap();
+    assert!(
+        !index_html_content.contains("diagnostic_suite.js"),
+        "Release index.html must NOT load diagnostic_suite.js script tag"
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);

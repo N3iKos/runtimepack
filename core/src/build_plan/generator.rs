@@ -417,6 +417,24 @@ dependencies {{
                 }
             }
 
+            // Beta Diagnostic Suite: include diagnostic_suite.js script tag in index.html only when flavor == "beta"
+            if is_beta {
+                if !index_content.contains("diagnostic_suite.js") {
+                    let diag_script = "    <script src=\"diagnostic_suite.js\"></script>\n</body>";
+                    if index_content.contains("</body>") {
+                        index_content = index_content.replace("</body>", diag_script);
+                    } else {
+                        index_content.push_str("\n    <script src=\"diagnostic_suite.js\"></script>\n");
+                    }
+                }
+            } else if index_content.contains("diagnostic_suite.js") {
+                index_content = index_content
+                    .lines()
+                    .filter(|line| !line.contains("diagnostic_suite.js"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+            }
+
             fs::write(&index_path, index_content)?;
         }
 

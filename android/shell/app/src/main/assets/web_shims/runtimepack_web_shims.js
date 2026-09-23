@@ -123,6 +123,182 @@
                     rpw.setCheatState(JSON.stringify(payload));
                 }
                 break;
+            case "teleport_map":
+                var tMapId = Number(cmd.map_id !== undefined ? cmd.map_id : (cmd.mapId !== undefined ? cmd.mapId : 1));
+                var tX = Number(cmd.x !== undefined ? cmd.x : 0);
+                var tY = Number(cmd.y !== undefined ? cmd.y : 0);
+                if (root.$gamePlayer && typeof root.$gamePlayer.reserveTransfer === "function") {
+                    root.$gamePlayer.reserveTransfer(tMapId, tX, tY, 2, 0);
+                }
+                if (root.SceneManager && root.Scene_Map && typeof root.SceneManager.goto === "function") {
+                    if (!root.SceneManager._scene || !(root.SceneManager._scene instanceof root.Scene_Map)) {
+                        root.SceneManager.goto(root.Scene_Map);
+                    }
+                }
+                var tpMsg = "Teleported to Map " + tMapId + " (" + tX + ", " + tY + ")";
+                if (rpw && typeof rpw.setEvalResult === "function") {
+                    rpw.setEvalResult(tpMsg);
+                }
+                break;
+            case "export_bug_report":
+                var sName = "Unknown";
+                if (root.SceneManager && root.SceneManager._scene && root.SceneManager._scene.constructor) {
+                    sName = root.SceneManager._scene.constructor.name || "Scene_Base";
+                }
+                var mId = (root.$gameMap && typeof root.$gameMap.mapId === "function") ? root.$gameMap.mapId() : null;
+                var pX = null;
+                var pY = null;
+                if (root.$gamePlayer) {
+                    if (typeof root.$gamePlayer.x === "function") {
+                        pX = root.$gamePlayer.x();
+                    } else if (root.$gamePlayer.x !== undefined) {
+                        pX = root.$gamePlayer.x;
+                    } else if (root.$gamePlayer._x !== undefined) {
+                        pX = root.$gamePlayer._x;
+                    }
+                    if (typeof root.$gamePlayer.y === "function") {
+                        pY = root.$gamePlayer.y();
+                    } else if (root.$gamePlayer.y !== undefined) {
+                        pY = root.$gamePlayer.y;
+                    } else if (root.$gamePlayer._y !== undefined) {
+                        pY = root.$gamePlayer._y;
+                    }
+                }
+                var pGold = (root.$gameParty && typeof root.$gameParty.gold === "function") ? root.$gameParty.gold() : 0;
+                var bugReport = {
+                    timestamp: new Date().toISOString(),
+                    scene: sName,
+                    map_id: mId,
+                    player: { x: pX, y: pY },
+                    gold: pGold,
+                    engine: (root.Utils && root.Utils.RPGMAKER_NAME) ? root.Utils.RPGMAKER_NAME : "Web Engine"
+                };
+                var bugJson = JSON.stringify(bugReport, null, 2);
+                root.__runtimepack_bug_report = bugReport;
+                try {
+                    if (typeof root.localStorage !== "undefined") {
+                        root.localStorage.setItem("runtimepack_bug_report", bugJson);
+                    }
+                } catch (e) {}
+                if (rpw && typeof rpw.setEvalResult === "function") {
+                    rpw.setEvalResult(bugJson);
+                }
+                break;
+            case "run_stress_test":
+                var auditReport = {
+                    timestamp: new Date().toISOString(),
+                    engine: (root.Utils && root.Utils.RPGMAKER_NAME) ? root.Utils.RPGMAKER_NAME : "Web Engine",
+                    stats: {
+                        total_maps_scanned: 0,
+                        total_assets_checked: 0,
+                        exact_count: 0,
+                        case_mismatch_count: 0,
+                        missing_count: 0,
+                        broken_transfer_count: 0
+                    },
+                    broken_transfers: [],
+                    case_mismatches: [],
+                    missing_assets: [],
+                    scanned_maps: []
+                };
+
+                var checkedAssets = {};
+                var checkAsset = function(assetPath, exts, type) {
+                    if (!assetPath) return;
+                    if (checkedAssets[assetPath]) return;
+                    auditReport.stats.total_assets_checked++;
+                    var found = false;
+                    var testExts = exts || [""];
+                    for (var i = 0; i < testExts.length; i++) {
+                        var candidate = assetPath + testExts[i];
+                        if (syncExists(candidate)) {
+                            found = true;
+                            checkedAssets[assetPath] = "EXACT";
+                            auditReport.stats.exact_count++;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        checkedAssets[assetPath] = "MISSING";
+                        auditReport.stats.missing_count++;
+                        auditReport.missing_assets.push({ referenced: assetPath, type: type || "asset" });
+                    }
+                };
+
+                if (root.$dataMap && root.$dataMap.events) {
+                    auditReport.stats.total_maps_scanned++;
+                    var events = root.$dataMap.events;
+                    var mapId = (root.$gameMap && typeof root.$gameMap.mapId === "function") ? root.$gameMap.mapId() : 1;
+                    auditReport.scanned_maps.push({ map_id: mapId });
+                    for (var eKey in events) {
+                        var ev = events[eKey];
+                        if (!ev || !ev.pages) continue;
+                        for (var p = 0; p < ev.pages.length; p++) {
+                            var list = ev.pages[p].list || [];
+                            for (var c = 0; c < list.length; c++) {
+                                var cmdItem = list[c];
+                                if (!cmdItem) continue;
+                                if (cmdItem.code === 201) { // Transfer
+                                    var targetMap = cmdItem.parameters[1];
+                                    if (targetMap && !syncExists("data/Map" + String(targetMap).padStart(3, "0") + ".json")) {
+                                        auditReport.broken_transfers.push({ from_map: mapId, target_map_id: targetMap });
+                                        auditReport.stats.broken_transfer_count++;
+                                    }
+                                } else if (cmdItem.code === 231) { // Picture
+                                    var pic = cmdItem.parameters[1];
+                                    if (pic) checkAsset("img/pictures/" + pic, [".png", ".rpgmvp", ".png_"], "Picture");
+                                } else if (cmdItem.code === 241) { // BGM
+                                    var bgm = cmdItem.parameters[0];
+                                    var bgmName = (bgm && bgm.name) ? bgm.name : (typeof bgm === "string" ? bgm : null);
+                                    if (bgmName) checkAsset("audio/bgm/" + bgmName, [".ogg", ".m4a", ".rpgmvo"], "BGM");
+                                } else if (cmdItem.code === 245) { // BGS
+                                    var bgs = cmdItem.parameters[0];
+                                    var bgsName = (bgs && bgs.name) ? bgs.name : (typeof bgs === "string" ? bgs : null);
+                                    if (bgsName) checkAsset("audio/bgs/" + bgsName, [".ogg", ".m4a", ".rpgmvo"], "BGS");
+                                } else if (cmdItem.code === 250) { // SE
+                                    var se = cmdItem.parameters[0];
+                                    var seName = (se && se.name) ? se.name : (typeof se === "string" ? se : null);
+                                    if (seName) checkAsset("audio/se/" + seName, [".ogg", ".m4a", ".rpgmvo"], "SE");
+                                } else if (cmdItem.code === 322) { // Change Actor Graphic
+                                    var charName = cmdItem.parameters[1];
+                                    var faceName = cmdItem.parameters[3];
+                                    if (charName) checkAsset("img/characters/" + charName, [".png", ".rpgmvp"], "Character");
+                                    if (faceName) checkAsset("img/faces/" + faceName, [".png", ".rpgmvp"], "Face");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (root.$dataActors && Array.isArray(root.$dataActors)) {
+                    for (var a = 0; a < root.$dataActors.length; a++) {
+                        var act = root.$dataActors[a];
+                        if (!act) continue;
+                        if (act.characterName) checkAsset("img/characters/" + act.characterName, [".png", ".rpgmvp"], "Character");
+                        if (act.faceName) checkAsset("img/faces/" + act.faceName, [".png", ".rpgmvp"], "Face");
+                        if (act.battlerName) checkAsset("img/sv_actors/" + act.battlerName, [".png", ".rpgmvp"], "Battler");
+                    }
+                }
+                if (root.$dataEnemies && Array.isArray(root.$dataEnemies)) {
+                    for (var en = 0; en < root.$dataEnemies.length; en++) {
+                        var enemy = root.$dataEnemies[en];
+                        if (!enemy) continue;
+                        if (enemy.battlerName) checkAsset("img/enemies/" + enemy.battlerName, [".png", ".rpgmvp"], "Battler");
+                    }
+                }
+
+                var auditJson = JSON.stringify(auditReport, null, 2);
+                root.__runtimepack_audit_report = auditReport;
+                try {
+                    if (typeof root.localStorage !== "undefined") {
+                        root.localStorage.setItem("runtimepack_audit_report", auditJson);
+                    }
+                } catch (e) {}
+                var auditSummary = "Stress test completed: " + auditReport.stats.total_maps_scanned + " maps, " + auditReport.stats.missing_count + " missing assets.";
+                if (rpw && typeof rpw.setEvalResult === "function") {
+                    rpw.setEvalResult(auditSummary);
+                }
+                break;
         }
     }
 
