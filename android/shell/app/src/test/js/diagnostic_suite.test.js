@@ -64,7 +64,15 @@ function createDOMContext() {
             return elementsById[id] || null;
         },
         body: createMockElement("body"),
-        head: createMockElement("head")
+        head: createMockElement("head"),
+        listeners: {},
+        addEventListener: function (evt, fn) {
+            if (!this.listeners[evt]) this.listeners[evt] = [];
+            this.listeners[evt].push(fn);
+        },
+        querySelectorAll: function () {
+            return [];
+        }
     };
     elementsById["body"] = doc.body;
     elementsById["head"] = doc.head;
@@ -122,10 +130,11 @@ function createDOMContext() {
 
     const bugBtn = sandbox.document.getElementById("vpad-btn-diag");
     assert(bugBtn, "Bug icon button #vpad-btn-diag must be injected into DOM");
-    assert(bugBtn.textContent.includes("🐞"), "Bug button text must include 🐞 emoji");
+    assert(bugBtn.innerHTML.includes("<svg"), "Bug button must render SVG icon (zero emojis)");
 
     const modal = sandbox.document.getElementById("rp-diag-modal");
     assert(modal, "Modal #rp-diag-modal must be created");
+    assert(modal.innerHTML.includes("<svg"), "Modal must render SVG icons");
 }
 
 // Test 2: Modal Toggle and VPad Bridge
@@ -216,9 +225,16 @@ function createDOMContext() {
     assert.strictEqual(dispatchedCmds[1].y, 8);
 
     // 3. Export Bug Report
+    let sharedPayload = null;
+    sandbox.RuntimePackVPad.shareBugReport = function (jsonStr) {
+        sharedPayload = JSON.parse(jsonStr);
+    };
+
     sandbox.DiagnosticSuite.exportBugReport();
     assert.strictEqual(dispatchedCmds.length, 3);
     assert.strictEqual(dispatchedCmds[2].action, "export_bug_report", "exportBugReport should dispatch export_bug_report");
+    assert(sharedPayload, "shareBugReport must be called with JSON report payload");
+    assert(Array.isArray(sharedPayload.logs), "Report payload must contain logs array");
 }
 
 console.log("All Diagnostic Suite JS unit tests passed successfully!");

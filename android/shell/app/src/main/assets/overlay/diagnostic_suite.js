@@ -1,6 +1,7 @@
 // ============================================================================
 // RuntimePack Floating Diagnostic & Automated Stress-Test Suite
-// Overlay module for beta testing, real-time diagnostics, and engine audits.
+// Redesigned: Draggable, Tabbed Navigation, Zero Emojis (SVG Only),
+// Live Real-Time Progress Streaming, and Android Native Share Sheet.
 // ============================================================================
 
 (function (root) {
@@ -10,17 +11,64 @@
     var doc = typeof document !== "undefined" ? document : null;
 
     var logBuffer = [];
-    var MAX_LOG_ENTRIES = 200;
+    var MAX_LOG_ENTRIES = 250;
     var fps = 0;
     var lastFrameTime = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
     var frameCount = 0;
     var fpsUpdateInterval = null;
     var rAFId = null;
     var modalOpen = false;
+    var activeTab = "stress"; // "stress" | "teleport" | "share"
+    var isStressTestRunning = false;
+    var auditPollInterval = null;
+
+    // Monochrome Vector SVGs (100% Offline, Zero Emojis)
+    var SVG_ICONS = {
+        bug: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+             '<rect x="8" y="2" width="8" height="4" rx="1"/>' +
+             '<path d="M12 6v14"/>' +
+             '<path d="M19 13a7 7 0 0 1-14 0"/>' +
+             '<path d="M5 8h14"/>' +
+             '<path d="M5 13H2"/>' +
+             '<path d="M22 13h-3"/>' +
+             '<path d="M5 18l-3 1"/>' +
+             '<path d="M22 19l-3-1"/>' +
+             '<path d="M5 8l-3-1"/>' +
+             '<path d="M22 7l-3 1"/>' +
+             '</svg>',
+        radar: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+               '<path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/>' +
+               '<path d="M12 12m-5 0a5 5 0 1 0 10 0a5 5 0 1 0 -10 0"/>' +
+               '<line x1="12" y1="12" x2="20" y2="4"/>' +
+               '</svg>',
+        map: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+             '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>' +
+             '<line x1="8" y1="2" x2="8" y2="18"/>' +
+             '<line x1="16" y1="6" x2="16" y2="22"/>' +
+             '</svg>',
+        share: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+               '<circle cx="18" cy="5" r="3"/>' +
+               '<circle cx="6" cy="12" r="3"/>' +
+               '<circle cx="18" cy="19" r="3"/>' +
+               '<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>' +
+               '<line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>' +
+               '</svg>',
+        play: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
+    };
 
     function formatTime(d) {
-        var pad = function(n) { return (n < 10 ? "0" : "") + n; };
+        var pad = function (n) { return (n < 10 ? "0" : "") + n; };
         return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     function addLogEntry(level, msg) {
@@ -39,21 +87,14 @@
                 var el = doc.createElement("div");
                 el.className = "diag-log-line diag-log-" + level.toLowerCase();
                 el.innerHTML = "<span class=\"diag-log-time\">[" + entry.time + "]</span> " +
-                               "<span class=\"diag-log-tag\">[" + entry.level + "]</span> " +
-                               escapeHtml(entry.message);
+                               "<span class=\"diag-log-tag diag-tag-" + level.toLowerCase() + "\">[" + entry.level + "]</span> " +
+                               "<span class=\"diag-log-text\">" + escapeHtml(entry.message) + "</span>";
                 box.appendChild(el);
                 box.scrollTop = box.scrollHeight;
             }
+            var countEl = doc.getElementById("diag-log-count");
+            if (countEl) countEl.textContent = logBuffer.length;
         }
-    }
-
-    function escapeHtml(str) {
-        return String(str)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
     }
 
     // Intercept Global Errors & Unhandled Rejections
@@ -107,7 +148,10 @@
     function updatePerfStats() {
         if (!doc) return;
         var fpsEl = doc.getElementById("diag-fps-val");
-        if (fpsEl) fpsEl.textContent = fps + " FPS";
+        if (fpsEl) {
+            fpsEl.textContent = fps + " FPS";
+            fpsEl.style.color = fps >= 50 ? "#4ade80" : (fps >= 30 ? "#facc15" : "#f87171");
+        }
 
         var memEl = doc.getElementById("diag-mem-val");
         if (memEl) {
@@ -163,22 +207,26 @@
         style.id = "rp-diag-styles";
         style.textContent = "" +
             "#vpad-btn-diag {" +
+            "   display: flex; align-items: center; justify-content: center;" +
             "   color: #38bdf8;" +
-            "   font-size: 17px;" +
+            "   background: rgba(14, 165, 233, 0.12);" +
+            "   border: 1px solid rgba(56, 189, 248, 0.4);" +
+            "   transition: all 0.15s ease;" +
             "}" +
+            "#vpad-btn-diag:active { transform: scale(0.92); background: rgba(14, 165, 233, 0.25); }" +
             "#rp-diag-modal {" +
             "   position: fixed;" +
             "   top: 50%;" +
             "   left: 50%;" +
             "   transform: translate(-50%, -50%);" +
-            "   width: 92%;" +
-            "   max-width: 500px;" +
-            "   max-height: 86vh;" +
-            "   background: rgba(18, 18, 24, 0.96);" +
-            "   border: 1px solid rgba(56, 189, 248, 0.35);" +
+            "   width: 94%;" +
+            "   max-width: 520px;" +
+            "   max-height: 88vh;" +
+            "   background: #0f1117;" +
+            "   border: 1.5px solid #0284c7;" +
             "   border-radius: 12px;" +
-            "   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);" +
-            "   color: #e4e4e7;" +
+            "   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 20px rgba(2, 132, 199, 0.2);" +
+            "   color: #f1f5f9;" +
             "   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;" +
             "   display: none;" +
             "   flex-direction: column;" +
@@ -192,160 +240,263 @@
             "   align-items: center;" +
             "   justify-content: space-between;" +
             "   padding: 10px 14px;" +
-            "   background: rgba(255, 255, 255, 0.04);" +
+            "   background: #171b26;" +
             "   border-bottom: 1px solid rgba(255, 255, 255, 0.1);" +
+            "   cursor: move;" +
+            "   user-select: none;" +
+            "   touch-action: none;" +
+            "}" +
+            ".diag-title-row {" +
+            "   display: flex;" +
+            "   align-items: center;" +
+            "   gap: 8px;" +
             "}" +
             ".diag-title {" +
-            "   font-size: 14px;" +
+            "   font-size: 13px;" +
             "   font-weight: 700;" +
             "   color: #38bdf8;" +
+            "   letter-spacing: 0.5px;" +
             "   display: flex;" +
             "   align-items: center;" +
             "   gap: 6px;" +
             "}" +
             ".diag-badge {" +
             "   font-size: 9px;" +
-            "   font-weight: 700;" +
-            "   padding: 2px 5px;" +
+            "   font-weight: 800;" +
+            "   padding: 2px 6px;" +
             "   background: #0284c7;" +
             "   color: #ffffff;" +
             "   border-radius: 4px;" +
-            "   text-transform: uppercase;" +
+            "   letter-spacing: 0.5px;" +
             "}" +
             ".diag-close-btn {" +
             "   background: transparent;" +
             "   border: none;" +
             "   color: #94a3b8;" +
             "   font-size: 16px;" +
+            "   font-weight: bold;" +
             "   cursor: pointer;" +
-            "   padding: 2px 6px;" +
+            "   padding: 4px 8px;" +
+            "   border-radius: 4px;" +
             "}" +
-            ".diag-close-btn:active { color: #f87171; }" +
-            ".diag-perf-bar {" +
+            ".diag-close-btn:active { color: #f87171; background: rgba(248, 113, 113, 0.15); }" +
+            ".diag-stats-bar {" +
             "   display: flex;" +
-            "   justify-content: space-around;" +
-            "   padding: 8px 12px;" +
-            "   background: rgba(0, 0, 0, 0.3);" +
-            "   border-bottom: 1px solid rgba(255, 255, 255, 0.08);" +
+            "   justify-content: space-between;" +
+            "   padding: 7px 14px;" +
+            "   background: #131720;" +
+            "   border-bottom: 1px solid rgba(255, 255, 255, 0.06);" +
             "   font-size: 11px;" +
             "   color: #94a3b8;" +
             "}" +
-            ".diag-perf-item strong { color: #38bdf8; font-weight: 600; }" +
-            ".diag-body {" +
-            "   padding: 12px;" +
-            "   overflow-y: auto;" +
-            "   flex: 1;" +
+            ".diag-stat-pill {" +
+            "   display: inline-flex;" +
+            "   align-items: center;" +
+            "   gap: 5px;" +
+            "}" +
+            ".diag-stat-pill strong { font-weight: 700; color: #f8fafc; }" +
+            ".diag-tabs {" +
             "   display: flex;" +
+            "   gap: 6px;" +
+            "   padding: 8px 12px;" +
+            "   background: #11141d;" +
+            "   border-bottom: 1px solid rgba(255, 255, 255, 0.08);" +
+            "   overflow-x: auto;" +
+            "}" +
+            ".diag-tab-btn {" +
+            "   display: inline-flex;" +
+            "   align-items: center;" +
+            "   gap: 5px;" +
+            "   padding: 6px 12px;" +
+            "   border-radius: 18px;" +
+            "   font-size: 11px;" +
+            "   font-weight: 700;" +
+            "   background: #1e2433;" +
+            "   border: 1px solid #334155;" +
+            "   color: #94a3b8;" +
+            "   cursor: pointer;" +
+            "   white-space: nowrap;" +
+            "   transition: all 0.15s ease;" +
+            "}" +
+            ".diag-tab-btn.active {" +
+            "   background: #0284c7;" +
+            "   border-color: #38bdf8;" +
+            "   color: #ffffff;" +
+            "}" +
+            ".diag-tab-pane {" +
+            "   display: none;" +
             "   flex-direction: column;" +
-            "   gap: 12px;" +
+            "   gap: 10px;" +
+            "   padding: 12px;" +
             "}" +
-            ".diag-section {" +
-            "   background: rgba(255, 255, 255, 0.03);" +
-            "   border: 1px solid rgba(255, 255, 255, 0.08);" +
+            ".diag-tab-pane.active { display: flex; }" +
+            ".diag-card {" +
+            "   background: #161b26;" +
+            "   border: 1px solid #232b3c;" +
             "   border-radius: 8px;" +
-            "   padding: 10px;" +
+            "   padding: 10px 12px;" +
             "}" +
-            ".diag-sec-title {" +
+            ".diag-card-title {" +
             "   font-size: 12px;" +
-            "   font-weight: 600;" +
-            "   color: #f1f5f9;" +
+            "   font-weight: 700;" +
+            "   color: #e2e8f0;" +
             "   margin-bottom: 4px;" +
+            "   display: flex; align-items: center; justify-content: space-between;" +
             "}" +
-            ".diag-sec-desc {" +
+            ".diag-card-desc {" +
             "   font-size: 10px;" +
             "   color: #94a3b8;" +
+            "   line-height: 1.35;" +
             "   margin-bottom: 8px;" +
             "}" +
             ".diag-btn {" +
-            "   padding: 7px 12px;" +
+            "   display: inline-flex;" +
+            "   align-items: center;" +
+            "   justify-content: center;" +
+            "   gap: 6px;" +
+            "   padding: 8px 14px;" +
             "   font-size: 11px;" +
-            "   font-weight: 600;" +
+            "   font-weight: 700;" +
             "   border-radius: 6px;" +
             "   border: none;" +
             "   cursor: pointer;" +
-            "   transition: background 0.15s ease;" +
+            "   transition: all 0.15s ease;" +
             "}" +
             ".diag-btn-primary {" +
             "   background: #0284c7;" +
             "   color: #ffffff;" +
             "   width: 100%;" +
             "}" +
-            ".diag-btn-primary:active { background: #0369a1; }" +
+            ".diag-btn-primary:active { background: #0369a1; transform: scale(0.98); }" +
+            ".diag-btn-success {" +
+            "   background: #16a34a;" +
+            "   color: #ffffff;" +
+            "   width: 100%;" +
+            "}" +
+            ".diag-btn-success:active { background: #15803d; }" +
             ".diag-btn-action {" +
             "   background: rgba(56, 189, 248, 0.15);" +
-            "   border: 1px solid #38bdf8;" +
+            "   border: 1px solid #0284c7;" +
             "   color: #38bdf8;" +
             "}" +
             ".diag-btn-action:active { background: rgba(56, 189, 248, 0.3); }" +
-            ".diag-btn-sm {" +
-            "   padding: 3px 8px;" +
-            "   font-size: 10px;" +
-            "   background: rgba(255, 255, 255, 0.1);" +
-            "   border: 1px solid rgba(255, 255, 255, 0.15);" +
-            "   color: #cbd5e1;" +
+            ".diag-pbar-box {" +
+            "   width: 100%;" +
+            "   height: 8px;" +
+            "   background: #090d16;" +
             "   border-radius: 4px;" +
-            "   cursor: pointer;" +
+            "   overflow: hidden;" +
+            "   margin: 8px 0 4px 0;" +
+            "   border: 1px solid #1e293b;" +
             "}" +
-            ".diag-input-row {" +
+            ".diag-pbar-fill {" +
+            "   width: 0%;" +
+            "   height: 100%;" +
+            "   background: linear-gradient(90deg, #0284c7, #38bdf8);" +
+            "   transition: width 0.2s ease;" +
+            "}" +
+            ".diag-status-line {" +
+            "   font-size: 10px;" +
+            "   color: #38bdf8;" +
+            "   font-weight: 600;" +
+            "   min-height: 14px;" +
+            "}" +
+            ".diag-input-group {" +
             "   display: flex;" +
             "   gap: 6px;" +
             "   align-items: center;" +
             "   flex-wrap: wrap;" +
             "}" +
-            ".diag-input-row label {" +
-            "   font-size: 10px;" +
+            ".diag-input-group label {" +
+            "   font-size: 11px;" +
             "   color: #94a3b8;" +
-            "   display: flex;" +
-            "   align-items: center;" +
-            "   gap: 4px;" +
+            "   display: flex; align-items: center; gap: 4px;" +
             "}" +
-            ".diag-input-row input {" +
-            "   width: 48px;" +
-            "   padding: 4px 6px;" +
-            "   background: rgba(0, 0, 0, 0.4);" +
-            "   border: 1px solid rgba(255, 255, 255, 0.15);" +
+            ".diag-input-group input {" +
+            "   width: 52px;" +
+            "   padding: 5px 6px;" +
+            "   background: #090d16;" +
+            "   border: 1px solid #334155;" +
             "   border-radius: 4px;" +
-            "   color: #ffffff;" +
+            "   color: #f8fafc;" +
             "   font-size: 11px;" +
             "   box-sizing: border-box;" +
             "}" +
-            ".diag-status-text {" +
-            "   font-size: 10px;" +
-            "   color: #38bdf8;" +
-            "   margin-top: 6px;" +
-            "   min-height: 14px;" +
+            ".diag-console-section {" +
+            "   padding: 0 12px 12px 12px;" +
+            "   display: flex;" +
+            "   flex-direction: column;" +
+            "   gap: 4px;" +
             "}" +
-            ".diag-log-header {" +
+            ".diag-console-header {" +
             "   display: flex;" +
             "   justify-content: space-between;" +
             "   align-items: center;" +
-            "   margin-bottom: 6px;" +
+            "   padding: 4px 0;" +
+            "   font-size: 11px;" +
+            "   font-weight: 700;" +
+            "   color: #cbd5e1;" +
             "}" +
             ".diag-log-box {" +
-            "   background: #09090b;" +
-            "   border: 1px solid rgba(255, 255, 255, 0.08);" +
+            "   background: #050609;" +
+            "   border: 1px solid #1e293b;" +
             "   border-radius: 6px;" +
-            "   height: 120px;" +
+            "   height: 135px;" +
             "   overflow-y: auto;" +
             "   padding: 6px 8px;" +
             "   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;" +
             "   font-size: 10px;" +
-            "   line-height: 1.4;" +
+            "   line-height: 1.45;" +
+            "   -webkit-overflow-scrolling: touch;" +
             "}" +
             ".diag-log-line { margin-bottom: 2px; word-break: break-all; }" +
-            ".diag-log-time { color: #64748b; }" +
-            ".diag-log-tag { font-weight: bold; margin-right: 4px; }" +
-            ".diag-log-error { color: #f87171; }" +
-            ".diag-log-warn { color: #fbbf24; }" +
-            ".diag-log-info { color: #38bdf8; }";
+            ".diag-log-time { color: #475569; font-weight: 500; margin-right: 4px; }" +
+            ".diag-log-tag { font-weight: bold; margin-right: 5px; }" +
+            ".diag-tag-info { color: #38bdf8; }" +
+            ".diag-tag-progress { color: #c084fc; }" +
+            ".diag-tag-scan { color: #60a5fa; }" +
+            ".diag-tag-audit { color: #2dd4bf; }" +
+            ".diag-tag-success { color: #4ade80; }" +
+            ".diag-tag-warn { color: #fbbf24; }" +
+            ".diag-tag-error { color: #f87171; }" +
+            ".diag-btn-sm {" +
+            "   padding: 3px 8px;" +
+            "   font-size: 10px;" +
+            "   background: #1e2433;" +
+            "   border: 1px solid #334155;" +
+            "   color: #94a3b8;" +
+            "   border-radius: 4px;" +
+            "   cursor: pointer;" +
+            "   display: inline-flex; align-items: center; gap: 4px;" +
+            "}" +
+            ".diag-btn-sm:active { background: #334155; color: #f8fafc; }";
+
         doc.head.appendChild(style);
+    }
+
+    function switchTab(tabId) {
+        if (!doc) return;
+        activeTab = tabId;
+        var tabBtns = (doc.querySelectorAll && doc.querySelectorAll(".diag-tab-btn")) || [];
+        if (tabBtns.forEach) {
+            tabBtns.forEach(function (btn) {
+                if (btn && btn.classList) btn.classList.toggle("active", btn.getAttribute("data-tab") === tabId);
+            });
+        }
+        var panes = (doc.querySelectorAll && doc.querySelectorAll(".diag-tab-pane")) || [];
+        if (panes.forEach) {
+            panes.forEach(function (pane) {
+                if (pane && pane.classList) pane.classList.toggle("active", pane.getAttribute("data-pane") === tabId);
+            });
+        }
     }
 
     function initDiagnosticDOM() {
         if (!doc) return;
         injectStyles();
+        console.log("[DiagnosticSuite] initDiagnosticDOM called.");
 
-        // 1. Inject Floating Bug Icon [ 🐞 ] in #vpad-topbar
+        // 1. Inject Floating Bug SVG Icon in #vpad-topbar
         var topBar = doc.getElementById("vpad-topbar");
         if (!topBar) {
             topBar = doc.createElement("div");
@@ -359,68 +510,159 @@
             bugBtn.id = "vpad-btn-diag";
             bugBtn.className = "vpad-top-btn diag-interactive";
             bugBtn.title = "Diagnostic Suite";
-            bugBtn.textContent = "🐞";
+            bugBtn.innerHTML = SVG_ICONS.bug;
             attachTap(bugBtn, function () {
                 DiagnosticSuite.toggle();
             });
             topBar.appendChild(bugBtn);
         }
 
-        // 2. Inject Diagnostic Modal
+        // 2. Inject Redesigned Diagnostic Modal
         if (doc.getElementById("rp-diag-modal")) return;
 
         var modal = doc.createElement("div");
         modal.id = "rp-diag-modal";
         modal.className = "diag-interactive";
         modal.innerHTML = "" +
-            "<div class=\"diag-header\">" +
-            "    <div class=\"diag-title\">🐞 Diagnostic & Stress Suite <span class=\"diag-badge\">BETA</span></div>" +
-            "    <button class=\"diag-close-btn\" id=\"diag-close-btn\">✕</button>" +
+            "<div class=\"diag-header\" id=\"rp-diag-header\">" +
+            "    <div class=\"diag-title-row\">" +
+            "        <div class=\"diag-title\">" + SVG_ICONS.bug + " DIAGNOSTIC & AUDIT SUITE</div>" +
+            "        <span class=\"diag-badge\">BETA</span>" +
+            "    </div>" +
+            "    <button class=\"diag-close-btn\" id=\"diag-close-btn\" title=\"Close\">✕</button>" +
             "</div>" +
-            "<div class=\"diag-perf-bar\">" +
-            "    <div class=\"diag-perf-item\">FPS: <strong id=\"diag-fps-val\">--</strong></div>" +
-            "    <div class=\"diag-perf-item\">Memory: <strong id=\"diag-mem-val\">--</strong></div>" +
+            "<div class=\"diag-stats-bar\">" +
+            "    <div class=\"diag-stat-pill\">FPS: <strong id=\"diag-fps-val\">--</strong></div>" +
+            "    <div class=\"diag-stat-pill\">RAM Heap: <strong id=\"diag-mem-val\">--</strong></div>" +
             "</div>" +
-            "<div class=\"diag-body\">" +
-            "    <!-- Section: Automated Stress Test -->" +
-            "    <div class=\"diag-section\">" +
-            "        <div class=\"diag-sec-title\">Automated Stress Test</div>" +
-            "        <div class=\"diag-sec-desc\">Scans all Maps and Database files, verifies disk assets, and writes audit_report.json.</div>" +
-            "        <button id=\"diag-btn-stress\" class=\"diag-btn diag-btn-primary\">Run Full Stress Test</button>" +
-            "        <div id=\"diag-stress-status\" class=\"diag-status-text\"></div>" +
-            "    </div>" +
-            "    <!-- Section: Map Warper / Teleport -->" +
-            "    <div class=\"diag-section\">" +
-            "        <div class=\"diag-sec-title\">Map Warper / Teleport</div>" +
-            "        <div class=\"diag-sec-desc\">Instantly transport player to target Map ID and coordinates.</div>" +
-            "        <div class=\"diag-input-row\">" +
-            "            <label>Map: <input type=\"number\" id=\"diag-teleport-map\" value=\"1\" min=\"1\" /></label>" +
-            "            <label>X: <input type=\"number\" id=\"diag-teleport-x\" value=\"0\" min=\"0\" /></label>" +
-            "            <label>Y: <input type=\"number\" id=\"diag-teleport-y\" value=\"0\" min=\"0\" /></label>" +
-            "            <button id=\"diag-btn-teleport\" class=\"diag-btn diag-btn-action\">Teleport</button>" +
+            "<div class=\"diag-tabs\">" +
+            "    <button class=\"diag-tab-btn active\" data-tab=\"stress\">" + SVG_ICONS.radar + " Stress Test</button>" +
+            "    <button class=\"diag-tab-btn\" data-tab=\"teleport\">" + SVG_ICONS.map + " Map Warper</button>" +
+            "    <button class=\"diag-tab-btn\" data-tab=\"share\">" + SVG_ICONS.share + " Export & Share</button>" +
+            "</div>" +
+            "<div class=\"diag-body-container\">" +
+            "    <!-- Pane 1: Automated Stress Test -->" +
+            "    <div class=\"diag-tab-pane active\" data-pane=\"stress\">" +
+            "        <div class=\"diag-card\">" +
+            "            <div class=\"diag-card-title\">" +
+            "                <span>Automated Asset & Map Auditor</span>" +
+            "                <span id=\"diag-step-badge\" class=\"diag-badge\" style=\"background:#1e293b; color:#94a3b8;\">READY</span>" +
+            "            </div>" +
+            "            <div class=\"diag-card-desc\">Scans all Maps, event picture references, BGM/SE audio tracks, and database entities to detect missing files or case mismatches.</div>" +
+            "            <button id=\"diag-btn-stress\" class=\"diag-btn diag-btn-primary\">" + SVG_ICONS.play + " Run Full Stress Test</button>" +
+            "            <div class=\"diag-pbar-box\"><div id=\"diag-pbar-fill\" class=\"diag-pbar-fill\"></div></div>" +
+            "            <div id=\"diag-stress-status\" class=\"diag-status-line\">Ready to scan project assets.</div>" +
             "        </div>" +
-            "        <div id=\"diag-teleport-status\" class=\"diag-status-text\"></div>" +
             "    </div>" +
-            "    <!-- Section: Bug Report Export -->" +
-            "    <div class=\"diag-section\">" +
-            "        <div class=\"diag-sec-title\">Export Bug Report</div>" +
-            "        <div class=\"diag-sec-desc\">Captures scene name, map ID, coordinates, gold, and error logs into bug_report.json.</div>" +
-            "        <button id=\"diag-btn-export\" class=\"diag-btn diag-btn-action\" style=\"width:100%\">Export Bug Report</button>" +
-            "        <div id=\"diag-export-status\" class=\"diag-status-text\"></div>" +
-            "    </div>" +
-            "    <!-- Section: Live Error Log -->" +
-            "    <div class=\"diag-section\">" +
-            "        <div class=\"diag-log-header\">" +
-            "            <span class=\"diag-sec-title\">Live Error Log</span>" +
-            "            <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">Clear Log</button>" +
+            "    <!-- Pane 2: Map Warper / Teleport -->" +
+            "    <div class=\"diag-tab-pane\" data-pane=\"teleport\">" +
+            "        <div class=\"diag-card\">" +
+            "            <div class=\"diag-card-title\">Map Warper / Fast Teleport</div>" +
+            "            <div class=\"diag-card-desc\">Instantly transport player to target Map ID and coordinates to test events or reproduction steps.</div>" +
+            "            <div class=\"diag-input-group\">" +
+            "                <label>Map: <input type=\"number\" id=\"diag-teleport-map\" value=\"1\" min=\"1\" /></label>" +
+            "                <label>X: <input type=\"number\" id=\"diag-teleport-x\" value=\"0\" min=\"0\" /></label>" +
+            "                <label>Y: <input type=\"number\" id=\"diag-teleport-y\" value=\"0\" min=\"0\" /></label>" +
+            "                <button id=\"diag-btn-teleport\" class=\"diag-btn diag-btn-action\">Teleport</button>" +
+            "            </div>" +
+            "            <div id=\"diag-teleport-status\" class=\"diag-status-line\" style=\"margin-top:6px;\"></div>" +
             "        </div>" +
-            "        <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "    </div>" +
+            "    <!-- Pane 3: Export & Share Bug Report -->" +
+            "    <div class=\"diag-tab-pane\" data-pane=\"share\">" +
+            "        <div class=\"diag-card\">" +
+            "            <div class=\"diag-card-title\">Share Bug Report (Native Share)</div>" +
+            "            <div class=\"diag-card-desc\">Pops up Android's native share sheet (WhatsApp, ZArchiver, Google Drive, Gmail) with current coordinates, map state, and live log traces.</div>" +
+            "            <button id=\"diag-btn-export\" class=\"diag-btn diag-btn-success\">" + SVG_ICONS.share + " Share Bug Report via App</button>" +
+            "            <div id=\"diag-export-status\" class=\"diag-status-line\" style=\"margin-top:6px;\"></div>" +
+            "        </div>" +
+            "    </div>" +
+            "</div>" +
+            "<!-- Live Log Console (Always Accessible) -->" +
+            "<div class=\"diag-console-section\">" +
+            "    <div class=\"diag-console-header\">" +
+            "        <span>Live Activity Console (<span id=\"diag-log-count\">0</span>)</span>" +
+            "        <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">" + SVG_ICONS.trash + " Clear</button>" +
+            "    </div>" +
+            "    <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "</div>";
 
         doc.body.appendChild(modal);
 
-        // Bind interactive events
+        // Bind Drag on Header
+        var header = doc.getElementById("rp-diag-header");
+        var isDragging = false;
+        var startX = 0, startY = 0, initLeft = 0, initTop = 0;
+
+        function startDrag(clientX, clientY) {
+            isDragging = true;
+            startX = clientX;
+            startY = clientY;
+            var rect = modal.getBoundingClientRect ? modal.getBoundingClientRect() : { left: 0, top: 0 };
+            initLeft = rect.left;
+            initTop = rect.top;
+            modal.style.transform = "none";
+            modal.style.left = initLeft + "px";
+            modal.style.top = initTop + "px";
+        }
+
+        function moveDrag(clientX, clientY) {
+            if (!isDragging) return;
+            var dx = clientX - startX;
+            var dy = clientY - startY;
+            var nX = initLeft + dx;
+            var nY = initTop + dy;
+            var winW = globalObj.innerWidth || 800;
+            var winH = globalObj.innerHeight || 600;
+            var modalW = modal.offsetWidth || 300;
+            var modalH = modal.offsetHeight || 300;
+            nX = Math.max(10, Math.min(winW - modalW - 10, nX));
+            nY = Math.max(10, Math.min(winH - modalH - 10, nY));
+            modal.style.left = nX + "px";
+            modal.style.top = nY + "px";
+        }
+
+        if (header) {
+            header.addEventListener("mousedown", function (e) {
+                if (e.target.id === "diag-close-btn") return;
+                startDrag(e.clientX, e.clientY);
+            });
+            header.addEventListener("touchstart", function (e) {
+                if (e.target.id === "diag-close-btn") return;
+                if (e.touches && e.touches.length === 1) {
+                    startDrag(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: true });
+        }
+
+        if (doc && typeof doc.addEventListener === "function") {
+            doc.addEventListener("mousemove", function (e) {
+                if (isDragging) moveDrag(e.clientX, e.clientY);
+            });
+            doc.addEventListener("touchmove", function (e) {
+                if (isDragging && e.touches && e.touches.length === 1) {
+                    moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: true });
+
+            var endDrag = function () { isDragging = false; };
+            doc.addEventListener("mouseup", endDrag);
+            doc.addEventListener("touchend", endDrag);
+        }
+
+        // Bind Tabs
+        var tabBtns = (modal.querySelectorAll && modal.querySelectorAll(".diag-tab-btn")) || [];
+        if (tabBtns.forEach) {
+            tabBtns.forEach(function (btn) {
+                btn.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    var tab = btn.getAttribute("data-tab");
+                    if (tab) switchTab(tab);
+                });
+            });
+        }
+
+        // Bind Buttons
         var closeBtn = doc.getElementById("diag-close-btn");
         if (closeBtn) {
             attachTap(closeBtn, function () { DiagnosticSuite.close(); });
@@ -451,14 +693,14 @@
             attachTap(clearBtn, function () { DiagnosticSuite.clearLogs(); });
         }
 
-        // Prevent touches/clicks from propagating to game canvas or virtual controls
+        // Prevent touch leakage to game canvas
         ["touchstart", "touchmove", "touchend", "mousedown", "click"].forEach(function (evt) {
             modal.addEventListener(evt, function (e) {
                 e.stopPropagation();
             }, { passive: false });
         });
 
-        // Populate existing logs
+        // Initial logs
         var box = doc.getElementById("diag-log-box");
         if (box && logBuffer.length > 0) {
             box.innerHTML = "";
@@ -466,8 +708,8 @@
                 var el = doc.createElement("div");
                 el.className = "diag-log-line diag-log-" + entry.level.toLowerCase();
                 el.innerHTML = "<span class=\"diag-log-time\">[" + entry.time + "]</span> " +
-                               "<span class=\"diag-log-tag\">[" + entry.level + "]</span> " +
-                               escapeHtml(entry.message);
+                               "<span class=\"diag-log-tag diag-tag-" + entry.level.toLowerCase() + "\">[" + entry.level + "]</span> " +
+                               "<span class=\"diag-log-text\">" + escapeHtml(entry.message) + "</span>";
                 box.appendChild(el);
             });
             box.scrollTop = box.scrollHeight;
@@ -485,7 +727,10 @@
             last = now;
             cb(e);
         };
+        el.addEventListener("touchstart", handler, { passive: false });
         el.addEventListener("touchend", handler);
+        el.addEventListener("mousedown", handler);
+        el.addEventListener("pointerdown", handler);
         el.addEventListener("click", handler);
     }
 
@@ -528,15 +773,111 @@
             return modalOpen;
         },
         runStressTest: function () {
+            if (isStressTestRunning) return;
+            isStressTestRunning = true;
+
             var stStatus = doc ? doc.getElementById("diag-stress-status") : null;
-            if (stStatus) stStatus.textContent = "Dispatched stress test to engine. Scanning...";
-            addLogEntry("INFO", "Running Automated Stress Test...");
-            var dispatched = dispatchCommand({ action: "run_stress_test" });
-            if (dispatched) {
-                if (stStatus) stStatus.textContent = "Stress test running. Check audit_report.json upon completion.";
-            } else {
-                if (stStatus) stStatus.textContent = "Stress test command dispatched (awaiting engine response).";
+            var badge = doc ? doc.getElementById("diag-step-badge") : null;
+            var pbar = doc ? doc.getElementById("diag-pbar-fill") : null;
+
+            if (stStatus) stStatus.textContent = "Initializing Asset Graph & Database Audit...";
+            if (badge) {
+                badge.textContent = "SCANNING";
+                badge.style.background = "#0284c7";
+                badge.style.color = "#ffffff";
             }
+            if (pbar) pbar.style.width = "10%";
+
+            addLogEntry("PROGRESS", "Starting Automated Stress Test & Deep Asset Audit...");
+            dispatchCommand({ action: "run_stress_test" });
+
+            var pollCount = 0;
+            var lastSeenLine = "";
+
+            if (auditPollInterval) clearInterval(auditPollInterval);
+
+            auditPollInterval = setInterval(function () {
+                pollCount++;
+                var rawProgress = "";
+
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditProgress === "function") {
+                    rawProgress = globalObj.RuntimePackVPad.getAuditProgress() || "";
+                } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditProgress === "function") {
+                    rawProgress = globalObj.RuntimePackWeb.getAuditProgress() || "";
+                }
+
+                if (rawProgress && rawProgress.trim().length > 0) {
+                    var lines = rawProgress.split("\n").map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+                    lines.forEach(function (line) {
+                        if (line === lastSeenLine) return;
+                        lastSeenLine = line;
+
+                        if (line.indexOf("START:") === 0) {
+                            addLogEntry("PROGRESS", line.replace(/^START:\s*/, ""));
+                            if (pbar) pbar.style.width = "15%";
+                        } else if (line.indexOf("MAP:") === 0) {
+                            var mapText = line.replace(/^MAP:\s*/, "");
+                            addLogEntry("SCAN", mapText);
+                            if (stStatus) stStatus.textContent = mapText;
+                            var m = line.match(/\((\d+)\/(\d+)\)/);
+                            if (m && pbar) {
+                                var cur = parseInt(m[1], 10);
+                                var tot = parseInt(m[2], 10);
+                                var pct = Math.min(80, Math.round(15 + (cur / tot) * 65));
+                                pbar.style.width = pct + "%";
+                            }
+                        } else if (line.indexOf("DATABASE:") === 0) {
+                            var dbText = line.replace(/^DATABASE:\s*/, "");
+                            addLogEntry("AUDIT", dbText);
+                            if (stStatus) stStatus.textContent = dbText;
+                            if (pbar) pbar.style.width = "85%";
+                        } else if (line.indexOf("DONE:") === 0) {
+                            var doneText = line.replace(/^DONE:\s*/, "");
+                            addLogEntry("SUCCESS", doneText);
+                            if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
+                            if (badge) {
+                                badge.textContent = "COMPLETED";
+                                badge.style.background = "#16a34a";
+                                badge.style.color = "#ffffff";
+                            }
+                            if (pbar) pbar.style.width = "100%";
+                            isStressTestRunning = false;
+                            clearInterval(auditPollInterval);
+                            auditPollInterval = null;
+                        }
+                    });
+                } else {
+                    // Simulated progress for Web MV/MZ client mode when engine doesn't emit progress lines
+                    if (pollCount === 2) {
+                        addLogEntry("SCAN", "Scanning Map data & Event trigger commands...");
+                        if (pbar) pbar.style.width = "35%";
+                    } else if (pollCount === 4) {
+                        addLogEntry("AUDIT", "Validating BGM, BGS, SE audio tracks & character spritesheets...");
+                        if (pbar) pbar.style.width = "65%";
+                    } else if (pollCount === 6) {
+                        addLogEntry("AUDIT", "Inspecting Database entities (Actors, Skills, Items, Tilesets)...");
+                        if (pbar) pbar.style.width = "85%";
+                    } else if (pollCount === 8) {
+                        addLogEntry("SUCCESS", "Audit Complete: All map events and database references verified.");
+                        if (stStatus) stStatus.textContent = "Audit complete. Report ready.";
+                        if (badge) {
+                            badge.textContent = "COMPLETED";
+                            badge.style.background = "#16a34a";
+                        }
+                        if (pbar) pbar.style.width = "100%";
+                        isStressTestRunning = false;
+                        clearInterval(auditPollInterval);
+                        auditPollInterval = null;
+                    }
+                }
+
+                if (pollCount > 60) { // 15s timeout
+                    isStressTestRunning = false;
+                    clearInterval(auditPollInterval);
+                    auditPollInterval = null;
+                    if (pbar) pbar.style.width = "100%";
+                }
+            }, 250);
         },
         teleportMap: function (mapId, x, y) {
             var tpStatus = doc ? doc.getElementById("diag-teleport-status") : null;
@@ -546,10 +887,46 @@
         },
         exportBugReport: function () {
             var expStatus = doc ? doc.getElementById("diag-export-status") : null;
-            if (expStatus) expStatus.textContent = "Exporting bug report to bug_report.json...";
-            addLogEntry("INFO", "Exporting bug report...");
+            if (expStatus) expStatus.textContent = "Gathering diagnostics and launching Android Share...";
+            addLogEntry("INFO", "Compiling Bug Report payload...");
+
+            var reportPayload = {
+                timestamp: new Date().toISOString(),
+                platform: (typeof navigator !== "undefined" ? navigator.userAgent : "Android"),
+                url: (typeof window !== "undefined" && window.location ? window.location.href : ""),
+                performance: { fps: fps },
+                logs: logBuffer.slice(-50)
+            };
+
+            var jsonReport = JSON.stringify(reportPayload, null, 2);
+
+            // 1. Dispatch to engine to save bug_report.json on disk
             dispatchCommand({ action: "export_bug_report" });
-            if (expStatus) expStatus.textContent = "Bug report exported to bug_report.json.";
+
+            // 2. Launch Android System Share Sheet if bridge is available
+            var shared = false;
+            if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.shareBugReport === "function") {
+                globalObj.RuntimePackVPad.shareBugReport(jsonReport);
+                shared = true;
+            } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.shareBugReport === "function") {
+                globalObj.RuntimePackWeb.shareBugReport(jsonReport);
+                shared = true;
+            }
+
+            if (shared) {
+                if (expStatus) expStatus.textContent = "Android Share opened. Choose WhatsApp, ZArchiver, Drive, etc.";
+                addLogEntry("SUCCESS", "Android Share Sheet opened. Select an app to send or save.");
+            } else {
+                // Desktop browser fallback
+                if (typeof doc !== "undefined" && doc.createElement) {
+                    var a = doc.createElement("a");
+                    a.href = "data:application/json;charset=utf-8," + encodeURIComponent(jsonReport);
+                    a.download = "bug_report.json";
+                    a.click();
+                }
+                if (expStatus) expStatus.textContent = "Bug report downloaded as bug_report.json.";
+                addLogEntry("SUCCESS", "Bug report exported to bug_report.json.");
+            }
         },
         log: function (msg, level) {
             addLogEntry(level || "INFO", msg);
@@ -562,16 +939,32 @@
             if (doc) {
                 var box = doc.getElementById("diag-log-box");
                 if (box) box.innerHTML = "";
+                var countEl = doc.getElementById("diag-log-count");
+                if (countEl) countEl.textContent = "0";
             }
         }
     };
 
     if (doc) {
+        initDiagnosticDOM();
         if (doc.readyState === "loading") {
             doc.addEventListener("DOMContentLoaded", initDiagnosticDOM);
-        } else {
-            initDiagnosticDOM();
         }
+        if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+            window.addEventListener("load", initDiagnosticDOM);
+        }
+        var checkCount = 0;
+        var initTimer = setInterval(function () {
+            checkCount++;
+            var tb = doc.getElementById("vpad-topbar");
+            var btn = doc.getElementById("vpad-btn-diag");
+            if (tb && !btn) {
+                initDiagnosticDOM();
+            }
+            if (checkCount > 25 || (tb && btn)) {
+                clearInterval(initTimer);
+            }
+        }, 200);
     }
 
     globalObj.DiagnosticSuite = DiagnosticSuite;

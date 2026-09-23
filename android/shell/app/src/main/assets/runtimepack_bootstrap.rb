@@ -1198,7 +1198,18 @@ module RuntimePackCheatRunner
     nil
   end
 
+  def self.report_stress_progress(line)
+    File.open("rp_audit_progress.txt", "ab") { |f| f.puts(line) } rescue nil
+    File.open("../rp_audit_progress.txt", "ab") { |f| f.puts(line) } rescue nil
+    File.open("game/rp_audit_progress.txt", "ab") { |f| f.puts(line) } rescue nil if File.directory?("game")
+  end
+
   def self.run_stress_test
+    File.delete("rp_audit_progress.txt") rescue nil
+    File.delete("../rp_audit_progress.txt") rescue nil
+    File.delete("game/rp_audit_progress.txt") rescue nil if File.directory?("game")
+    report_stress_progress("START: Initializing Asset Graph & Database Audit...")
+
     checked_assets = {}
     scanned_maps = []
     all_transfers = []
@@ -1263,10 +1274,14 @@ module RuntimePackCheatRunner
     map_files = (Dir.glob("Data/Map[0-9]*.[rR]*") + Dir.glob("game/Data/Map[0-9]*.[rR]*")).uniq.sort
     known_map_ids = {}
 
-    map_files.each do |mf|
+    map_files.each_with_index do |mf, idx|
       next if mf =~ /MapInfos/i
       m_id = (mf =~ /Map(\d+)/i) ? $1.to_i : nil
       known_map_ids[m_id] = true if m_id
+
+      if (idx % 15 == 0) || idx == map_files.size - 1
+        report_stress_progress("MAP: Scanning Map #{m_id || idx} (#{idx + 1}/#{map_files.size})...")
+      end
 
       map_obj = load_game_data(mf)
       next unless map_obj
@@ -1292,6 +1307,8 @@ module RuntimePackCheatRunner
         end
       end
     end
+
+    report_stress_progress("DATABASE: Auditing Database entities (Actors, Enemies, Tilesets, Animations)...")
 
     # Inspect Database files
     db_candidates = [
@@ -1382,6 +1399,7 @@ module RuntimePackCheatRunner
     File.open("game/audit_report.json", "wb") { |f| f.write(json_str) } rescue nil if File.directory?("game")
 
     msg = "Stress test completed: #{stats['total_maps_scanned']} maps, #{stats['exact_count']} exact assets, #{stats['case_mismatch_count']} case mismatches, #{stats['missing_count']} missing."
+    report_stress_progress("DONE: #{msg}")
     File.open(EVAL_FILE, "wb") { |f| f.write(msg) } rescue nil
     File.open("../#{EVAL_FILE}", "wb") { |f| f.write(msg) } rescue nil
     report

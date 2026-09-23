@@ -1,5 +1,16 @@
 # Technical Findings
 
+## [Touch Event Handling & Resilient DOM Ingestion pada Overlay Toolbar]
+**Masalah:** Tombol toolbar overlay dinamis (`#vpad-btn-diag`) gagal merespons touch input atau hilang saat `vpad.js` me-render ulang template DOM overlay.
+**Penyebab:** 
+1. Di Android WebView dengan kontrol sentuh virtual, touch listener yang hanya mengikat event `touchend` dan `click` rentan tidak tertrigger jika `e.preventDefault()` dipanggil pada `touchstart` atau jika pointer bergerak lebih dari ambang batas toleransi sentuhan.
+2. `vpad.js` merender `root.innerHTML` pada event `DOMContentLoaded`, yang berpotensi menimpa elemen DOM yang disisipkan lebih dulu oleh script overlay lain jika keduanya terdaftar pada event load yang sama.
+**Solusi/workaround:** 
+1. Masukkan `#vpad-btn-diag` langsung ke dalam template `#vpad-topbar` di `vpad.js` serta pasang polling check timer di `diagnostic_suite.js` untuk menjamin ketersediaan elemen secara persisten.
+2. Di `attachTap`, tangani seluruh spektrum event (`touchstart`, `touchend`, `mousedown`, `pointerdown`, `click`) dengan debounce timestamp 250ms.
+3. Sediakan broadcast receiver `io.runtimepack.EVAL` pada `RgssActivity.kt` untuk otomasi pengujian evaluasi JavaScript non-interaktif secara deterministik.
+**Tags:** #vpad #diagnostic-suite #touch-event #overlay #dom-injection
+
 ## [MIME Charset Encoding Mismatch pada Binary Assets di WebResourceResponse]
 **Masalah:** Gambar (`.png`, `.gif`) dan font (`.woff`, `.ttf`) gagal di-decode oleh Chromium WebView atau logcat menampilkan `Image decoding logging dropped!`, menyebabkan elemen visual canvas/DOM tetap kosong/hitam.
 **Penyebab:** Konstruktor `WebResourceResponse(mime, encoding, data)` menerima argumen `encoding = "UTF-8"`. Untuk tipe data biner (gambar, audio, font), spesifikasi Android WebView mengharuskan `encoding = null`. Jika diisi `"UTF-8"`, Chromium mencoba membaca stream byte biner melalui UTF-8 character decoder sehingga byte gambar menjadi rusak.

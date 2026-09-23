@@ -540,6 +540,16 @@ open class WebActivity : Activity() {
                     runOnUiThread { gameWebView?.requestFocus() }
                 }
             }
+
+            @JavascriptInterface
+            fun getAuditProgress(): String {
+                return this@WebActivity.getAuditProgress()
+            }
+
+            @JavascriptInterface
+            fun shareBugReport(jsonContent: String) {
+                this@WebActivity.shareBugReport(jsonContent)
+            }
         }, "RuntimePackVPad")
 
         wv.loadUrl("file:///android_asset/overlay/index.html")
@@ -727,5 +737,42 @@ open class WebActivity : Activity() {
         val result = cachedEvalResult
         cachedEvalResult = ""
         return result
+    }
+
+    private var cachedAuditProgress: String = ""
+
+    @Synchronized
+    fun setAuditProgress(progressText: String) {
+        cachedAuditProgress = progressText
+    }
+
+    @Synchronized
+    open fun getAuditProgress(): String {
+        val res = cachedAuditProgress
+        cachedAuditProgress = ""
+        return res
+    }
+
+    open fun shareBugReport(jsonContent: String) {
+        runOnUiThread {
+            try {
+                val appLabel = try {
+                    packageManager.getApplicationLabel(applicationInfo).toString()
+                } catch (_: Exception) {
+                    "Game"
+                }
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Bug Report - $appLabel")
+                    putExtra(Intent.EXTRA_TEXT, jsonContent)
+                }
+                val chooser = Intent.createChooser(sendIntent, "Share Bug Report").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(chooser)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to share bug report: ${e.message}", e)
+            }
+        }
     }
 }

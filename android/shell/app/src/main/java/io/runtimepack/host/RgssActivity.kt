@@ -2,8 +2,10 @@ package io.runtimepack.host
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
@@ -272,6 +274,22 @@ open class RgssActivity : SDLActivity() {
     val pressedJsKeys: MutableSet<Int> = ConcurrentHashMap.newKeySet()
     private var overlayWebView: WebView? = null
 
+    private val evalReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val script = intent?.getStringExtra("eval") ?: return
+            Log.i(TAG, "EVAL BROADCAST RECEIVED: $script")
+            runOnUiThread {
+                if (overlayWebView == null) {
+                    Log.e(TAG, "overlayWebView is null!")
+                } else {
+                    overlayWebView?.evaluateJavascript(script) { result ->
+                        Log.i(TAG, "EVAL JS RESULT: $result")
+                    }
+                }
+            }
+        }
+    }
+
     @Volatile
     private var overlayTextFocused = false
 
@@ -451,6 +469,17 @@ open class RgssActivity : SDLActivity() {
 
         // Attach In-Game Virtual Gamepad (vpad.js) & Cheat Overlay on top of SDL Surface
         attachVirtualGamepadOverlay()
+
+        try {
+            val filter = IntentFilter("io.runtimepack.EVAL")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(evalReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(evalReceiver, filter)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register eval receiver: ${e.message}")
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -458,6 +487,7 @@ open class RgssActivity : SDLActivity() {
         if (mLayout == null) return
 
         try {
+            WebView.setWebContentsDebuggingEnabled(true)
             val wv = WebView(this)
             wv.layoutParams = RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -525,6 +555,16 @@ open class RgssActivity : SDLActivity() {
                     if (!open) {
                         runOnUiThread { mSurface?.requestFocus() }
                     }
+                }
+
+                @JavascriptInterface
+                fun getAuditProgress(): String {
+                    return this@RgssActivity.getAuditProgress()
+                }
+
+                @JavascriptInterface
+                fun shareBugReport(jsonContent: String) {
+                    this@RgssActivity.shareBugReport(jsonContent)
                 }
             }, "RuntimePackVPad")
 
@@ -613,6 +653,43 @@ open class RgssActivity : SDLActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read eval result: ${e.message}", e)
             ""
+        }
+    }
+
+    open fun getAuditProgress(): String {
+        return try {
+            val dir = getInputStateDirectory()
+            val file = File(dir, "rp_audit_progress.txt")
+            if (file.exists()) {
+                val txt = file.readText(Charsets.UTF_8)
+                file.delete()
+                txt
+            } else ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    open fun shareBugReport(jsonContent: String) {
+        runOnUiThread {
+            try {
+                val appLabel = try {
+                    packageManager.getApplicationLabel(applicationInfo).toString()
+                } catch (_: Exception) {
+                    "Game"
+                }
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Bug Report - $appLabel")
+                    putExtra(Intent.EXTRA_TEXT, jsonContent)
+                }
+                val chooser = Intent.createChooser(sendIntent, "Share Bug Report").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(chooser)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to share bug report: ${e.message}", e)
+            }
         }
     }
 
@@ -709,6 +786,9 @@ open class RgssActivity : SDLActivity() {
     override fun onDestroy() {
         overlayTextFocused = false
         overlayWebView?.destroy()
+        try {
+            unregisterReceiver(evalReceiver)
+        } catch (ignored: Exception) {}
         super.onDestroy()
         System.exit(0)
     }
