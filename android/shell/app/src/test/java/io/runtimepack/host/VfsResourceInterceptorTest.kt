@@ -88,6 +88,46 @@ class VfsResourceInterceptorTest {
     }
 
     @Test
+    fun test404ImageReturnsTransparentPng() {
+        val interceptor = VfsResourceInterceptor { null }
+
+        val pngResp = interceptor.intercept("https://game.local/img/characters/Missing.png")
+        assertNotNull(pngResp)
+
+        val jpgResp = interceptor.intercept("https://game.local/img/pictures/Missing.jpg")
+        assertNotNull(jpgResp)
+
+        val jpegResp = interceptor.intercept("https://game.local/img/pictures/Missing.jpeg")
+        assertNotNull(jpegResp)
+
+        val webpResp = interceptor.intercept("https://game.local/img/pictures/Missing.webp")
+        assertNotNull(webpResp)
+
+        // Verify TRANSPARENT_1X1_PNG constant has valid PNG header
+        assertEquals(0x89.toByte(), VfsResourceInterceptor.TRANSPARENT_1X1_PNG[0])
+        assertEquals('P'.code.toByte(), VfsResourceInterceptor.TRANSPARENT_1X1_PNG[1])
+        assertEquals('N'.code.toByte(), VfsResourceInterceptor.TRANSPARENT_1X1_PNG[2])
+        assertEquals('G'.code.toByte(), VfsResourceInterceptor.TRANSPARENT_1X1_PNG[3])
+    }
+
+    @Test
+    fun test404AudioReturnsEmptyAudioResponse() {
+        val interceptor = VfsResourceInterceptor { null }
+
+        val oggResp = interceptor.intercept("https://game.local/audio/bgm/Missing.ogg")
+        assertNotNull(oggResp)
+
+        val m4aResp = interceptor.intercept("https://game.local/audio/bgm/Missing.m4a")
+        assertNotNull(m4aResp)
+
+        val mp3Resp = interceptor.intercept("https://game.local/audio/se/Missing.mp3")
+        assertNotNull(mp3Resp)
+
+        val wavResp = interceptor.intercept("https://game.local/audio/se/Missing.wav")
+        assertNotNull(wavResp)
+    }
+
+    @Test
     fun testGpackStreamReaderInterceptionRoundTrip() {
         val gpackBytes = createTestGpack(
             listOf(
@@ -105,8 +145,11 @@ class VfsResourceInterceptorTest {
             val jsonResponse = interceptor.intercept("http://localhost:8080/data/System.json?t=100")
             assertNotNull(jsonResponse)
 
-            val missingResponse = interceptor.intercept("https://game.local/audio/bgm/Title.ogg")
-            assertNull(missingResponse)
+            val missingAudioResponse = interceptor.intercept("https://game.local/audio/bgm/Title.ogg")
+            assertNotNull(missingAudioResponse)
+
+            val missingOtherResponse = interceptor.intercept("https://game.local/data/missing.bin")
+            assertNull(missingOtherResponse)
 
             val externalResponse = interceptor.intercept("https://external.com/index.html")
             assertNull(externalResponse)

@@ -379,6 +379,52 @@ end
   end
 end
 
+class RGSSError < StandardError; end unless defined?(RGSSError)
+
+class Bitmap
+  attr_reader :width, :height, :disposed
+
+  def initialize(*args)
+    if args.size == 1 && args[0].is_a?(String)
+      filename = args[0]
+      unless File.exist?(filename)
+        raise Errno::ENOENT, "No such file or directory - #{filename}"
+      end
+      @filename = filename
+      @width = 32
+      @height = 32
+    elsif args.size >= 2
+      @width = args[0]
+      @height = args[1]
+    else
+      @width = 32
+      @height = 32
+    end
+    @disposed = false
+  end
+
+  def dispose
+    @disposed = true
+  end
+
+  def disposed?
+    @disposed
+  end
+end unless defined?(Bitmap)
+
+module Audio
+  class << self
+    def bgm_play(*args); end
+    def bgs_play(*args); end
+    def me_play(*args); end
+    def se_play(*args); end
+    def bgm_stop; end
+    def bgs_stop; end
+    def me_stop; end
+    def se_stop; end
+  end
+end unless defined?(Audio)
+
 module RuntimePackCompatibility
   FONT_SETTERS = [:shadow, :outline, :bold, :italic]
   DIRECTION_LABELS = {
@@ -586,21 +632,49 @@ module RuntimePackCheatRunner
       end
     end
 
-    if defined?(Cache)
-      class << Cache
-        unless method_defined?(:rp_orig_normal_bitmap)
+    [defined?(Cache) ? Cache : nil, defined?(RPG::Cache) ? RPG::Cache : nil].compact.each do |cache_mod|
+      cache_target = (class << cache_mod; self; end)
+      cache_methods = [
+        :animation, :autotile, :battleback, :battleback1, :battleback2, :battler,
+        :character, :face, :fog, :gameover, :icon, :picture, :system, :tile,
+        :tileset, :title, :title1, :title2, :windowskin
+      ]
+      cache_methods.each do |m|
+        if cache_mod.respond_to?(m)
+          orig_m = :"rp_orig_cache_#{m}"
+          unless cache_mod.respond_to?(orig_m)
+            cache_target.class_eval do
+              alias_method orig_m, m rescue nil
+              define_method(m) do |*args|
+                begin
+                  send(orig_m, *args)
+                rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
+                  puts "[RuntimePack] Missing bitmap in #{cache_mod}.#{m}(#{args.first}): #{e.class}: #{e.message}, returning dummy bitmap"
+                  (Bitmap.new(32, 32) rescue nil)
+                end
+              end
+            end
+          end
+        end
+      end
+
+      if cache_mod.respond_to?(:normal_bitmap) && !cache_mod.respond_to?(:rp_orig_normal_bitmap)
+        cache_target.class_eval do
           alias_method :rp_orig_normal_bitmap, :normal_bitmap rescue nil
           def normal_bitmap(path)
             begin
               rp_orig_normal_bitmap(path)
-            rescue Errno::ENOENT => e
-              puts "[RuntimePack] Missing bitmap in Cache.normal_bitmap: #{path}, falling back to empty bitmap"
+            rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
+              puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path}, falling back to empty bitmap"
               @cache ||= {}
               @cache[path] = (Bitmap.new(32, 32) rescue nil)
             end
           end
         end
-        unless method_defined?(:rp_orig_savefile_bitmap)
+      end
+
+      if cache_mod.respond_to?(:savefile_bitmap) && !cache_mod.respond_to?(:rp_orig_savefile_bitmap)
+        cache_target.class_eval do
           alias_method :rp_orig_savefile_bitmap, :savefile_bitmap rescue nil
           def savefile_bitmap(path)
             begin
@@ -622,10 +696,10 @@ module RuntimePackCheatRunner
           def new(*args)
             begin
               rp_orig_bitmap_new(*args)
-            rescue Errno::ENOENT => e
-              if args.size == 1 && args[0].is_a?(String)
-                puts "[RuntimePack] Bitmap not found: #{args[0]}, substituting empty bitmap"
-                if args[0].downcase.include?("save") && File.exist?("Graphics/System/SaveNotFound.png")
+            rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
+              if args.size <= 1
+                puts "[RuntimePack] Bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting dummy bitmap"
+                if args[0].is_a?(String) && args[0].downcase.include?("save") && (File.exist?("Graphics/System/SaveNotFound.png") rescue false)
                   (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
                 else
                   rp_orig_bitmap_new(32, 32)
@@ -649,9 +723,9 @@ module RuntimePackCheatRunner
               define_method(m) do |*args|
                 begin
                   send(orig_m, *args)
-                rescue Errno::ENOENT => e
-                  puts "[RuntimePack] Audio asset not found in #{m}: #{args[0]}"
-                rescue => e
+                rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
+                  puts "[RuntimePack] Audio asset not found or error in #{m}: #{args[0]} (#{e.class}: #{e.message})"
+                  nil
                 end
               end
             end
@@ -1154,6 +1228,7 @@ if defined?(load_data) || respond_to?(:load_data, true)
       end
       BitmapChangerOptimization.invalidate if defined?(BitmapChangerOptimization) && BitmapChangerOptimization.respond_to?(:invalidate)
       patch_json_decoder if respond_to?(:patch_json_decoder)
+      RuntimePackCheatRunner.install_save_and_cache_hooks rescue nil
     end
     RuntimePackCompatibility.normalize_input_utils if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:normalize_input_utils)
     if defined?(Game_Map)

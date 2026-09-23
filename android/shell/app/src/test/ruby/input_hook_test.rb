@@ -229,6 +229,108 @@ begin
   assert_equal 4, MockNativeInput.dir4, "dir4 should fallback to native (4) when hime returns 0"
   assert_equal 4, MockNativeInput.dir8, "dir8 should fallback to native (4) when hime returns 0"
 
+  # 5. Test Auto-Recovery for Bitmap.new
+  puts "Test 5: Auto-Recovery for Bitmap.new"
+  dummy_bmp = Bitmap.new("non_existent_file.png")
+  assert !dummy_bmp.nil?, "Bitmap.new with non-existent file should return dummy bitmap"
+  assert dummy_bmp.is_a?(Bitmap), "dummy_bmp should be an instance of Bitmap"
+  assert_equal 32, dummy_bmp.width, "Dummy bitmap width should be 32"
+  assert_equal 32, dummy_bmp.height, "Dummy bitmap height should be 32"
+  assert !dummy_bmp.disposed?, "Dummy bitmap should not be disposed"
+
+  # Normal Bitmap.new(w, h) should still function normally
+  normal_bmp = Bitmap.new(64, 48)
+  assert !normal_bmp.nil?, "Bitmap.new(64, 48) should create bitmap"
+  assert_equal 64, normal_bmp.width, "normal_bmp width should be 64"
+  assert_equal 48, normal_bmp.height, "normal_bmp height should be 48"
+
+  # 6. Test Auto-Recovery for Audio
+  puts "Test 6: Auto-Recovery for Audio"
+  audio_bgm_res = (Audio.bgm_play("non_existent_bgm.ogg") rescue :raised)
+  assert audio_bgm_res != :raised, "Audio.bgm_play should not raise exception on missing file"
+
+  audio_bgs_res = (Audio.bgs_play("non_existent_bgs.ogg") rescue :raised)
+  assert audio_bgs_res != :raised, "Audio.bgs_play should not raise exception on missing file"
+
+  audio_me_res = (Audio.me_play("non_existent_me.ogg") rescue :raised)
+  assert audio_me_res != :raised, "Audio.me_play should not raise exception on missing file"
+
+  audio_se_res = (Audio.se_play("non_existent_se.ogg") rescue :raised)
+  assert audio_se_res != :raised, "Audio.se_play should not raise exception on missing file"
+
+  # 7. Test Auto-Recovery for Cache
+  puts "Test 7: Auto-Recovery for Cache"
+  module MockGameCache
+    def self.character(name)
+      raise Errno::ENOENT, "Graphics/Characters/#{name} not found"
+    end
+
+    def self.picture(name)
+      raise Errno::ENOENT, "Graphics/Pictures/#{name} not found"
+    end
+
+    def self.animation(name, hue)
+      raise Errno::ENOENT, "Graphics/Animations/#{name} not found"
+    end
+
+    def self.battleback1(name)
+      raise Errno::ENOENT, "Graphics/Battlebacks1/#{name} not found"
+    end
+
+    def self.battleback2(name)
+      raise Errno::ENOENT, "Graphics/Battlebacks2/#{name} not found"
+    end
+
+    def self.battler(name, hue)
+      raise Errno::ENOENT, "Graphics/Battlers/#{name} not found"
+    end
+
+    def self.face(name)
+      raise Errno::ENOENT, "Graphics/Faces/#{name} not found"
+    end
+
+    def self.system(name)
+      raise Errno::ENOENT, "Graphics/System/#{name} not found"
+    end
+
+    def self.tileset(name)
+      raise Errno::ENOENT, "Graphics/Tilesets/#{name} not found"
+    end
+
+    def self.title1(name)
+      raise Errno::ENOENT, "Graphics/Titles1/#{name} not found"
+    end
+
+    def self.title2(name)
+      raise Errno::ENOENT, "Graphics/Titles2/#{name} not found"
+    end
+  end
+
+  Cache = MockGameCache unless defined?(Cache)
+  RuntimePackCheatRunner.install_save_and_cache_hooks
+
+  cache_methods = [
+    [:character, "Hero"],
+    [:picture, "Cutscene"],
+    [:animation, "Thunder", 0],
+    [:battleback1, "Grassland"],
+    [:battleback2, "Forest"],
+    [:battler, "Dragon", 0],
+    [:face, "Actor1"],
+    [:system, "Window"],
+    [:tileset, "Dungeon"],
+    [:title1, "Book"],
+    [:title2, "Sword"]
+  ]
+
+  cache_methods.each do |method_name, *args|
+    cbmp = Cache.send(method_name, *args)
+    assert !cbmp.nil?, "Cache.#{method_name} should return dummy bitmap on missing file"
+    assert cbmp.is_a?(Bitmap), "Cache.#{method_name} should return Bitmap instance"
+    assert_equal 32, cbmp.width, "Cache.#{method_name} dummy bitmap width should be 32"
+    assert_equal 32, cbmp.height, "Cache.#{method_name} dummy bitmap height should be 32"
+  end
+
 ensure
   cleanup_state_file
 end
