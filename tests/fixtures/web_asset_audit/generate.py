@@ -502,6 +502,63 @@ def generate_mv_deep_dynamic():
     write_file(os.path.join(root, "js/plugins.js"), plugins_js)
     write_file(os.path.join(root, "js/plugins/DynamicPlugin.js"), dynamic_plugin)
 
+def generate_mv_missing_entrypoint():
+    root = os.path.join(BASE_DIR, "mv_missing_entrypoint")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    os.remove(os.path.join(root, "index.html"))
+
+def generate_mv_missing_actors_db():
+    root = os.path.join(BASE_DIR, "mv_missing_actors_db")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    os.remove(os.path.join(root, "data/Actors.json"))
+
+def generate_mv_malformed_classes():
+    root = os.path.join(BASE_DIR, "mv_malformed_classes")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    write_file(os.path.join(root, "data/Classes.json"), '{\n  "broken":')
+
+def generate_mv_malformed_mapinfos():
+    root = os.path.join(BASE_DIR, "mv_malformed_mapinfos")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    write_file(os.path.join(root, "data/MapInfos.json"), '{\n  "broken":')
+
+def generate_mv_malformed_plugins_manifest():
+    root = os.path.join(BASE_DIR, "mv_malformed_plugins_manifest")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    write_file(os.path.join(root, "js/plugins.js"), 'var $plugins = [broken json;')
+
+def generate_mv_transitive_plugin_dependency():
+    root = os.path.join(BASE_DIR, "mv_transitive_plugin_dependency")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    plugin_content = '''/*:
+ * @plugindesc Test Plugin with dependencies
+ * @base MissingDepPlugin
+ */
+var x = 1;
+'''
+    write_file(os.path.join(root, "js/plugins/SamplePlugin.js"), plugin_content)
+
+def generate_mv_transfer_case_mismatch():
+    root = os.path.join(BASE_DIR, "mv_transfer_case_mismatch")
+    shutil.rmtree(root, ignore_errors=True)
+    generate_mv_valid_root()
+    shutil.copytree(os.path.join(BASE_DIR, "mv_valid_root"), root)
+    # Move Map002.json to map002.json
+    os.remove(os.path.join(root, "data/Map002.json"))
+    write_file(os.path.join(root, "data/map002.json"), make_map002())
+
 def main():
     print("Generating web asset audit fixtures...")
     generate_mv_valid_root()
@@ -519,6 +576,13 @@ def main():
     generate_mv_external_url()
     generate_mv_deep_plugin_literals()
     generate_mv_deep_dynamic()
+    generate_mv_missing_entrypoint()
+    generate_mv_missing_actors_db()
+    generate_mv_malformed_classes()
+    generate_mv_malformed_mapinfos()
+    generate_mv_malformed_plugins_manifest()
+    generate_mv_transitive_plugin_dependency()
+    generate_mv_transfer_case_mismatch()
     print("Done!")
 
 if __name__ == '__main__':

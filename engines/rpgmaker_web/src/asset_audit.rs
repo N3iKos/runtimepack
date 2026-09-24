@@ -10,6 +10,27 @@ use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::GameSourceIndex;
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
+static BASE_DEP_RE: OnceLock<regex::Regex> = OnceLock::new();
+static STATIC_LITERAL_RE: OnceLock<regex::Regex> = OnceLock::new();
+static DYNAMIC_CONCAT_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+fn base_dep_regex() -> &'static regex::Regex {
+    BASE_DEP_RE.get_or_init(|| regex::Regex::new(r"@base\s+([A-Za-z0-9_]+)").unwrap())
+}
+
+fn static_literal_regex() -> &'static regex::Regex {
+    STATIC_LITERAL_RE.get_or_init(|| {
+        regex::Regex::new(r#"["']((?:img|audio|movies|effects)/[^"'\r\n]+)["']"#).unwrap()
+    })
+}
+
+fn dynamic_concat_regex() -> &'static regex::Regex {
+    DYNAMIC_CONCAT_RE.get_or_init(|| {
+        regex::Regex::new(r#"["']((?:img|audio|movies|effects)/[^"'\r\n]*)["']\s*\+"#).unwrap()
+    })
+}
 
 fn make_finding(
     code: &'static str,
@@ -50,6 +71,382 @@ fn ensure_node(
             kind,
             logical_path,
         });
+    }
+}
+
+struct AuditContext<'a> {
+    source: &'a GameSourceIndex,
+    prefix: &'a str,
+    options: &'a AssetAuditOptions,
+    image_exts: Vec<&'a str>,
+    audio_exts: Vec<&'a str>,
+    video_exts: Vec<&'a str>,
+    resolver: &'a AssetResolver<'a>,
+    graph: &'a mut DependencyGraph,
+    node_ids: &'a mut HashSet<String>,
+    coverage: &'a mut AuditCoverage,
+    findings: &'a mut Vec<AuditFinding>,
+    finding_counter: &'a mut usize,
+}
+
+impl<'a> AuditContext<'a> {
+    fn push_finding(
+        &mut self,
+        code: &'static str,
+        requiredness: ReferenceRequiredness,
+        message: String,
+        source_node_ids: Vec<String>,
+    ) {
+        let finding = make_finding(
+            code,
+            requiredness,
+            message,
+            source_node_ids,
+            self.finding_counter,
+        );
+        self.findings.push(finding);
+    }
+
+    fn ensure_node(&mut self, id: &str, kind: AssetKind, logical_path: Option<String>) {
+        ensure_node(self.graph, self.node_ids, id, kind, logical_path);
+    }
+
+    fn read_json_file(
+        &mut self,
+        logical_path: &str,
+        source_node_id: &str,
+    ) -> Option<serde_json::Value> {
+        let file = self.source.get_file(logical_path)?;
+        if file.size_bytes > self.options.limits.max_single_file_bytes {
+            self.push_finding(
+                DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+                ReferenceRequiredness::Required,
+                format!(
+                    "Single file size limit exceeded: '{}' ({} bytes > {} bytes)",
+                    file.logical_path, file.size_bytes, self.options.limits.max_single_file_bytes
+                ),
+                vec![source_node_id.to_string()],
+            );
+            return None;
+        }
+
+        let full_path = self.source.root_path.join(&file.relative_path);
+        let bytes = match std::fs::read(&full_path) {
+            Ok(b) => b,
+            Err(err) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                    ReferenceRequiredness::Required,
+                    format!("Failed to read file '{logical_path}': {err}"),
+                    vec![source_node_id.to_string()],
+                );
+                return None;
+            }
+        };
+
+        match serde_json::from_slice(&bytes) {
+            Ok(val) => Some(val),
+            Err(err) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                    ReferenceRequiredness::Required,
+                    format!("Malformed JSON file '{logical_path}': {err}"),
+                    vec![source_node_id.to_string()],
+                );
+                None
+            }
+        }
+    }
+
+    fn resolve_and_record(
+        &mut self,
+        source_node_id: &str,
+        target_path_or_url: &str,
+        extensions: &[&str],
+        kind: AssetKind,
+        requiredness: ReferenceRequiredness,
+    ) {
+        if target_path_or_url.is_empty() {
+            return;
+        }
+
+        // Check for External URL
+        if target_path_or_url.starts_with("http://") || target_path_or_url.starts_with("https://") {
+            let target_id = format!("external:{target_path_or_url}");
+            self.ensure_node(&target_id, AssetKind::ExternalResource, None);
+            self.graph.edges.push(ReferenceEdge {
+                source: source_node_id.to_string(),
+                target: target_id,
+                relation: "references".to_string(),
+                requiredness,
+                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                resolution: ReferenceResolution::External,
+            });
+
+            if !self.options.allow_network && requiredness == ReferenceRequiredness::Required {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
+                    ReferenceRequiredness::Required,
+                    format!(
+                        "External resource requires network verification: '{target_path_or_url}'"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+            }
+            return;
+        }
+
+        let res = if extensions.is_empty() {
+            self.resolver.resolve_path(target_path_or_url, kind)
+        } else {
+            self.resolver
+                .resolve_with_extensions(target_path_or_url, extensions, kind)
+        };
+
+        let (target_id, resolution, target_logical_path) = match res {
+            ResolutionResult::Exact(node) => (
+                node.id.clone(),
+                ReferenceResolution::Resolved,
+                node.logical_path.clone(),
+            ),
+            ResolutionResult::CaseMismatch {
+                expected,
+                actual,
+                node,
+            } => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                    requiredness,
+                    format!(
+                        "Asset reference '{expected}' has case mismatch with '{actual}' on disk"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    node.id.clone(),
+                    ReferenceResolution::Resolved,
+                    node.logical_path.clone(),
+                )
+            }
+            ResolutionResult::CaseCollision(colliding) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                    requiredness,
+                    format!(
+                        "Asset reference '{target_path_or_url}' collides case-insensitively with multiple files: {:?}",
+                        colliding
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Missing(attempted) => {
+                let code = if requiredness == ReferenceRequiredness::Required {
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                } else {
+                    DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                };
+                self.push_finding(
+                    code,
+                    requiredness,
+                    format!(
+                        "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                        attempted
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Unsafe(path) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                    requiredness,
+                    format!("Unsafe path traversal in asset reference: '{path}'"),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+        };
+
+        self.ensure_node(&target_id, kind, target_logical_path);
+
+        self.graph.edges.push(ReferenceEdge {
+            source: source_node_id.to_string(),
+            target: target_id,
+            relation: "references".to_string(),
+            requiredness,
+            evidence: match resolution {
+                ReferenceResolution::Resolved => EvidenceTrail::through(EvidenceStage::FileExists),
+                _ => EvidenceTrail::through(EvidenceStage::ReferenceFound),
+            },
+            resolution,
+        });
+    }
+
+    fn record_resolution_result(
+        &mut self,
+        res: ResolutionResult,
+        target_base_path: &str,
+        source_node_id: &str,
+        kind: AssetKind,
+        requiredness: ReferenceRequiredness,
+    ) {
+        let (target_id, resolution, target_logical_path) = match res {
+            ResolutionResult::Exact(node) => (
+                node.id.clone(),
+                ReferenceResolution::Resolved,
+                node.logical_path.clone(),
+            ),
+            ResolutionResult::CaseMismatch {
+                expected,
+                actual,
+                node,
+            } => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                    requiredness,
+                    format!(
+                        "Asset reference '{expected}' has case mismatch with '{actual}' on disk"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    node.id.clone(),
+                    ReferenceResolution::Resolved,
+                    node.logical_path.clone(),
+                )
+            }
+            ResolutionResult::CaseCollision(colliding) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                    requiredness,
+                    format!(
+                        "Asset reference '{target_base_path}' collides case-insensitively with multiple files: {:?}",
+                        colliding
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_base_path}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Missing(attempted) => {
+                let code = if requiredness == ReferenceRequiredness::Required {
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                } else {
+                    DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                };
+                self.push_finding(
+                    code,
+                    requiredness,
+                    format!(
+                        "Referenced asset '{target_base_path}' is missing on disk (attempted: {:?})",
+                        attempted
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_base_path}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Unsafe(path) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                    requiredness,
+                    format!("Unsafe path traversal in asset reference: '{path}'"),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_base_path}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+        };
+
+        self.ensure_node(&target_id, kind, target_logical_path);
+
+        self.graph.edges.push(ReferenceEdge {
+            source: source_node_id.to_string(),
+            target: target_id,
+            relation: "references".to_string(),
+            requiredness,
+            evidence: match resolution {
+                ReferenceResolution::Resolved => EvidenceTrail::through(EvidenceStage::FileExists),
+                _ => EvidenceTrail::through(EvidenceStage::ReferenceFound),
+            },
+            resolution,
+        });
+    }
+
+    fn inspect_string_reference(
+        &mut self,
+        val_str: &str,
+        source_node: &str,
+        requiredness: ReferenceRequiredness,
+    ) {
+        if val_str.starts_with("http://") || val_str.starts_with("https://") {
+            self.resolve_and_record(
+                source_node,
+                val_str,
+                &[],
+                AssetKind::ExternalResource,
+                requiredness,
+            );
+            return;
+        }
+
+        let trimmed = val_str.trim();
+        if trimmed.is_empty() || trimmed.ends_with('/') || trimmed.ends_with('\\') {
+            return;
+        }
+
+        let prefix = self.prefix;
+        let (rel_path, kind, exts) = if trimmed.starts_with("img/") {
+            (
+                format!("{prefix}{trimmed}"),
+                AssetKind::Image,
+                self.image_exts.clone(),
+            )
+        } else if trimmed.starts_with("audio/") {
+            (
+                format!("{prefix}{trimmed}"),
+                AssetKind::Audio,
+                self.audio_exts.clone(),
+            )
+        } else if trimmed.starts_with("movies/") {
+            (
+                format!("{prefix}{trimmed}"),
+                AssetKind::Video,
+                self.video_exts.clone(),
+            )
+        } else if trimmed.starts_with("effects/") {
+            (
+                format!("{prefix}{trimmed}"),
+                AssetKind::DatabaseEntity,
+                vec!["efkefc", "efk"],
+            )
+        } else {
+            return;
+        };
+
+        self.resolve_and_record(source_node, &rel_path, &exts, kind, requiredness);
     }
 }
 
@@ -182,55 +579,36 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
             ""
         };
 
-        let index_html = format!("{content_prefix}index.html");
-        if source.has_file(&index_html) {
-            ensure_node(
-                &mut graph,
-                &mut node_ids,
-                "Entrypoint:index.html",
-                AssetKind::RuntimeProvidedResource,
-                Some(index_html),
-            );
-        }
-
-        // 4. System.json and Encryption Detection
-        let system_path = format!("{content_prefix}data/System.json");
-        let system_val = read_json_file(
-            source,
-            &system_path,
-            "Database:System",
-            &mut findings,
-            &mut finding_counter,
-        );
-
-        let (has_enc_img, has_enc_audio) = match &system_val {
-            Some(sys) => {
-                let img_enc = sys
-                    .get("hasEncryptedImages")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let aud_enc = sys
-                    .get("hasEncryptedAudio")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                (img_enc, aud_enc)
-            }
-            None => {
-                if !source.has_file(&system_path) {
-                    findings.push(make_finding(
-                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                        ReferenceRequiredness::Required,
-                        format!("Required system file is missing: '{system_path}'"),
-                        vec!["Database:System".to_string()],
-                        &mut finding_counter,
-                    ));
-                }
-                (false, false)
-            }
-        };
-
         // Determine candidate extensions based on engine and encryption state
         let is_mv = engine.id == EngineId::RpgMakerMv;
+        let system_path = format!("{content_prefix}data/System.json");
+        let (has_enc_img, has_enc_audio) = if let Some(sys_file) = source.get_file(&system_path) {
+            if sys_file.size_bytes <= options.limits.max_single_file_bytes {
+                let full_path = source.root_path.join(&sys_file.relative_path);
+                if let Ok(bytes) = std::fs::read(&full_path) {
+                    if let Ok(sys) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        let img_enc = sys
+                            .get("hasEncryptedImages")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let aud_enc = sys
+                            .get("hasEncryptedAudio")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        (img_enc, aud_enc)
+                    } else {
+                        (false, false)
+                    }
+                } else {
+                    (false, false)
+                }
+            } else {
+                (false, false)
+            }
+        } else {
+            (false, false)
+        };
+
         let image_exts: Vec<&str> = if is_mv {
             if has_enc_img {
                 vec!["png", "rpgmvp", "jpg"]
@@ -257,156 +635,105 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
 
         let video_exts = vec!["webm", "mp4"];
 
-        ensure_node(
-            &mut graph,
-            &mut node_ids,
+        let mut ctx = AuditContext {
+            source,
+            prefix: content_prefix,
+            options,
+            image_exts,
+            audio_exts,
+            video_exts,
+            resolver: &resolver,
+            graph: &mut graph,
+            node_ids: &mut node_ids,
+            coverage: &mut coverage,
+            findings: &mut findings,
+            finding_counter: &mut finding_counter,
+        };
+
+        // 4. Entrypoint Check
+        let index_html = format!("{content_prefix}index.html");
+        if ctx.source.has_file(&index_html) {
+            ctx.ensure_node(
+                "Entrypoint:index.html",
+                AssetKind::RuntimeProvidedResource,
+                Some(index_html),
+            );
+        } else {
+            ctx.push_finding(
+                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                ReferenceRequiredness::Required,
+                format!("Required entrypoint file is missing: '{index_html}'"),
+                vec!["Entrypoint:index.html".to_string()],
+            );
+        }
+
+        // 5. Required Database Presence Checks
+        for (filename, entity_name) in [
+            ("System.json", "System"),
+            ("Actors.json", "Actors"),
+            ("Enemies.json", "Enemies"),
+            ("Tilesets.json", "Tilesets"),
+            ("Animations.json", "Animations"),
+            ("CommonEvents.json", "CommonEvents"),
+            ("Troops.json", "Troops"),
+        ] {
+            let db_path = format!("{content_prefix}data/{filename}");
+            if !ctx.source.has_file(&db_path) {
+                ctx.push_finding(
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                    ReferenceRequiredness::Required,
+                    format!("Required database file is missing: '{db_path}'"),
+                    vec![format!("Database:{entity_name}")],
+                );
+            }
+        }
+
+        // 6. System.json data audit
+        ctx.ensure_node(
             "Database:System",
             AssetKind::DatabaseEntity,
-            if source.has_file(&system_path) {
+            if ctx.source.has_file(&system_path) {
                 Some(system_path.clone())
             } else {
                 None
             },
         );
 
-        if let Some(sys) = &system_val {
-            coverage.add_covered("system");
-            audit_system_json(
-                sys,
-                content_prefix,
-                &image_exts,
-                &audio_exts,
-                options.allow_network,
-                &resolver,
-                &mut graph,
-                &mut node_ids,
-                &mut findings,
-                &mut finding_counter,
-            );
+        if let Some(sys) = ctx.read_json_file(&system_path, "Database:System") {
+            ctx.coverage.add_covered("system");
+            audit_system_json(&mut ctx, &sys);
         }
 
-        // 5. Database Entities
-        coverage.add_covered("actors");
-        audit_actors(
-            source,
-            content_prefix,
-            &image_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        // 7. Database Entities
+        ctx.coverage.add_covered("actors");
+        audit_actors(&mut ctx);
 
-        coverage.add_covered("enemies");
-        audit_enemies(
-            source,
-            content_prefix,
-            &image_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        ctx.coverage.add_covered("enemies");
+        audit_enemies(&mut ctx);
 
-        coverage.add_covered("tilesets");
-        audit_tilesets(
-            source,
-            content_prefix,
-            &image_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        ctx.coverage.add_covered("tilesets");
+        audit_tilesets(&mut ctx);
 
-        coverage.add_covered("animations");
-        audit_animations(
-            source,
-            content_prefix,
-            &image_exts,
-            &audio_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        ctx.coverage.add_covered("animations");
+        audit_animations(&mut ctx);
 
-        coverage.add_covered("common_events");
-        audit_common_events(
-            source,
-            content_prefix,
-            &image_exts,
-            &audio_exts,
-            &video_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        ctx.coverage.add_covered("common_events");
+        audit_common_events(&mut ctx);
 
-        coverage.add_covered("troops");
-        audit_troops(
-            source,
-            content_prefix,
-            &image_exts,
-            &audio_exts,
-            &video_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        ctx.coverage.add_covered("troops");
+        audit_troops(&mut ctx);
 
-        audit_other_database(source, content_prefix, &mut findings, &mut finding_counter);
+        audit_other_database(&mut ctx);
 
-        // 6. Map files
-        coverage.add_covered("maps");
-        coverage.add_covered("events");
-        coverage.add_covered("event_commands");
-        audit_maps(
-            source,
-            content_prefix,
-            &image_exts,
-            &audio_exts,
-            &video_exts,
-            options.allow_network,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut findings,
-            &mut finding_counter,
-        );
+        // 8. Map files
+        ctx.coverage.add_covered("maps");
+        ctx.coverage.add_covered("events");
+        ctx.coverage.add_covered("event_commands");
+        audit_maps(&mut ctx);
 
-        // 7. Plugins and JavaScript manifests
-        coverage.add_covered("plugins");
-        audit_plugins(
-            source,
-            content_prefix,
-            options.mode,
-            &image_exts,
-            &audio_exts,
-            &video_exts,
-            options.allow_network,
-            options.limits.max_single_file_bytes,
-            &resolver,
-            &mut graph,
-            &mut node_ids,
-            &mut coverage,
-            &mut findings,
-            &mut finding_counter,
-        );
+        // 9. Plugins and JavaScript manifests
+        ctx.coverage.add_covered("plugins");
+        audit_plugins(&mut ctx);
 
         let mut report = AssetAuditReport {
             schema_version: 1,
@@ -427,247 +754,33 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
     }
 }
 
-fn read_json_file(
-    source: &GameSourceIndex,
-    logical_path: &str,
-    source_node_id: &str,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) -> Option<serde_json::Value> {
-    let file = source.get_file(logical_path)?;
-    let full_path = source.root_path.join(&file.relative_path);
-    let bytes = match std::fs::read(&full_path) {
-        Ok(b) => b,
-        Err(err) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                ReferenceRequiredness::Required,
-                format!("Failed to read file '{logical_path}': {err}"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            return None;
-        }
-    };
-    match serde_json::from_slice(&bytes) {
-        Ok(val) => Some(val),
-        Err(err) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
-                ReferenceRequiredness::Required,
-                format!("Malformed JSON file '{logical_path}': {err}"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            None
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn resolve_and_record(
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    source_node_id: &str,
-    target_path_or_url: &str,
-    extensions: &[&str],
-    kind: AssetKind,
-    requiredness: ReferenceRequiredness,
-    allow_network: bool,
-    finding_counter: &mut usize,
-) {
-    if target_path_or_url.is_empty() {
-        return;
-    }
-
-    // Check for External URL
-    if target_path_or_url.starts_with("http://") || target_path_or_url.starts_with("https://") {
-        let target_id = format!("external:{target_path_or_url}");
-        ensure_node(
-            graph,
-            node_ids,
-            &target_id,
-            AssetKind::ExternalResource,
-            None,
-        );
-        graph.edges.push(ReferenceEdge {
-            source: source_node_id.to_string(),
-            target: target_id,
-            relation: "references".to_string(),
-            requiredness,
-            evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-            resolution: ReferenceResolution::External,
-        });
-
-        if !allow_network && requiredness == ReferenceRequiredness::Required {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
-                ReferenceRequiredness::Required,
-                format!("External resource requires network verification: '{target_path_or_url}'"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-        }
-        return;
-    }
-
-    let res = if extensions.is_empty() {
-        resolver.resolve_path(target_path_or_url, kind)
-    } else {
-        resolver.resolve_with_extensions(target_path_or_url, extensions, kind)
-    };
-
-    let (target_id, resolution, target_logical_path) = match res {
-        ResolutionResult::Exact(node) => (
-            node.id.clone(),
-            ReferenceResolution::Resolved,
-            node.logical_path.clone(),
-        ),
-        ResolutionResult::CaseMismatch {
-            expected,
-            actual,
-            node,
-        } => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_CASE_MISMATCH,
-                requiredness,
-                format!("Asset reference '{expected}' has case mismatch with '{actual}' on disk"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                node.id.clone(),
-                ReferenceResolution::Resolved,
-                node.logical_path.clone(),
-            )
-        }
-        ResolutionResult::CaseCollision(colliding) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_CASE_COLLISION,
-                requiredness,
-                format!(
-                    "Asset reference '{target_path_or_url}' collides case-insensitively with multiple files: {:?}",
-                    colliding
-                ),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_path_or_url}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-        ResolutionResult::Missing(attempted) => {
-            let code = if requiredness == ReferenceRequiredness::Required {
-                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
-            } else {
-                DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
-            };
-            findings.push(make_finding(
-                code,
-                requiredness,
-                format!(
-                    "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
-                    attempted
-                ),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_path_or_url}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-        ResolutionResult::Unsafe(path) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_UNSAFE_PATH,
-                requiredness,
-                format!("Unsafe path traversal in asset reference: '{path}'"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_path_or_url}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-    };
-
-    ensure_node(
-        &mut *graph,
-        &mut *node_ids,
-        &target_id,
-        kind,
-        target_logical_path,
-    );
-
-    graph.edges.push(ReferenceEdge {
-        source: source_node_id.to_string(),
-        target: target_id,
-        relation: "references".to_string(),
-        requiredness,
-        evidence: match resolution {
-            ReferenceResolution::Resolved => EvidenceTrail::through(EvidenceStage::FileExists),
-            _ => EvidenceTrail::through(EvidenceStage::ReferenceFound),
-        },
-        resolution,
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn audit_system_json(
-    sys: &serde_json::Value,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
+fn audit_system_json(ctx: &mut AuditContext, sys: &serde_json::Value) {
     let source_node = "Database:System";
 
     // Title images
     if let Some(t1) = sys.get("title1Name").and_then(|v| v.as_str()) {
         if !t1.is_empty() {
-            let path = format!("{prefix}img/titles1/{t1}");
-            resolve_and_record(
-                resolver,
-                graph,
-                node_ids,
-                findings,
+            let path = format!("{}img/titles1/{t1}", ctx.prefix);
+            let exts = ctx.image_exts.clone();
+            ctx.resolve_and_record(
                 source_node,
                 &path,
-                image_exts,
+                &exts,
                 AssetKind::Image,
                 ReferenceRequiredness::Required,
-                allow_network,
-                finding_counter,
             );
         }
     }
     if let Some(t2) = sys.get("title2Name").and_then(|v| v.as_str()) {
         if !t2.is_empty() {
-            let path = format!("{prefix}img/titles2/{t2}");
-            resolve_and_record(
-                resolver,
-                graph,
-                node_ids,
-                findings,
+            let path = format!("{}img/titles2/{t2}", ctx.prefix);
+            let exts = ctx.image_exts.clone();
+            ctx.resolve_and_record(
                 source_node,
                 &path,
-                image_exts,
+                &exts,
                 AssetKind::Image,
                 ReferenceRequiredness::Required,
-                allow_network,
-                finding_counter,
             );
         }
     }
@@ -678,35 +791,25 @@ fn audit_system_json(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("Window");
-    let ws_path = format!("{prefix}img/system/{windowskin}");
-    resolve_and_record(
-        resolver,
-        graph,
-        node_ids,
-        findings,
+    let ws_path = format!("{}img/system/{windowskin}", ctx.prefix);
+    let exts = ctx.image_exts.clone();
+    ctx.resolve_and_record(
         source_node,
         &ws_path,
-        image_exts,
+        &exts,
         AssetKind::Image,
         ReferenceRequiredness::Required,
-        allow_network,
-        finding_counter,
     );
 
     // Standard IconSet
-    let icon_path = format!("{prefix}img/system/IconSet");
-    resolve_and_record(
-        resolver,
-        graph,
-        node_ids,
-        findings,
+    let icon_path = format!("{}img/system/IconSet", ctx.prefix);
+    let exts = ctx.image_exts.clone();
+    ctx.resolve_and_record(
         source_node,
         &icon_path,
-        image_exts,
+        &exts,
         AssetKind::Image,
         ReferenceRequiredness::Required,
-        allow_network,
-        finding_counter,
     );
 
     // System sounds
@@ -714,19 +817,14 @@ fn audit_system_json(
         for se in sounds {
             if let Some(name) = se.get("name").and_then(|v| v.as_str()) {
                 if !name.is_empty() {
-                    let path = format!("{prefix}audio/se/{name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let path = format!("{}audio/se/{name}", ctx.prefix);
+                    let exts = ctx.audio_exts.clone();
+                    ctx.resolve_and_record(
                         source_node,
                         &path,
-                        audio_exts,
+                        &exts,
                         AssetKind::Audio,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -744,19 +842,14 @@ fn audit_system_json(
         if let Some(audio_obj) = sys.get(key) {
             if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
                 if !name.is_empty() {
-                    let path = format!("{prefix}{folder}/{name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let path = format!("{}{folder}/{name}", ctx.prefix);
+                    let exts = ctx.audio_exts.clone();
+                    ctx.resolve_and_record(
                         source_node,
                         &path,
-                        audio_exts,
+                        &exts,
                         kind,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -768,38 +861,28 @@ fn audit_system_json(
         if let Some(vehicle) = sys.get(vehicle_key) {
             if let Some(char_name) = vehicle.get("characterName").and_then(|v| v.as_str()) {
                 if !char_name.is_empty() {
-                    let path = format!("{prefix}img/characters/{char_name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let path = format!("{}img/characters/{char_name}", ctx.prefix);
+                    let exts = ctx.image_exts.clone();
+                    ctx.resolve_and_record(
                         source_node,
                         &path,
-                        image_exts,
+                        &exts,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
             if let Some(bgm) = vehicle.get("bgm") {
                 if let Some(name) = bgm.get("name").and_then(|v| v.as_str()) {
                     if !name.is_empty() {
-                        let path = format!("{prefix}audio/bgm/{name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        let path = format!("{}audio/bgm/{name}", ctx.prefix);
+                        let exts = ctx.audio_exts.clone();
+                        ctx.resolve_and_record(
                             source_node,
                             &path,
-                            audio_exts,
+                            &exts,
                             AssetKind::Audio,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
@@ -808,20 +891,9 @@ fn audit_system_json(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_actors(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/Actors.json");
-    let actors = match read_json_file(source, &path, "Database:Actors", findings, finding_counter) {
+fn audit_actors(ctx: &mut AuditContext) {
+    let path = format!("{}data/Actors.json", ctx.prefix);
+    let actors = match ctx.read_json_file(&path, "Database:Actors") {
         Some(v) => v,
         None => return,
     };
@@ -833,67 +905,46 @@ fn audit_actors(
             }
             let id = actor.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let source_node = format!("Database:Actors:{id}");
-            ensure_node(
-                graph,
-                node_ids,
-                &source_node,
-                AssetKind::DatabaseEntity,
-                None,
-            );
+            ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             if let Some(char_name) = actor.get("characterName").and_then(|v| v.as_str()) {
                 if !char_name.is_empty() {
-                    let p = format!("{prefix}img/characters/{char_name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}img/characters/{char_name}", ctx.prefix);
+                    let exts = ctx.image_exts.clone();
+                    ctx.resolve_and_record(
                         &source_node,
                         &p,
-                        image_exts,
+                        &exts,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
 
             if let Some(face_name) = actor.get("faceName").and_then(|v| v.as_str()) {
                 if !face_name.is_empty() {
-                    let p = format!("{prefix}img/faces/{face_name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}img/faces/{face_name}", ctx.prefix);
+                    let exts = ctx.image_exts.clone();
+                    ctx.resolve_and_record(
                         &source_node,
                         &p,
-                        image_exts,
+                        &exts,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
 
             if let Some(battler_name) = actor.get("battlerName").and_then(|v| v.as_str()) {
                 if !battler_name.is_empty() {
-                    let p = format!("{prefix}img/sv_actors/{battler_name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
+                    let exts = ctx.image_exts.clone();
+                    ctx.resolve_and_record(
                         &source_node,
                         &p,
-                        image_exts,
+                        &exts,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -901,21 +952,9 @@ fn audit_actors(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_enemies(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    _allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/Enemies.json");
-    let enemies = match read_json_file(source, &path, "Database:Enemies", findings, finding_counter)
-    {
+fn audit_enemies(ctx: &mut AuditContext) {
+    let path = format!("{}data/Enemies.json", ctx.prefix);
+    let enemies = match ctx.read_json_file(&path, "Database:Enemies") {
         Some(v) => v,
         None => return,
     };
@@ -927,36 +966,26 @@ fn audit_enemies(
             }
             let id = enemy.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let source_node = format!("Database:Enemies:{id}");
-            ensure_node(
-                graph,
-                node_ids,
-                &source_node,
-                AssetKind::DatabaseEntity,
-                None,
-            );
+            ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             if let Some(battler_name) = enemy.get("battlerName").and_then(|v| v.as_str()) {
                 if !battler_name.is_empty() {
-                    // Check both img/enemies/ and img/sv_enemies/
                     let mut candidates = Vec::new();
                     for folder in ["img/enemies", "img/sv_enemies"] {
-                        let base = format!("{prefix}{folder}/{battler_name}");
-                        let rule = CandidateRule::with_extensions(base, image_exts.to_vec());
+                        let base = format!("{}{folder}/{battler_name}", ctx.prefix);
+                        let rule = CandidateRule::with_extensions(base, ctx.image_exts.clone());
                         candidates.extend(rule.expand_candidates());
                     }
 
                     let rule = CandidateRule::Candidates(candidates);
-                    let res = resolver.resolve(&rule, AssetKind::Image);
-                    record_resolution_result(
+                    let res = ctx.resolver.resolve(&rule, AssetKind::Image);
+                    let target_base = format!("{}img/enemies/{battler_name}", ctx.prefix);
+                    ctx.record_resolution_result(
                         res,
-                        &format!("{prefix}img/enemies/{battler_name}"),
+                        &target_base,
                         &source_node,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        graph,
-                        node_ids,
-                        findings,
-                        finding_counter,
                     );
                 }
             }
@@ -964,26 +993,9 @@ fn audit_enemies(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_tilesets(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/Tilesets.json");
-    let tilesets = match read_json_file(
-        source,
-        &path,
-        "Database:Tilesets",
-        findings,
-        finding_counter,
-    ) {
+fn audit_tilesets(ctx: &mut AuditContext) {
+    let path = format!("{}data/Tilesets.json", ctx.prefix);
+    let tilesets = match ctx.read_json_file(&path, "Database:Tilesets") {
         Some(v) => v,
         None => return,
     };
@@ -995,31 +1007,20 @@ fn audit_tilesets(
             }
             let id = tileset.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let source_node = format!("Database:Tilesets:{id}");
-            ensure_node(
-                graph,
-                node_ids,
-                &source_node,
-                AssetKind::DatabaseEntity,
-                None,
-            );
+            ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             if let Some(names) = tileset.get("tilesetNames").and_then(|v| v.as_array()) {
                 for name_val in names {
                     if let Some(name) = name_val.as_str() {
                         if !name.is_empty() {
-                            let p = format!("{prefix}img/tilesets/{name}");
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
+                            let p = format!("{}img/tilesets/{name}", ctx.prefix);
+                            let exts = ctx.image_exts.clone();
+                            ctx.resolve_and_record(
                                 &source_node,
                                 &p,
-                                image_exts,
+                                &exts,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
-                                allow_network,
-                                finding_counter,
                             );
                         }
                     }
@@ -1029,27 +1030,9 @@ fn audit_tilesets(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_animations(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/Animations.json");
-    let anims = match read_json_file(
-        source,
-        &path,
-        "Database:Animations",
-        findings,
-        finding_counter,
-    ) {
+fn audit_animations(ctx: &mut AuditContext) {
+    let path = format!("{}data/Animations.json", ctx.prefix);
+    let anims = match ctx.read_json_file(&path, "Database:Animations") {
         Some(v) => v,
         None => return,
     };
@@ -1061,31 +1044,20 @@ fn audit_animations(
             }
             let id = anim.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let source_node = format!("Database:Animations:{id}");
-            ensure_node(
-                graph,
-                node_ids,
-                &source_node,
-                AssetKind::DatabaseEntity,
-                None,
-            );
+            ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             // Classic animations (MV & MZ)
             for key in ["animation1Name", "animation2Name"] {
                 if let Some(name) = anim.get(key).and_then(|v| v.as_str()) {
                     if !name.is_empty() {
-                        let p = format!("{prefix}img/animations/{name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        let p = format!("{}img/animations/{name}", ctx.prefix);
+                        let exts = ctx.image_exts.clone();
+                        ctx.resolve_and_record(
                             &source_node,
                             &p,
-                            image_exts,
+                            &exts,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
@@ -1094,19 +1066,13 @@ fn audit_animations(
             // MZ Effekseer animations
             if let Some(effect_name) = anim.get("effectName").and_then(|v| v.as_str()) {
                 if !effect_name.is_empty() {
-                    let p = format!("{prefix}effects/{effect_name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}effects/{effect_name}", ctx.prefix);
+                    ctx.resolve_and_record(
                         &source_node,
                         &p,
                         &["efkefc", "efk"],
                         AssetKind::DatabaseEntity,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -1117,19 +1083,14 @@ fn audit_animations(
                     if let Some(se) = t.get("se") {
                         if let Some(name) = se.get("name").and_then(|v| v.as_str()) {
                             if !name.is_empty() {
-                                let p = format!("{prefix}audio/se/{name}");
-                                resolve_and_record(
-                                    resolver,
-                                    graph,
-                                    node_ids,
-                                    findings,
+                                let p = format!("{}audio/se/{name}", ctx.prefix);
+                                let exts = ctx.audio_exts.clone();
+                                ctx.resolve_and_record(
                                     &source_node,
                                     &p,
-                                    audio_exts,
+                                    &exts,
                                     AssetKind::Audio,
                                     ReferenceRequiredness::Required,
-                                    allow_network,
-                                    finding_counter,
                                 );
                             }
                         }
@@ -1140,28 +1101,9 @@ fn audit_animations(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_common_events(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/CommonEvents.json");
-    let ce_data = match read_json_file(
-        source,
-        &path,
-        "Database:CommonEvents",
-        findings,
-        finding_counter,
-    ) {
+fn audit_common_events(ctx: &mut AuditContext) {
+    let path = format!("{}data/CommonEvents.json", ctx.prefix);
+    let ce_data = match ctx.read_json_file(&path, "Database:CommonEvents") {
         Some(v) => v,
         None => return,
     };
@@ -1173,50 +1115,18 @@ fn audit_common_events(
             }
             let id = ce.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let source_node = format!("Database:CommonEvents:{id}");
-            ensure_node(
-                graph,
-                node_ids,
-                &source_node,
-                AssetKind::DatabaseEntity,
-                None,
-            );
+            ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             if let Some(cmd_list) = ce.get("list").and_then(|v| v.as_array()) {
-                audit_event_commands(
-                    cmd_list,
-                    &source_node,
-                    prefix,
-                    image_exts,
-                    audio_exts,
-                    video_exts,
-                    allow_network,
-                    resolver,
-                    graph,
-                    node_ids,
-                    findings,
-                    finding_counter,
-                );
+                audit_event_commands(ctx, cmd_list, &source_node);
             }
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_troops(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let path = format!("{prefix}data/Troops.json");
-    let troops = match read_json_file(source, &path, "Database:Troops", findings, finding_counter) {
+fn audit_troops(ctx: &mut AuditContext) {
+    let path = format!("{}data/Troops.json", ctx.prefix);
+    let troops = match ctx.read_json_file(&path, "Database:Troops") {
         Some(v) => v,
         None => return,
     };
@@ -1230,28 +1140,9 @@ fn audit_troops(
             if let Some(pages) = troop.get("pages").and_then(|v| v.as_array()) {
                 for (page_idx, page) in pages.iter().enumerate() {
                     let source_node = format!("Database:Troops:{id}:Page{}", page_idx + 1);
-                    ensure_node(
-                        graph,
-                        node_ids,
-                        &source_node,
-                        AssetKind::DatabaseEntity,
-                        None,
-                    );
+                    ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
                     if let Some(cmd_list) = page.get("list").and_then(|v| v.as_array()) {
-                        audit_event_commands(
-                            cmd_list,
-                            &source_node,
-                            prefix,
-                            image_exts,
-                            audio_exts,
-                            video_exts,
-                            allow_network,
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
-                            finding_counter,
-                        );
+                        audit_event_commands(ctx, cmd_list, &source_node);
                     }
                 }
             }
@@ -1259,46 +1150,28 @@ fn audit_troops(
     }
 }
 
-fn audit_other_database(
-    source: &GameSourceIndex,
-    prefix: &str,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
+fn audit_other_database(ctx: &mut AuditContext) {
     for name in [
+        "Classes.json",
+        "MapInfos.json",
         "Skills.json",
         "Items.json",
         "Weapons.json",
         "Armors.json",
         "States.json",
     ] {
-        let path = format!("{prefix}data/{name}");
-        let _ = read_json_file(
-            source,
-            &path,
-            &format!("Database:{name}"),
-            findings,
-            finding_counter,
-        );
+        let path = format!("{}data/{name}", ctx.prefix);
+        if ctx.source.has_file(&path) {
+            let entity_name = name.strip_suffix(".json").unwrap_or(name);
+            let _ = ctx.read_json_file(&path, &format!("Database:{entity_name}"));
+        }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_maps(
-    source: &GameSourceIndex,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let expected_prefix = format!("{prefix}data/map").to_ascii_lowercase();
-    let mut map_files: Vec<(u32, String)> = source
+fn audit_maps(ctx: &mut AuditContext) {
+    let expected_prefix = format!("{}data/map", ctx.prefix).to_ascii_lowercase();
+    let mut map_files: Vec<(u32, String)> = ctx
+        .source
         .files
         .values()
         .filter_map(|f| {
@@ -1318,37 +1191,25 @@ fn audit_maps(
 
     for (map_id, map_path) in map_files {
         let map_node_id = format!("Map:{map_id:03}");
-        ensure_node(
-            graph,
-            node_ids,
-            &map_node_id,
-            AssetKind::Map,
-            Some(map_path.clone()),
-        );
+        ctx.ensure_node(&map_node_id, AssetKind::Map, Some(map_path.clone()));
 
-        let map_val =
-            match read_json_file(source, &map_path, &map_node_id, findings, finding_counter) {
-                Some(v) => v,
-                None => continue,
-            };
+        let map_val = match ctx.read_json_file(&map_path, &map_node_id) {
+            Some(v) => v,
+            None => continue,
+        };
 
         // Autoplay BGM / BGS
         if let Some(bgm) = map_val.get("bgm") {
             if let Some(name) = bgm.get("name").and_then(|v| v.as_str()) {
                 if !name.is_empty() {
-                    let p = format!("{prefix}audio/bgm/{name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}audio/bgm/{name}", ctx.prefix);
+                    let exts = ctx.audio_exts.clone();
+                    ctx.resolve_and_record(
                         &map_node_id,
                         &p,
-                        audio_exts,
+                        &exts,
                         AssetKind::Audio,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -1357,19 +1218,14 @@ fn audit_maps(
         if let Some(bgs) = map_val.get("bgs") {
             if let Some(name) = bgs.get("name").and_then(|v| v.as_str()) {
                 if !name.is_empty() {
-                    let p = format!("{prefix}audio/bgs/{name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}audio/bgs/{name}", ctx.prefix);
+                    let exts = ctx.audio_exts.clone();
+                    ctx.resolve_and_record(
                         &map_node_id,
                         &p,
-                        audio_exts,
+                        &exts,
                         AssetKind::Audio,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -1383,19 +1239,14 @@ fn audit_maps(
         ] {
             if let Some(name) = map_val.get(key).and_then(|v| v.as_str()) {
                 if !name.is_empty() {
-                    let p = format!("{prefix}{folder}/{name}");
-                    resolve_and_record(
-                        resolver,
-                        graph,
-                        node_ids,
-                        findings,
+                    let p = format!("{}{folder}/{name}", ctx.prefix);
+                    let exts = ctx.image_exts.clone();
+                    ctx.resolve_and_record(
                         &map_node_id,
                         &p,
-                        image_exts,
+                        &exts,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
-                        allow_network,
-                        finding_counter,
                     );
                 }
             }
@@ -1405,8 +1256,8 @@ fn audit_maps(
         if let Some(ts_id) = map_val.get("tilesetId").and_then(|v| v.as_u64()) {
             if ts_id > 0 {
                 let ts_node = format!("Database:Tilesets:{ts_id}");
-                ensure_node(graph, node_ids, &ts_node, AssetKind::DatabaseEntity, None);
-                graph.edges.push(ReferenceEdge {
+                ctx.ensure_node(&ts_node, AssetKind::DatabaseEntity, None);
+                ctx.graph.edges.push(ReferenceEdge {
                     source: map_node_id.clone(),
                     target: ts_node,
                     relation: "uses_tileset".to_string(),
@@ -1427,7 +1278,7 @@ fn audit_maps(
                 if let Some(pages) = event.get("pages").and_then(|v| v.as_array()) {
                     for (page_idx, page) in pages.iter().enumerate() {
                         let page_node = format!("Map{map_id:03}:Event{ev_id}:Page{}", page_idx + 1);
-                        ensure_node(graph, node_ids, &page_node, AssetKind::EventPage, None);
+                        ctx.ensure_node(&page_node, AssetKind::EventPage, None);
 
                         // Event graphic
                         if let Some(img_obj) = page.get("image") {
@@ -1435,19 +1286,14 @@ fn audit_maps(
                                 img_obj.get("characterName").and_then(|v| v.as_str())
                             {
                                 if !char_name.is_empty() {
-                                    let p = format!("{prefix}img/characters/{char_name}");
-                                    resolve_and_record(
-                                        resolver,
-                                        graph,
-                                        node_ids,
-                                        findings,
+                                    let p = format!("{}img/characters/{char_name}", ctx.prefix);
+                                    let exts = ctx.image_exts.clone();
+                                    ctx.resolve_and_record(
                                         &page_node,
                                         &p,
-                                        image_exts,
+                                        &exts,
                                         AssetKind::Image,
                                         ReferenceRequiredness::Required,
-                                        allow_network,
-                                        finding_counter,
                                     );
                                 }
                             }
@@ -1465,20 +1311,17 @@ fn audit_maps(
                                             params.and_then(|p| p.first()).and_then(|v| v.as_str())
                                         {
                                             if !char_name.is_empty() {
-                                                let p =
-                                                    format!("{prefix}img/characters/{char_name}");
-                                                resolve_and_record(
-                                                    resolver,
-                                                    graph,
-                                                    node_ids,
-                                                    findings,
+                                                let p = format!(
+                                                    "{}img/characters/{char_name}",
+                                                    ctx.prefix
+                                                );
+                                                let exts = ctx.image_exts.clone();
+                                                ctx.resolve_and_record(
                                                     &page_node,
                                                     &p,
-                                                    image_exts,
+                                                    &exts,
                                                     AssetKind::Image,
                                                     ReferenceRequiredness::Required,
-                                                    allow_network,
-                                                    finding_counter,
                                                 );
                                             }
                                         }
@@ -1489,19 +1332,15 @@ fn audit_maps(
                                                 se_obj.get("name").and_then(|v| v.as_str())
                                             {
                                                 if !name.is_empty() {
-                                                    let p = format!("{prefix}audio/se/{name}");
-                                                    resolve_and_record(
-                                                        resolver,
-                                                        graph,
-                                                        node_ids,
-                                                        findings,
+                                                    let p =
+                                                        format!("{}audio/se/{name}", ctx.prefix);
+                                                    let exts = ctx.audio_exts.clone();
+                                                    ctx.resolve_and_record(
                                                         &page_node,
                                                         &p,
-                                                        audio_exts,
+                                                        &exts,
                                                         AssetKind::Audio,
                                                         ReferenceRequiredness::Required,
-                                                        allow_network,
-                                                        finding_counter,
                                                     );
                                                 }
                                             }
@@ -1513,20 +1352,7 @@ fn audit_maps(
 
                         // Commands
                         if let Some(cmd_list) = page.get("list").and_then(|v| v.as_array()) {
-                            audit_event_commands(
-                                cmd_list,
-                                &page_node,
-                                prefix,
-                                image_exts,
-                                audio_exts,
-                                video_exts,
-                                allow_network,
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
-                                finding_counter,
-                            );
+                            audit_event_commands(ctx, cmd_list, &page_node);
                         }
                     }
                 }
@@ -1535,21 +1361,7 @@ fn audit_maps(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_event_commands(
-    commands: &[serde_json::Value],
-    parent_node: &str,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
+fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], parent_node: &str) {
     for (cmd_idx, cmd) in commands.iter().enumerate() {
         let code = cmd.get("code").and_then(|v| v.as_u64()).unwrap_or(0);
         let params = match cmd.get("parameters").and_then(|v| v.as_array()) {
@@ -1566,76 +1378,110 @@ fn audit_event_commands(
                 let target_map_id = params.get(1).and_then(|v| v.as_i64()).unwrap_or(0);
 
                 if mode == 0 && target_map_id > 0 {
-                    let target_map_path = format!("{prefix}data/Map{target_map_id:03}.json");
+                    let target_map_path = format!("{}data/Map{target_map_id:03}.json", ctx.prefix);
                     let target_node_id = format!("Map:{target_map_id:03}");
-                    ensure_node(
-                        &mut *graph,
-                        &mut *node_ids,
-                        &cmd_node_id,
-                        AssetKind::Command,
-                        None,
-                    );
+                    ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
 
-                    if resolver.contains_exact(&target_map_path) {
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &target_node_id,
-                            AssetKind::Map,
-                            Some(target_map_path),
-                        );
-                        graph.edges.push(ReferenceEdge {
-                            source: cmd_node_id,
-                            target: target_node_id,
-                            relation: "transfers_to".to_string(),
-                            requiredness: ReferenceRequiredness::Required,
-                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                            resolution: ReferenceResolution::Resolved,
-                        });
-                    } else {
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &target_node_id,
-                            AssetKind::Map,
-                            None,
-                        );
-                        findings.push(make_finding(
-                            DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                            ReferenceRequiredness::Required,
-                            format!(
-                                "Referenced map file '{target_map_path}' is missing on disk (target map ID: {target_map_id})"
-                            ),
-                            vec![cmd_node_id.clone()],
-                            finding_counter,
-                        ));
-                        graph.edges.push(ReferenceEdge {
-                            source: cmd_node_id,
-                            target: target_node_id,
-                            relation: "transfers_to".to_string(),
-                            requiredness: ReferenceRequiredness::Required,
-                            evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                            resolution: ReferenceResolution::Unresolved,
-                        });
+                    let res = ctx.resolver.resolve_path(&target_map_path, AssetKind::Map);
+                    match res {
+                        ResolutionResult::Exact(node) => {
+                            ctx.ensure_node(&target_node_id, AssetKind::Map, node.logical_path);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id,
+                                target: target_node_id,
+                                relation: "transfers_to".to_string(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                                resolution: ReferenceResolution::Resolved,
+                            });
+                        }
+                        ResolutionResult::CaseMismatch {
+                            expected,
+                            actual,
+                            node,
+                        } => {
+                            ctx.push_finding(
+                                DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                                ReferenceRequiredness::Required,
+                                format!(
+                                    "Map transfer reference '{expected}' has case mismatch with '{actual}' on disk"
+                                ),
+                                vec![cmd_node_id.clone()],
+                            );
+                            ctx.ensure_node(&target_node_id, AssetKind::Map, node.logical_path);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id,
+                                target: target_node_id,
+                                relation: "transfers_to".to_string(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                                resolution: ReferenceResolution::Resolved,
+                            });
+                        }
+                        ResolutionResult::CaseCollision(colliding) => {
+                            ctx.push_finding(
+                                DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                                ReferenceRequiredness::Required,
+                                format!(
+                                    "Map transfer reference '{target_map_path}' collides case-insensitively with multiple files: {:?}",
+                                    colliding
+                                ),
+                                vec![cmd_node_id.clone()],
+                            );
+                            ctx.ensure_node(&target_node_id, AssetKind::Map, None);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id,
+                                target: target_node_id,
+                                relation: "transfers_to".to_string(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                                resolution: ReferenceResolution::Unresolved,
+                            });
+                        }
+                        ResolutionResult::Missing(attempted) => {
+                            ctx.push_finding(
+                                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                                ReferenceRequiredness::Required,
+                                format!(
+                                    "Referenced map file '{target_map_path}' is missing on disk (attempted: {:?}, target map ID: {target_map_id})",
+                                    attempted
+                                ),
+                                vec![cmd_node_id.clone()],
+                            );
+                            ctx.ensure_node(&target_node_id, AssetKind::Map, None);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id,
+                                target: target_node_id,
+                                relation: "transfers_to".to_string(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                                resolution: ReferenceResolution::Unresolved,
+                            });
+                        }
+                        ResolutionResult::Unsafe(path) => {
+                            ctx.push_finding(
+                                DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                                ReferenceRequiredness::Required,
+                                format!("Unsafe path in map transfer reference: '{path}'"),
+                                vec![cmd_node_id.clone()],
+                            );
+                            ctx.ensure_node(&target_node_id, AssetKind::Map, None);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id,
+                                target: target_node_id,
+                                relation: "transfers_to".to_string(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                                resolution: ReferenceResolution::Unresolved,
+                            });
+                        }
                     }
                 } else if mode == 1 {
                     // Variable transfer: dynamic reference, static audit must not fail
-                    ensure_node(
-                        &mut *graph,
-                        &mut *node_ids,
-                        &cmd_node_id,
-                        AssetKind::Command,
-                        None,
-                    );
+                    ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
                     let target_id = "dynamic:variable_map_transfer".to_string();
-                    ensure_node(
-                        &mut *graph,
-                        &mut *node_ids,
-                        &target_id,
-                        AssetKind::UnresolvedDynamicReference,
-                        None,
-                    );
-                    graph.edges.push(ReferenceEdge {
+                    ctx.ensure_node(&target_id, AssetKind::UnresolvedDynamicReference, None);
+                    ctx.graph.edges.push(ReferenceEdge {
                         source: cmd_node_id,
                         target: target_id,
                         relation: "variable_transfers_to".to_string(),
@@ -1649,26 +1495,15 @@ fn audit_event_commands(
                 // Show Picture: params[1]=picture_name
                 if let Some(pic_name) = params.get(1).and_then(|v| v.as_str()) {
                     if !pic_name.is_empty() {
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &cmd_node_id,
-                            AssetKind::Command,
-                            None,
-                        );
-                        let p = format!("{prefix}img/pictures/{pic_name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                        let p = format!("{}img/pictures/{pic_name}", ctx.prefix);
+                        let exts = ctx.image_exts.clone();
+                        ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
-                            image_exts,
+                            &exts,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
@@ -1678,26 +1513,15 @@ fn audit_event_commands(
                 if let Some(audio_obj) = params.first() {
                     if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
                         if !name.is_empty() {
-                            ensure_node(
-                                &mut *graph,
-                                &mut *node_ids,
-                                &cmd_node_id,
-                                AssetKind::Command,
-                                None,
-                            );
-                            let p = format!("{prefix}audio/bgm/{name}");
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/bgm/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
                                 &cmd_node_id,
                                 &p,
-                                audio_exts,
+                                &exts,
                                 AssetKind::Audio,
                                 ReferenceRequiredness::Required,
-                                allow_network,
-                                finding_counter,
                             );
                         }
                     }
@@ -1708,26 +1532,15 @@ fn audit_event_commands(
                 if let Some(audio_obj) = params.first() {
                     if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
                         if !name.is_empty() {
-                            ensure_node(
-                                &mut *graph,
-                                &mut *node_ids,
-                                &cmd_node_id,
-                                AssetKind::Command,
-                                None,
-                            );
-                            let p = format!("{prefix}audio/bgs/{name}");
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/bgs/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
                                 &cmd_node_id,
                                 &p,
-                                audio_exts,
+                                &exts,
                                 AssetKind::Audio,
                                 ReferenceRequiredness::Required,
-                                allow_network,
-                                finding_counter,
                             );
                         }
                     }
@@ -1738,26 +1551,15 @@ fn audit_event_commands(
                 if let Some(audio_obj) = params.first() {
                     if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
                         if !name.is_empty() {
-                            ensure_node(
-                                &mut *graph,
-                                &mut *node_ids,
-                                &cmd_node_id,
-                                AssetKind::Command,
-                                None,
-                            );
-                            let p = format!("{prefix}audio/me/{name}");
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/me/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
                                 &cmd_node_id,
                                 &p,
-                                audio_exts,
+                                &exts,
                                 AssetKind::Audio,
                                 ReferenceRequiredness::Required,
-                                allow_network,
-                                finding_counter,
                             );
                         }
                     }
@@ -1768,26 +1570,15 @@ fn audit_event_commands(
                 if let Some(audio_obj) = params.first() {
                     if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
                         if !name.is_empty() {
-                            ensure_node(
-                                &mut *graph,
-                                &mut *node_ids,
-                                &cmd_node_id,
-                                AssetKind::Command,
-                                None,
-                            );
-                            let p = format!("{prefix}audio/se/{name}");
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/se/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
                                 &cmd_node_id,
                                 &p,
-                                audio_exts,
+                                &exts,
                                 AssetKind::Audio,
                                 ReferenceRequiredness::Required,
-                                allow_network,
-                                finding_counter,
                             );
                         }
                     }
@@ -1797,90 +1588,58 @@ fn audit_event_commands(
                 // Play Movie: params[0]=movie_name
                 if let Some(movie_name) = params.first().and_then(|v| v.as_str()) {
                     if !movie_name.is_empty() {
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &cmd_node_id,
-                            AssetKind::Command,
-                            None,
-                        );
-                        let p = format!("{prefix}movies/{movie_name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                        let p = format!("{}movies/{movie_name}", ctx.prefix);
+                        let exts = ctx.video_exts.clone();
+                        ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
-                            video_exts,
+                            &exts,
                             AssetKind::Video,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
             }
             322 => {
                 // Change Actor Graphic: params[1]=charName, params[3]=faceName, params[5]=battlerName
-                ensure_node(
-                    &mut *graph,
-                    &mut *node_ids,
-                    &cmd_node_id,
-                    AssetKind::Command,
-                    None,
-                );
+                ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
                 if let Some(char_name) = params.get(1).and_then(|v| v.as_str()) {
                     if !char_name.is_empty() {
-                        let p = format!("{prefix}img/characters/{char_name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        let p = format!("{}img/characters/{char_name}", ctx.prefix);
+                        let exts = ctx.image_exts.clone();
+                        ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
-                            image_exts,
+                            &exts,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
                 if let Some(face_name) = params.get(3).and_then(|v| v.as_str()) {
                     if !face_name.is_empty() {
-                        let p = format!("{prefix}img/faces/{face_name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        let p = format!("{}img/faces/{face_name}", ctx.prefix);
+                        let exts = ctx.image_exts.clone();
+                        ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
-                            image_exts,
+                            &exts,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
                 if let Some(battler_name) = params.get(5).and_then(|v| v.as_str()) {
                     if !battler_name.is_empty() {
-                        let p = format!("{prefix}img/sv_actors/{battler_name}");
-                        resolve_and_record(
-                            resolver,
-                            graph,
-                            node_ids,
-                            findings,
+                        let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
+                        let exts = ctx.image_exts.clone();
+                        ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
-                            image_exts,
+                            &exts,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
-                            allow_network,
-                            finding_counter,
                         );
                     }
                 }
@@ -1889,22 +1648,10 @@ fn audit_event_commands(
                 // Show Animation: params[1]=anim_id
                 if let Some(anim_id) = params.get(1).and_then(|v| v.as_i64()) {
                     if anim_id > 0 {
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &cmd_node_id,
-                            AssetKind::Command,
-                            None,
-                        );
+                        ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
                         let anim_node = format!("Database:Animations:{anim_id}");
-                        ensure_node(
-                            &mut *graph,
-                            &mut *node_ids,
-                            &anim_node,
-                            AssetKind::DatabaseEntity,
-                            None,
-                        );
-                        graph.edges.push(ReferenceEdge {
+                        ctx.ensure_node(&anim_node, AssetKind::DatabaseEntity, None);
+                        ctx.graph.edges.push(ReferenceEdge {
                             source: cmd_node_id,
                             target: anim_node,
                             relation: "shows_animation".to_string(),
@@ -1920,294 +1667,139 @@ fn audit_event_commands(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn record_resolution_result(
-    res: ResolutionResult,
-    target_base_path: &str,
-    source_node_id: &str,
-    kind: AssetKind,
-    requiredness: ReferenceRequiredness,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let (target_id, resolution, target_logical_path) = match res {
-        ResolutionResult::Exact(node) => (
-            node.id.clone(),
-            ReferenceResolution::Resolved,
-            node.logical_path.clone(),
-        ),
-        ResolutionResult::CaseMismatch {
-            expected,
-            actual,
-            node,
-        } => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_CASE_MISMATCH,
-                requiredness,
-                format!("Asset reference '{expected}' has case mismatch with '{actual}' on disk"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                node.id.clone(),
-                ReferenceResolution::Resolved,
-                node.logical_path.clone(),
-            )
-        }
-        ResolutionResult::CaseCollision(colliding) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_CASE_COLLISION,
-                requiredness,
-                format!(
-                    "Asset reference '{target_base_path}' collides case-insensitively with multiple files: {:?}",
-                    colliding
-                ),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_base_path}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-        ResolutionResult::Missing(attempted) => {
-            let code = if requiredness == ReferenceRequiredness::Required {
-                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
-            } else {
-                DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
-            };
-            findings.push(make_finding(
-                code,
-                requiredness,
-                format!(
-                    "Referenced asset '{target_base_path}' is missing on disk (attempted: {:?})",
-                    attempted
-                ),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_base_path}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-        ResolutionResult::Unsafe(path) => {
-            findings.push(make_finding(
-                DiagnosticCode::CMP_AUD_UNSAFE_PATH,
-                requiredness,
-                format!("Unsafe path traversal in asset reference: '{path}'"),
-                vec![source_node_id.to_string()],
-                finding_counter,
-            ));
-            (
-                format!("{}:{target_base_path}", kind.as_str()),
-                ReferenceResolution::Unresolved,
-                None,
-            )
-        }
-    };
-
-    ensure_node(
-        &mut *graph,
-        &mut *node_ids,
-        &target_id,
-        kind,
-        target_logical_path,
-    );
-
-    graph.edges.push(ReferenceEdge {
-        source: source_node_id.to_string(),
-        target: target_id,
-        relation: "references".to_string(),
-        requiredness,
-        evidence: match resolution {
-            ReferenceResolution::Resolved => EvidenceTrail::through(EvidenceStage::FileExists),
-            _ => EvidenceTrail::through(EvidenceStage::ReferenceFound),
-        },
-        resolution,
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn inspect_string_reference(
-    val_str: &str,
-    source_node: &str,
-    prefix: &str,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    requiredness: ReferenceRequiredness,
-    allow_network: bool,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    if val_str.starts_with("http://") || val_str.starts_with("https://") {
-        resolve_and_record(
-            resolver,
-            graph,
-            node_ids,
-            findings,
-            source_node,
-            val_str,
-            &[],
-            AssetKind::ExternalResource,
-            requiredness,
-            allow_network,
-            finding_counter,
-        );
-        return;
-    }
-
-    let trimmed = val_str.trim();
-    if trimmed.is_empty() || trimmed.ends_with('/') || trimmed.ends_with('\\') {
-        return;
-    }
-
-    let (rel_path, kind, exts) = if trimmed.starts_with("img/") {
-        (format!("{prefix}{trimmed}"), AssetKind::Image, image_exts)
-    } else if trimmed.starts_with("audio/") {
-        (format!("{prefix}{trimmed}"), AssetKind::Audio, audio_exts)
-    } else if trimmed.starts_with("movies/") {
-        (format!("{prefix}{trimmed}"), AssetKind::Video, video_exts)
-    } else if trimmed.starts_with("effects/") {
-        (
-            format!("{prefix}{trimmed}"),
-            AssetKind::DatabaseEntity,
-            &["efkefc", "efk"][..],
-        )
-    } else {
-        return;
-    };
-
-    resolve_and_record(
-        resolver,
-        graph,
-        node_ids,
-        findings,
-        source_node,
-        &rel_path,
-        exts,
-        kind,
-        requiredness,
-        allow_network,
-        finding_counter,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn audit_plugins(
-    source: &GameSourceIndex,
-    prefix: &str,
-    mode: AuditMode,
-    image_exts: &[&str],
-    audio_exts: &[&str],
-    video_exts: &[&str],
-    allow_network: bool,
-    max_single_file_bytes: u64,
-    resolver: &AssetResolver,
-    graph: &mut DependencyGraph,
-    node_ids: &mut HashSet<String>,
-    coverage: &mut AuditCoverage,
-    findings: &mut Vec<AuditFinding>,
-    finding_counter: &mut usize,
-) {
-    let manifest_path = format!("{prefix}js/plugins.js");
+fn audit_plugins(ctx: &mut AuditContext) {
+    let manifest_path = format!("{}js/plugins.js", ctx.prefix);
     let manifest_node = "manifest:plugins";
-    ensure_node(
-        graph,
-        node_ids,
+    ctx.ensure_node(
         manifest_node,
         AssetKind::Plugin,
         Some(manifest_path.clone()),
     );
 
-    let manifest_file = match source.get_file(&manifest_path) {
+    let manifest_file = match ctx.source.get_file(&manifest_path) {
         Some(f) => f,
         None => return,
     };
 
-    let full_manifest_path = source.root_path.join(&manifest_file.relative_path);
+    if manifest_file.size_bytes > ctx.options.limits.max_single_file_bytes {
+        ctx.push_finding(
+            DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+            ReferenceRequiredness::Required,
+            format!(
+                "Single file size limit exceeded: '{}' ({} bytes > {} bytes)",
+                manifest_file.logical_path,
+                manifest_file.size_bytes,
+                ctx.options.limits.max_single_file_bytes
+            ),
+            vec![manifest_node.to_string()],
+        );
+        return;
+    }
+
+    let full_manifest_path = ctx.source.root_path.join(&manifest_file.relative_path);
     let content = match std::fs::read_to_string(&full_manifest_path) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) => {
+            ctx.push_finding(
+                DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                ReferenceRequiredness::Required,
+                format!("Failed to read plugin manifest '{manifest_path}': {e}"),
+                vec![manifest_node.to_string()],
+            );
+            return;
+        }
+    };
+
+    let plugins_array = match (content.find('['), content.rfind(']')) {
+        (Some(start), Some(end)) if start < end => {
+            let json_part = &content[start..=end];
+            match serde_json::from_str::<serde_json::Value>(json_part) {
+                Ok(v) => v,
+                Err(e) => {
+                    ctx.push_finding(
+                        DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                        ReferenceRequiredness::Required,
+                        format!("Malformed plugin manifest '{manifest_path}': {e}"),
+                        vec![manifest_node.to_string()],
+                    );
+                    return;
+                }
+            }
+        }
+        _ => {
+            ctx.push_finding(
+                DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                ReferenceRequiredness::Required,
+                format!("Malformed plugin manifest '{manifest_path}': invalid JSON array"),
+                vec![manifest_node.to_string()],
+            );
+            return;
+        }
     };
 
     let mut active_plugins = Vec::new();
 
-    if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
-        if start < end {
-            let json_part = &content[start..=end];
-            if let Ok(plugins) = serde_json::from_str::<serde_json::Value>(json_part) {
-                if let Some(list) = plugins.as_array() {
-                    for plugin in list {
-                        let name = plugin.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let status = plugin
-                            .get("status")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
+    if let Some(list) = plugins_array.as_array() {
+        for plugin in list {
+            let name = plugin.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let status = plugin
+                .get("status")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
-                        if !name.is_empty() {
-                            let plugin_node_id = format!("Plugin:{name}");
-                            let plugin_file_path = format!("{prefix}js/plugins/{name}.js");
-                            let requiredness = if status {
-                                ReferenceRequiredness::Required
-                            } else {
-                                ReferenceRequiredness::Optional
-                            };
+            if !name.is_empty() {
+                let plugin_node_id = format!("Plugin:{name}");
+                let plugin_file_path = format!("{}js/plugins/{name}.js", ctx.prefix);
+                let requiredness = if status {
+                    ReferenceRequiredness::Required
+                } else {
+                    ReferenceRequiredness::Optional
+                };
 
-                            resolve_and_record(
-                                resolver,
-                                graph,
-                                node_ids,
-                                findings,
-                                manifest_node,
-                                &plugin_file_path,
-                                &[],
-                                AssetKind::Plugin,
-                                requiredness,
-                                allow_network,
-                                finding_counter,
-                            );
+                ctx.resolve_and_record(
+                    manifest_node,
+                    &plugin_file_path,
+                    &[],
+                    AssetKind::Plugin,
+                    requiredness,
+                );
 
-                            if status {
-                                active_plugins.push((
-                                    name.to_string(),
-                                    plugin_file_path,
-                                    plugin_node_id.clone(),
-                                ));
-                            }
+                if status {
+                    active_plugins.push((
+                        name.to_string(),
+                        plugin_file_path.clone(),
+                        plugin_node_id.clone(),
+                    ));
 
-                            // Inspect parameters
-                            if let Some(params) =
-                                plugin.get("parameters").and_then(|v| v.as_object())
-                            {
-                                for (_key, val) in params {
-                                    if let Some(val_str) = val.as_str() {
-                                        inspect_string_reference(
-                                            val_str,
+                    // Scan for transitive @base dependencies declared in plugin header
+                    if let Some(file) = ctx.source.get_file(&plugin_file_path) {
+                        if file.size_bytes <= ctx.options.limits.max_single_file_bytes {
+                            let full_path = ctx.source.root_path.join(&file.relative_path);
+                            if let Ok(js_src) = std::fs::read_to_string(&full_path) {
+                                for cap in base_dep_regex().captures_iter(&js_src) {
+                                    if let Some(m) = cap.get(1) {
+                                        let dep_name = m.as_str();
+                                        let dep_path =
+                                            format!("{}js/plugins/{dep_name}.js", ctx.prefix);
+                                        ctx.resolve_and_record(
                                             &plugin_node_id,
-                                            prefix,
-                                            image_exts,
-                                            audio_exts,
-                                            video_exts,
-                                            requiredness,
-                                            allow_network,
-                                            resolver,
-                                            graph,
-                                            node_ids,
-                                            findings,
-                                            finding_counter,
+                                            &dep_path,
+                                            &[],
+                                            AssetKind::Plugin,
+                                            ReferenceRequiredness::Required,
                                         );
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Inspect plugin parameters
+                if let Some(params) = plugin.get("parameters").and_then(|v| v.as_object()) {
+                    for (_key, val) in params {
+                        if let Some(val_str) = val.as_str() {
+                            ctx.inspect_string_reference(val_str, &plugin_node_id, requiredness);
                         }
                     }
                 }
@@ -2216,67 +1808,62 @@ fn audit_plugins(
     }
 
     // In Deep mode: parse bounded JS plugin source files
-    if mode == AuditMode::Deep {
+    if ctx.options.mode == AuditMode::Deep {
         let mut had_dynamic = false;
 
-        let re_str =
-            regex::Regex::new(r#"["']((?:img|audio|movies|effects)/[^"'\r\n]+)["']"#).unwrap();
-        let re_dyn =
-            regex::Regex::new(r#"["']((?:img|audio|movies|effects)/[^"'\r\n]*)["']\s*\+"#).unwrap();
-
         for (p_name, p_path, p_node) in &active_plugins {
-            if let Some(file) = source.get_file(p_path) {
-                if file.size_bytes <= max_single_file_bytes {
-                    let full_path = source.root_path.join(&file.relative_path);
+            if let Some(file) = ctx.source.get_file(p_path) {
+                if file.size_bytes <= ctx.options.limits.max_single_file_bytes {
+                    let full_path = ctx.source.root_path.join(&file.relative_path);
                     if let Ok(js_src) = std::fs::read_to_string(&full_path) {
                         // Check for native node require
                         if js_src.contains(".node")
                             && (js_src.contains("require(") || js_src.contains("import "))
                         {
-                            findings.push(make_finding(
+                            ctx.push_finding(
                                 DiagnosticCode::CMP_NODE_NATIVE_MODULE,
                                 ReferenceRequiredness::Required,
                                 format!(
                                     "Plugin '{p_name}' references unsupported native .node module"
                                 ),
                                 vec![p_node.clone()],
-                                finding_counter,
-                            ));
+                            );
                         }
 
                         // Check for dynamic path concatenation
-                        if re_dyn.is_match(&js_src) {
-                            had_dynamic = true;
-                            findings.push(make_finding(
-                                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
-                                ReferenceRequiredness::Required,
-                                format!("Unresolved dynamic path expression detected in plugin '{p_name}'"),
-                                vec![p_node.clone()],
-                                finding_counter,
-                            ));
+                        let mut dynamic_matches = Vec::new();
+                        for cap in dynamic_concat_regex().captures_iter(&js_src) {
+                            if let Some(m) = cap.get(1) {
+                                dynamic_matches.push(m.as_str().to_string());
+                            }
                         }
 
-                        // Extract static string literals
-                        for cap in re_str.captures_iter(&js_src) {
+                        if !dynamic_matches.is_empty() {
+                            had_dynamic = true;
+                            ctx.push_finding(
+                                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+                                ReferenceRequiredness::Required,
+                                format!(
+                                    "Unresolved dynamic path expression detected in plugin '{p_name}'"
+                                ),
+                                vec![p_node.clone()],
+                            );
+                        }
+
+                        // Extract static string literals (skipping dynamic concatenations)
+                        for cap in static_literal_regex().captures_iter(&js_src) {
                             if let Some(m) = cap.get(1) {
                                 let lit = m.as_str();
                                 if lit.ends_with('/') || lit.ends_with('\\') {
                                     continue;
                                 }
-                                inspect_string_reference(
+                                if dynamic_matches.iter().any(|d| lit.starts_with(d)) {
+                                    continue;
+                                }
+                                ctx.inspect_string_reference(
                                     lit,
                                     p_node,
-                                    prefix,
-                                    image_exts,
-                                    audio_exts,
-                                    video_exts,
                                     ReferenceRequiredness::Required,
-                                    allow_network,
-                                    resolver,
-                                    graph,
-                                    node_ids,
-                                    findings,
-                                    finding_counter,
                                 );
                             }
                         }
@@ -2286,9 +1873,10 @@ fn audit_plugins(
         }
 
         if had_dynamic {
-            coverage.add_dynamic("plugin_dynamic_paths", ReferenceRequiredness::Required);
+            ctx.coverage
+                .add_dynamic("plugin_dynamic_paths", ReferenceRequiredness::Required);
         } else {
-            coverage.add_covered("plugin_literals");
+            ctx.coverage.add_covered("plugin_literals");
         }
     }
 }

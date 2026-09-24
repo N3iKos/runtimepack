@@ -455,3 +455,172 @@ fn test_deep_mode_unresolved_dynamic_yields_indeterminate() {
         .iter()
         .any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED));
 }
+
+#[test]
+fn test_mv_missing_entrypoint_fails_audit() {
+    let root = fixture_dir("mv_missing_entrypoint");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let missing = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("index.html")
+        })
+        .expect("Expected missing index.html finding");
+
+    assert!(missing.source_node_ids[0].contains("index.html"));
+}
+
+#[test]
+fn test_mv_missing_required_database_fails_audit() {
+    let root = fixture_dir("mv_missing_actors_db");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let missing = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Actors.json")
+        })
+        .expect("Expected missing Actors.json finding");
+
+    assert!(missing.source_node_ids[0].contains("Database:Actors"));
+}
+
+#[test]
+fn test_mv_malformed_classes_fails_audit() {
+    let root = fixture_dir("mv_malformed_classes");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let malformed = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE
+                && f.message.contains("Classes.json")
+        })
+        .expect("Expected malformed Classes.json finding");
+
+    assert!(malformed.source_node_ids[0].contains("Database:Classes"));
+}
+
+#[test]
+fn test_mv_malformed_mapinfos_fails_audit() {
+    let root = fixture_dir("mv_malformed_mapinfos");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let malformed = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE
+                && f.message.contains("MapInfos.json")
+        })
+        .expect("Expected malformed MapInfos.json finding");
+
+    assert!(malformed.source_node_ids[0].contains("Database:MapInfos"));
+}
+
+#[test]
+fn test_mv_transfer_case_mismatch_warning() {
+    let root = fixture_dir("mv_transfer_case_mismatch");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Warning);
+    let mismatch = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH && f.message.contains("Map002.json")
+        })
+        .expect("Expected transfer Map002 case mismatch finding");
+
+    assert!(mismatch.source_node_ids[0].contains("Command0"));
+}
+
+#[test]
+fn test_mv_file_exceeds_max_single_file_bytes_fails_audit() {
+    let root = fixture_dir("mv_valid_root");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let mut options = AssetAuditOptions::default();
+    options.limits.max_single_file_bytes = 50; // Set artificially low
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED));
+}
+
+#[test]
+fn test_mv_malformed_plugins_manifest_fails_audit() {
+    let root = fixture_dir("mv_malformed_plugins_manifest");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let malformed = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE && f.message.contains("plugins.js")
+        })
+        .expect("Expected malformed plugins.js finding");
+
+    assert!(malformed.source_node_ids[0].contains("manifest:plugins"));
+}
+
+#[test]
+fn test_mv_transitive_plugin_dependency_resolved() {
+    let root = fixture_dir("mv_transitive_plugin_dependency");
+    let index = make_index(&root);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let missing = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("MissingDepPlugin.js")
+        })
+        .expect("Expected missing MissingDepPlugin.js finding");
+
+    assert!(missing.source_node_ids[0].contains("Plugin:SamplePlugin"));
+}
