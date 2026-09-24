@@ -13,6 +13,24 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+#[test]
+fn audit_module_has_no_process_launch_capability() {
+    let source = fs::read_to_string(workspace_root().join("cli/src/audit_command.rs")).unwrap();
+    for forbidden in [
+        "std::process",
+        "Command",
+        ".spawn(",
+        ".status(",
+        ".output(",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "audit module must not contain process API token {forbidden}"
+        );
+    }
+    assert!(source.contains("trait AuditExecutionContext"));
+}
+
 fn fixture(name: &str) -> PathBuf {
     workspace_root().join("tests").join("fixtures").join(name)
 }
