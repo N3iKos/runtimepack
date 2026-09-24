@@ -558,9 +558,19 @@ fn auditor_panic_message(method: &str) -> String {
 }
 
 fn indeterminate_finding(message: String) -> AuditFinding {
-    let code = DiagnosticCode::CMP_AUDITOR_UNAVAILABLE;
-    let (severity, disposition) =
-        audit_finding_classification(code, ReferenceRequiredness::Required, false).unwrap();
+    indeterminate_finding_for_code(DiagnosticCode::CMP_AUDITOR_UNAVAILABLE, message)
+}
+
+fn indeterminate_finding_for_code(code: &str, message: String) -> AuditFinding {
+    let (code, severity, disposition) =
+        match audit_finding_classification(code, ReferenceRequiredness::Required, false) {
+            Some((severity, disposition)) => (code, severity, disposition),
+            None => (
+                DiagnosticCode::CMP_AUD_REPORT_INVALID,
+                FindingSeverity::Error,
+                FindingDisposition::Blocking,
+            ),
+        };
     AuditFinding {
         id: "asset-auditor-unavailable".into(),
         code: code.into(),
@@ -1075,6 +1085,19 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(diagnostic.code.0, "CMP-AUD-001");
+    }
+
+    #[test]
+    fn unknown_indeterminate_code_fails_closed_without_panicking() {
+        let result = std::panic::catch_unwind(|| {
+            indeterminate_finding_for_code("CMP-AUD-999", "unknown audit failure".into())
+        });
+
+        let finding = result.expect("indeterminate finding construction must not panic");
+        assert_eq!(finding.code, DiagnosticCode::CMP_AUD_REPORT_INVALID);
+        assert_eq!(finding.severity, FindingSeverity::Error);
+        assert_eq!(finding.disposition, FindingDisposition::Blocking);
+        assert_eq!(finding.requiredness, ReferenceRequiredness::Required);
     }
 
     #[test]

@@ -377,6 +377,36 @@ mod tests {
                 DiagnosticSeverity::Error,
                 RemediationCategory::UserActionRequired,
             ),
+            (
+                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+                DiagnosticSeverity::Warning,
+                RemediationCategory::UnsupportedFeature,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+                DiagnosticSeverity::Warning,
+                RemediationCategory::Configuration,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                DiagnosticSeverity::Error,
+                RemediationCategory::UserActionRequired,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                DiagnosticSeverity::Error,
+                RemediationCategory::UserActionRequired,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_REPORT_INVALID,
+                DiagnosticSeverity::Error,
+                RemediationCategory::Configuration,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
+                DiagnosticSeverity::Warning,
+                RemediationCategory::Dependency,
+            ),
         ] {
             let spec = audit_diagnostic_spec(code).unwrap();
             assert_eq!(spec.severity, severity);
