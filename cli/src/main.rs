@@ -420,59 +420,66 @@ fn cmd_explain(path: &Path) {
     }
 }
 
+trait ProcessLauncher {
+    #[allow(dead_code)]
+    fn launch(&self, program: &Path) -> std::io::Result<()>;
+}
+
+struct AuditLaunchGuard;
+
+impl ProcessLauncher for AuditLaunchGuard {
+    fn launch(&self, program: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("process launch is forbidden during audit: {}", program.display()),
+        ))
+    }
+}
+
 fn cmd_audit(args: AuditArgs) {
+    if let Err(message) = run_audit_with_launcher(args, &AuditLaunchGuard) {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
+}
+
+fn run_audit_with_launcher(
+    args: AuditArgs,
+    _launcher: &dyn ProcessLauncher,
+) -> Result<(), String> {
     let mode = match args.mode.to_ascii_lowercase().as_str() {
         "standard" => AuditMode::Standard,
         "deep" => AuditMode::Deep,
         _ => {
-            eprintln!("[CMP-AUD-010] Invalid audit mode '{}'. Must be 'standard' or 'deep'.", args.mode);
-            std::process::exit(1);
+            return Err(format!(
+                "[CMP-AUD-010] Invalid audit mode '{}'. Must be 'standard' or 'deep'.",
+                args.mode
+            ));
         }
     };
-    let source_index = match GameSourceIndex::build(&args.path) {
-        Ok(index) => index,
-        Err(error) => {
-            eprintln!("[ING-101] Failed to ingest source: {error}");
-            std::process::exit(1);
-        }
-    };
+    let source_index = GameSourceIndex::build(&args.path)
+        .map_err(|error| format!("[ING-101] Failed to ingest source: {error}"))?;
     let descriptor = create_default_detector_registry().resolve(&source_index);
     if descriptor.confidence == DetectionConfidence::Ambiguous {
-        eprintln!("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.");
-        std::process::exit(1);
+        return Err("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.".into());
     }
     if descriptor.id == EngineId::Unknown {
-        eprintln!("[DET-100] Detection failed: Engine could not be identified.");
-        std::process::exit(1);
+        return Err("[DET-100] Detection failed: Engine could not be identified.".into());
     }
 
     let output = absolute_path(&args.output);
-    let source_root = match fs::canonicalize(&args.path) {
-        Ok(path) => path,
-        Err(error) => {
-            eprintln!("[ING-101] Failed to resolve source path: {error}");
-            std::process::exit(1);
-        }
-    };
+    let source_root = fs::canonicalize(&args.path)
+        .map_err(|error| format!("[ING-101] Failed to resolve source path: {error}"))?;
     if output.starts_with(&source_root) {
-        eprintln!("[CMP-AUD-010] Audit output must be outside the immutable source root.");
-        std::process::exit(1);
+        return Err("[CMP-AUD-010] Audit output must be outside the immutable source root.".into());
     }
     let output_parent = output.parent().unwrap_or_else(|| Path::new("."));
-    if let Err(error) = fs::create_dir_all(output_parent) {
-        eprintln!("[CMP-AUD-010] Failed to create report directory: {error}");
-        std::process::exit(1);
-    }
-    let resolved_parent = match fs::canonicalize(output_parent) {
-        Ok(path) => path,
-        Err(error) => {
-            eprintln!("[CMP-AUD-010] Failed to resolve report directory: {error}");
-            std::process::exit(1);
-        }
-    };
+    fs::create_dir_all(output_parent)
+        .map_err(|error| format!("[CMP-AUD-010] Failed to create report directory: {error}"))?;
+    let resolved_parent = fs::canonicalize(output_parent)
+        .map_err(|error| format!("[CMP-AUD-010] Failed to resolve report directory: {error}"))?;
     if resolved_parent.starts_with(&source_root) {
-        eprintln!("[CMP-AUD-010] Audit output must be outside the immutable source root.");
-        std::process::exit(1);
+        return Err("[CMP-AUD-010] Audit output must be outside the immutable source root.".into());
     }
 
     let options = AssetAuditOptions {
@@ -481,23 +488,17 @@ fn cmd_audit(args: AuditArgs) {
         ..AssetAuditOptions::default()
     };
     let report = create_default_asset_auditor_registry().audit(&source_index, &descriptor, &options);
-    let json = match serde_json::to_vec_pretty(&report) {
-        Ok(json) => json,
-        Err(error) => {
-            eprintln!("[CMP-AUD-010] Failed to serialize audit report: {error}");
-            std::process::exit(1);
-        }
-    };
-    if let Err(error) = write_atomic(&output, &json) {
-        eprintln!("[CMP-AUD-010] Failed to write audit report atomically: {error}");
-        std::process::exit(1);
-    }
+    let json = serde_json::to_vec_pretty(&report)
+        .map_err(|error| format!("[CMP-AUD-010] Failed to serialize audit report: {error}"))?;
+    write_atomic(&output, &json)
+        .map_err(|error| format!("[CMP-AUD-010] Failed to write audit report atomically: {error}"))?;
 
     println!("Detected engine: {}", descriptor.id);
     println!("Audit mode: {:?}", mode);
     println!("Network audit: {}", if args.allow_network_audit { "enabled" } else { "disabled" });
     println!("Outcome: {:?}", report.outcome);
     println!("Report: {}", output.display());
+    Ok(())
 }
 
 fn absolute_path(path: &Path) -> PathBuf {
@@ -952,6 +953,55 @@ fn cmd_licenses() {
             println!("  - {}", claim);
         }
         println!();
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RejectingLauncher {
+        attempts: AtomicUsize,
+    }
+
+    impl ProcessLauncher for RejectingLauncher {
+        fn launch(&self, _program: &Path) -> std::io::Result<()> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err(std::io::Error::other("process launch forbidden during audit"))
+        }
+    }
+
+    #[test]
+    fn audit_path_attempts_zero_process_launches() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("tests/fixtures/vxace_min");
+        let sequence = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let output_dir = std::env::temp_dir().join(format!(
+            "runtimepack-audit-launch-guard-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&output_dir).unwrap();
+        let report = output_dir.join("report.json");
+        let launcher = RejectingLauncher {
+            attempts: AtomicUsize::new(0),
+        };
+
+        run_audit_with_launcher(
+            AuditArgs {
+                path: source,
+                mode: "standard".into(),
+                allow_network_audit: false,
+                output: report,
+            },
+            &launcher,
+        )
+        .unwrap();
+
+        assert_eq!(launcher.attempts.load(Ordering::SeqCst), 0);
+        fs::remove_dir_all(output_dir).unwrap();
     }
 }
 

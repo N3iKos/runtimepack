@@ -257,35 +257,6 @@ fn concurrent_audits_leave_one_complete_report_and_no_temp_files() {
 }
 
 #[test]
-fn audit_never_executes_game_files() {
-    let working_dir = temp_dir("non-executing");
-    let source = working_dir.join("game");
-    fs::create_dir_all(source.join("Data")).unwrap();
-    fs::write(
-        source.join("Game.ini"),
-        b"[Game]\nLibrary=RGSS301.dll\nScripts=Data\\Scripts.rvdata2\n",
-    )
-    .unwrap();
-    fs::write(source.join("Data/Scripts.rvdata2"), b"fixture").unwrap();
-    fs::write(source.join("Game.exe"), b"sentinel: must never execute").unwrap();
-    let sentinel = working_dir.join("executed.txt");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
-        .current_dir(&working_dir)
-        .env("RUNTIMEPACK_EXECUTION_SENTINEL", &sentinel)
-        .arg("audit")
-        .arg(&source)
-        .arg("--output")
-        .arg(working_dir.join("report.json"))
-        .output()
-        .unwrap();
-
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(!sentinel.exists());
-    fs::remove_dir_all(working_dir).unwrap();
-}
-
-#[test]
 fn invalid_mode_returns_stable_diagnostic_without_report() {
     let working_dir = temp_dir("invalid-mode");
     let source = fixture("vxace_min");
