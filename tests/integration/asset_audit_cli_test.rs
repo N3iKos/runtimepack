@@ -156,11 +156,6 @@ fn audit_deep_mode_and_network_flag_are_reflected_by_execution() {
 }
 
 #[test]
-fn every_v1_engine_uses_an_unavailable_placeholder_until_adapters_land() {
-    every_v1_engine_uses_real_adapter_and_produces_real_audit_report();
-}
-
-#[test]
 fn every_v1_engine_uses_real_adapter_and_produces_real_audit_report() {
     for (fixture_name, expected_engine) in [
         ("xp_min", "rpg-maker-xp"),

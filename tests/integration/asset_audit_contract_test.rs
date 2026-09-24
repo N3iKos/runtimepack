@@ -1,5 +1,5 @@
 use runtimepack_core::asset_audit::{
-    AssetAuditOptions, AssetAuditorRegistry, AuditMode, AuditOutcome,
+    AssetAuditOptions, AssetAuditor, AssetAuditorRegistry, AuditMode, AuditOutcome,
 };
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
@@ -88,9 +88,23 @@ const V1_ENGINES: &[(EngineId, &str)] = &[
 
 #[test]
 fn every_v1_engine_resolves_to_a_real_auditor() {
+    let auditors: Vec<Box<dyn AssetAuditor>> = vec![
+        Box::new(RgssAssetAuditor),
+        Box::new(RpgMakerWebAssetAuditor),
+        Box::new(RenPyAssetAuditor),
+        Box::new(TyranoAssetAuditor),
+    ];
+
     let registry = create_test_registry();
 
     for &(engine_id, fixture_name) in V1_ENGINES {
+        // Assert that for every v1 engine ID, exactly one registered adapter supports it
+        let supporting_count = auditors.iter().filter(|a| a.supports(engine_id)).count();
+        assert_eq!(
+            supporting_count, 1,
+            "engine {engine_id:?} must have exactly one supporting adapter registered"
+        );
+
         let source_dir = fixture(fixture_name);
         let source_index = GameSourceIndex::build(&source_dir).unwrap();
         let desc = engine_desc(engine_id);
@@ -112,30 +126,32 @@ fn every_v1_engine_resolves_to_a_real_auditor() {
             "schema_version must be 1 for {fixture_name}"
         );
 
-        // Verify that the report was NOT produced by an unavailable placeholder
-        let has_unavailable_finding = report
-            .findings
-            .iter()
-            .any(|f| f.code == "CMP-AUD-001" && f.id.ends_with("-unavailable"));
+        // Verify that the report was NOT produced by an unavailable placeholder or missing auditor
+        let has_unavailable_finding = report.findings.iter().any(|f| f.code == "CMP-AUD-001");
         assert!(
             !has_unavailable_finding,
-            "engine {engine_id:?} should have a real auditor, not unavailable placeholder"
-        );
-
-        // Verify that it didn't fail with 'no asset auditor is registered'
-        let has_unregistered_finding = report
-            .findings
-            .iter()
-            .any(|f| f.message.contains("no asset auditor is registered"));
-        assert!(
-            !has_unregistered_finding,
-            "engine {engine_id:?} must have an auditor registered"
+            "engine {engine_id:?} should have a real auditor, never CMP-AUD-001"
         );
     }
 }
 
 #[test]
 fn generic_html_remains_out_of_scope_and_unsupported() {
+    let auditors: Vec<Box<dyn AssetAuditor>> = vec![
+        Box::new(RgssAssetAuditor),
+        Box::new(RpgMakerWebAssetAuditor),
+        Box::new(RenPyAssetAuditor),
+        Box::new(TyranoAssetAuditor),
+    ];
+    let matching_count = auditors
+        .iter()
+        .filter(|a| a.supports(EngineId::Unknown))
+        .count();
+    assert_eq!(
+        matching_count, 0,
+        "Unknown/generic HTML engine must have 0 registered adapters"
+    );
+
     let registry = create_test_registry();
     let source_dir = fixture("generic_html_negative");
     let source_index = GameSourceIndex::build(&source_dir).unwrap();
