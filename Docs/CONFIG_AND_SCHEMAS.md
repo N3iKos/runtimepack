@@ -118,16 +118,18 @@ Authoritative static report emitted at `asset-audit-report.json`:
 {
   "$schema": "./schemas/asset-audit-report.schema.json",
   "schema_version": 1,
-  "engine": "rpgmaker-vxace",
-  "mode": "standard",
+  "engine": "rpg-maker-vx-ace",
+  "mode": "STANDARD",
   "outcome": "PASS",
-  "completeness": "complete",
+  "completeness": {
+    "required_scope_complete": true,
+    "covered_reference_classes": ["database", "event", "map", "script"],
+    "uncovered_reference_classes": []
+  },
   "statistics": {
-    "total_nodes": 120,
-    "total_edges": 145,
-    "missing_required": 0,
-    "missing_optional": 0,
-    "orphans": 3
+    "nodes": 120,
+    "references": 145,
+    "findings": 0
   },
   "graph": {
     "nodes": [],
@@ -135,17 +137,17 @@ Authoritative static report emitted at `asset-audit-report.json`:
   },
   "findings": [],
   "overrides": [],
-  "runtime_validation": {
-    "state": "not_run"
-  }
+  "runtime_validation": "NOT_RUN"
 }
 ```
 
 ### 9.1 Authoritative schema enumerations
 
-- `mode`: `"standard"`, `"deep"`
+- `engine`: `"rpg-maker-xp"`, `"rpg-maker-vx"`, `"rpg-maker-vx-ace"`, `"rpg-maker-mv"`, `"rpg-maker-mz"`, `"ren-py"`, `"tyrano"`, `"unknown"`
+- `mode`: `"STANDARD"`, `"DEEP"`
 - `outcome`: `"PASS"`, `"WARNING"`, `"FAIL"`, `"INDETERMINATE"`
-- `completeness`: `"complete"`, `"partial"`, `"indeterminate"`
+- `completeness`: object with `required_scope_complete` (boolean), `covered_reference_classes` (`string[]`), and `uncovered_reference_classes` (`string[]`)
+- `statistics`: object with integer counts: `nodes`, `references`, `findings`
 - `evidence.stage`:
   1. `"REFERENCE_FOUND"`
   2. `"PATH_RESOLVED"`
@@ -155,8 +157,11 @@ Authoritative static report emitted at `asset-audit-report.json`:
   6. `"DECODE_SUCCESS"`
   7. `"ENGINE_LOAD_SUCCESS"`
   8. `"RUNTIME_USE_SUCCESS"`
-- `edge.requiredness`: `"required"`, `"optional"` (defaults to `"required"`)
-- `runtime_validation.state`: `"not_run"`, `"sampled"`, `"exhaustive"`
+- `edge.requiredness` and `finding.requiredness`: `"REQUIRED"`, `"OPTIONAL"` (defaults to `"REQUIRED"`)
+- `finding.severity`: `"INFO"`, `"WARNING"`, `"ERROR"`
+- `finding.disposition`: `"INFORMATIONAL"`, `"WARNING"`, `"BLOCKING"`, `"INDETERMINATE"`
+- `runtime_validation`: scalar enum `"NOT_RUN"`, `"PASS"`, `"WARNING"`, `"FAIL"`, `"INDETERMINATE"`
+- `override`: object with `flag` (`string`) and `rationale` (`string`)
 
 ### 9.2 Build manifest integration
 
@@ -166,8 +171,8 @@ In `schemas/build-manifest.schema.json`, the optional `audit` property records:
 {
   "audit": {
     "report_path": "asset-audit-report.json",
-    "report_sha256": "4a5e3...",
-    "mode": "standard",
+    "report_sha256": "4a5e3b67c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5",
+    "mode": "STANDARD",
     "outcome": "PASS",
     "overrides": [
       {

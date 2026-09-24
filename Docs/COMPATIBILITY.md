@@ -206,17 +206,21 @@ If future versions introduce a score, its formula and benchmark must be document
 
   Evidence cannot skip intermediate stages (e.g. from `REFERENCE_FOUND` directly to `DECODE_SUCCESS`). Fallback paths record explicit terminal states (`PLACEHOLDER_SUBSTITUTED`, `LOAD_SUPPRESSED`).
 
-- **Authoritative Outcomes:**
+- **Authoritative Static Outcomes (`AuditOutcome`):**
   - `PASS` — declared static audit scope completed with zero blocking findings.
     **CRITICAL DEFINITION:** `PASS` means **only that declared static scope passed**. It does **not** guarantee 100% runtime playability, universal engine support, or coverage of undeclared dynamic assets.
   - `WARNING` — non-blocking issues identified (e.g., missing optional assets, soft audio fallback); build may proceed without overrides.
   - `FAIL` — missing required assets or hard dependency failures; blocks build unless explicitly overridden by `--accept-audit-fail`.
   - `INDETERMINATE` — incomplete scan scope, unresolvable dynamic expressions, unsupported archive/script parsers, or unavailable engine auditor adapters; blocks build unless explicitly overridden by `--accept-audit-unknown`.
+
+- **Runtime Validation State (`RuntimeValidationState`):**
+  Distinct from the static `AuditOutcome`, the runtime validation status is tracked separately via scalar `RuntimeValidationState` (`NOT_RUN`, `PASS`, `WARNING`, `FAIL`, `INDETERMINATE`):
   - `NOT_RUN` — runtime probe was not executed; must never be described as runtime-verified.
+  - `PASS` / `WARNING` / `FAIL` / `INDETERMINATE` — observed result of in-app runtime instrumentation or probe.
 
 - **Audit Modes:**
-  - `standard` — default mode for `runtimepack audit` and pre-build audit; bounded required static dependency and asset verification.
-  - `deep` — exhaustive static scan including script/code AST and string literals, container/archive contents, transitive dependencies, format checks, and orphan discovery.
+  - `STANDARD` / `standard` — default mode for `runtimepack audit` and pre-build audit; bounded required static dependency and asset verification.
+  - `DEEP` / `deep` — exhaustive static scan including script/code AST and string literals, container/archive contents, transitive dependencies, format checks, and orphan discovery.
   - Network access is disabled by default; external HTTP(S) asset references evaluate to `INDETERMINATE`. `--allow-network-audit` permits bounded network reachability checks without executing payload.
 
 - **Override Constraints and Fail-Closed Matrix:**
@@ -236,7 +240,9 @@ If future versions introduce a score, its formula and benchmark must be document
   4. Unresolved runtime version (`RUNTIME_VERSION_UNRESOLVED`);
   5. Unsupported native binary dependencies (`CMP-102` PE DLL / `.node` / `.pyd`).
 
-  Every applied override is immutably recorded in `asset-audit-report.json`, `build-manifest.json`, and provenance metadata with the flag used, original outcome, accepted finding IDs, and justification.
+  Every applied override is immutably recorded:
+  - In `asset-audit-report.json`: recorded as `AuditOverride` objects (`flag`, `rationale`).
+  - In `build-manifest.json` and build provenance metadata: recorded as `AuditOverrideRecord` structures (`flag`, `original_outcome`, `accepted_finding_ids`, `rationale`).
 
 - **Static and Runtime Separation:**
   Static dependency analysis and runtime execution evidence are strictly decoupled:
