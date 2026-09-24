@@ -12,3 +12,4 @@ dist/
 LONA-*/
 .gradle/
 build/
+.worktrees/
