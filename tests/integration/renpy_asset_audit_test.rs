@@ -238,6 +238,11 @@ fn test_renpy_unsupported_native_pyd_fails() {
         .findings
         .iter()
         .any(|f| f.code == DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION));
+    assert!(report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.kind == AssetKind::Plugin && n.id.contains("native_ext.pyd")));
 }
 
 #[test]
@@ -254,6 +259,11 @@ fn test_renpy_unsupported_native_dll_fails() {
         .findings
         .iter()
         .any(|f| f.code == DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY));
+    assert!(report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.kind == AssetKind::Plugin && n.id.contains("native_lib.dll")));
 }
 
 #[test]
@@ -417,4 +427,158 @@ fn test_renpy_line_column_provenance_preserved() {
         .edges
         .iter()
         .any(|e| e.source.starts_with("script:game/script.rpy:")));
+}
+
+#[test]
+fn test_renpy_dynamic_image_expression_yields_indeterminate() {
+    let root = fixture_dir("renpy_dynamic_image");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED)
+        .expect("Expected dynamic reference finding");
+    assert!(
+        finding.message.contains("dynamic image expression"),
+        "Expected message to mention image, got: {}",
+        finding.message
+    );
+    assert!(
+        report
+            .completeness
+            .uncovered_reference_classes
+            .contains(&"image".to_string()),
+        "Expected 'image' in uncovered classes: {:?}",
+        report.completeness.uncovered_reference_classes
+    );
+}
+
+#[test]
+fn test_renpy_unquoted_scene_and_show_auto_image_passes() {
+    let root = fixture_dir("renpy_unquoted_scene");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, findings: {:#?}",
+        report.findings
+    );
+    assert!(report.findings.is_empty());
+    assert!(report.graph.nodes.iter().any(|n| n.kind == AssetKind::Image
+        && n.logical_path.as_deref() == Some("game/images/bg meadow.png")));
+    assert!(report.graph.nodes.iter().any(|n| n.kind == AssetKind::Image
+        && n.logical_path.as_deref() == Some("game/images/alice smiling.png")));
+}
+
+#[test]
+fn test_renpy_unquoted_scene_missing_fails() {
+    let root = fixture_dir("renpy_unquoted_scene_missing");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING));
+}
+
+#[test]
+fn test_renpy_python_movie_cutscene_resolves() {
+    let root = fixture_dir("renpy_python_movie_cutscene");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, findings: {:#?}",
+        report.findings
+    );
+    assert!(report.findings.is_empty());
+    assert!(report.graph.nodes.iter().any(|n| n.kind == AssetKind::Video
+        && n.logical_path.as_deref() == Some("game/movies/intro.webm")));
+}
+
+#[test]
+fn test_renpy_audio_tag_modifiers_stripped_and_resolved() {
+    let root = fixture_dir("renpy_audio_modifiers");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, findings: {:#?}",
+        report.findings
+    );
+    assert!(report.findings.is_empty());
+}
+
+#[test]
+fn test_renpy_audit_limit_max_files_exceeded() {
+    let root = fixture_dir("renpy_valid");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions {
+        limits: AuditLimits {
+            max_files: 1, // Only allow 1 file, fixture has >1
+            max_total_bytes: 100_000_000,
+            max_single_file_bytes: 100_000_000,
+        },
+        ..Default::default()
+    };
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(!report.completeness.required_scope_complete);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED));
+}
+
+#[test]
+fn test_renpy_audit_limit_max_total_bytes_exceeded() {
+    let root = fixture_dir("renpy_valid");
+    let index = make_index(&root);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions {
+        limits: AuditLimits {
+            max_files: 1000,
+            max_total_bytes: 1, // Extremely low limit
+            max_single_file_bytes: 100_000_000,
+        },
+        ..Default::default()
+    };
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(!report.completeness.required_scope_complete);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED));
 }

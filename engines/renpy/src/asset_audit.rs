@@ -62,6 +62,18 @@ fn from_import_regex() -> &'static regex::Regex {
     })
 }
 
+fn strip_audio_modifiers(path: &str) -> &str {
+    let mut s = path.trim();
+    while s.starts_with('<') {
+        if let Some(close_idx) = s.find('>') {
+            s = s[close_idx + 1..].trim();
+        } else {
+            break;
+        }
+    }
+    s
+}
+
 fn make_finding(
     code: &'static str,
     requiredness: ReferenceRequiredness,
@@ -343,15 +355,21 @@ impl<'a> AuditContext<'a> {
         }
     }
 
-    fn record_dynamic(&mut self, source_node_id: &str, expr: &str, _kind: AssetKind) {
+    fn record_dynamic(&mut self, source_node_id: &str, expr: &str, kind: AssetKind) {
+        let category = match kind {
+            AssetKind::Image => "image",
+            AssetKind::Audio => "audio",
+            AssetKind::Video => "video",
+            _ => "resource",
+        };
         let target_id = format!("dynamic:{expr}");
         self.ensure_node(&target_id, AssetKind::UnresolvedDynamicReference, None);
         self.coverage
-            .add_dynamic("audio", ReferenceRequiredness::Required);
+            .add_dynamic(category, ReferenceRequiredness::Required);
         self.push_finding(
             DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
             ReferenceRequiredness::Required,
-            format!("Unresolved dynamic audio expression: '{expr}'"),
+            format!("Unresolved dynamic {category} expression: '{expr}'"),
             vec![source_node_id.to_string()],
         );
         self.graph.edges.push(ReferenceEdge {
@@ -576,6 +594,49 @@ impl AssetAuditor for RenPyAssetAuditor {
         coverage.add_covered("video-declarations");
         coverage.add_covered("python-imports");
 
+        if source.files.len() as u64 > options.limits.max_files {
+            coverage.add_unsupported("file-count-limit", ReferenceRequiredness::Required);
+            finding_counter += 1;
+            findings.push(AuditFinding {
+                id: format!(
+                    "{}-{finding_counter}",
+                    DiagnosticCode::CMP_AUD_LIMIT_REACHED
+                ),
+                code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
+                severity: FindingSeverity::Warning,
+                disposition: FindingDisposition::Indeterminate,
+                requiredness: ReferenceRequiredness::Required,
+                message: format!(
+                    "Project file count limit exceeded: {} files (max {})",
+                    source.files.len(),
+                    options.limits.max_files
+                ),
+                source_node_ids: Vec::new(),
+                orphan: false,
+            });
+        }
+
+        if source.total_size_bytes > options.limits.max_total_bytes {
+            coverage.add_unsupported("total-size-limit", ReferenceRequiredness::Required);
+            finding_counter += 1;
+            findings.push(AuditFinding {
+                id: format!(
+                    "{}-{finding_counter}",
+                    DiagnosticCode::CMP_AUD_LIMIT_REACHED
+                ),
+                code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
+                severity: FindingSeverity::Warning,
+                disposition: FindingDisposition::Indeterminate,
+                requiredness: ReferenceRequiredness::Required,
+                message: format!(
+                    "Project total size limit exceeded: {} bytes (max {})",
+                    source.total_size_bytes, options.limits.max_total_bytes
+                ),
+                source_node_ids: Vec::new(),
+                orphan: false,
+            });
+        }
+
         // 1. Scan source index for native binary extensions and archives
         let mut rpa_files = Vec::new();
         let mut rpyc_files = Vec::new();
@@ -583,12 +644,12 @@ impl AssetAuditor for RenPyAssetAuditor {
 
         for (path, file) in &source.files {
             if path.ends_with(".pyd") {
-                let node_id = format!("script:{path}");
+                let node_id = format!("plugin:{path}");
                 ensure_node(
                     &mut graph,
                     &mut node_ids,
                     &node_id,
-                    AssetKind::Script,
+                    AssetKind::Plugin,
                     Some(path.clone()),
                 );
                 finding_counter += 1;
@@ -606,12 +667,12 @@ impl AssetAuditor for RenPyAssetAuditor {
                     orphan: false,
                 });
             } else if path.ends_with(".dll") {
-                let node_id = format!("script:{path}");
+                let node_id = format!("plugin:{path}");
                 ensure_node(
                     &mut graph,
                     &mut node_ids,
                     &node_id,
-                    AssetKind::Script,
+                    AssetKind::Plugin,
                     Some(path.clone()),
                 );
                 finding_counter += 1;
@@ -632,12 +693,12 @@ impl AssetAuditor for RenPyAssetAuditor {
                     orphan: false,
                 });
             } else if (path.starts_with("game/") || !path.contains('/')) && path.ends_with(".so") {
-                let node_id = format!("script:{path}");
+                let node_id = format!("plugin:{path}");
                 ensure_node(
                     &mut graph,
                     &mut node_ids,
                     &node_id,
-                    AssetKind::Script,
+                    AssetKind::Plugin,
                     Some(path.clone()),
                 );
                 finding_counter += 1;
@@ -796,6 +857,8 @@ impl AssetAuditor for RenPyAssetAuditor {
             image_defs: HashMap::new(),
         };
 
+        let mut rpy_contents: HashMap<String, String> = HashMap::new();
+
         // 3. First pass over .rpy files: collect image and audio definitions
         for file in &rpy_files {
             if file.size_bytes > options.limits.max_single_file_bytes {
@@ -839,28 +902,25 @@ impl AssetAuditor for RenPyAssetAuditor {
                     }
                 } else if let Some(caps) = define_audio_regex().captures(line) {
                     let name = caps[1].trim().to_string();
-                    let path = caps[2].to_string();
+                    let path = strip_audio_modifiers(&caps[2]).to_string();
                     ctx.audio_defs.insert(format!("audio.{name}"), path.clone());
                     ctx.audio_defs.insert(name, path);
                 }
             }
+
+            rpy_contents.insert(file.logical_path.clone(), content);
         }
 
         // 4. Second pass: tokenize and audit references
         for file in &rpy_files {
-            if file.size_bytes > options.limits.max_single_file_bytes {
-                continue;
-            }
+            let content = match rpy_contents.get(&file.logical_path) {
+                Some(c) => c,
+                None => continue,
+            };
 
             let file_logical = &file.logical_path;
             let file_node_id = format!("script:{file_logical}");
             ctx.ensure_node(&file_node_id, AssetKind::Script, Some(file_logical.clone()));
-
-            let full_path = source.root_path.join(&file.relative_path);
-            let content = match std::fs::read_to_string(&full_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
 
             let mut in_python_block = false;
             let mut python_block_indent = 0;
@@ -940,6 +1000,28 @@ impl AssetAuditor for RenPyAssetAuditor {
                                 ctx.check_python_module(&stmt_node_id, module);
                             }
                         }
+                    } else if let Some(caps) = movie_cutscene_regex().captures(py_code) {
+                        ctx.ensure_node(
+                            &stmt_node_id,
+                            AssetKind::Command,
+                            Some(file_logical.clone()),
+                        );
+                        ctx.graph.edges.push(ReferenceEdge {
+                            source: file_node_id.clone(),
+                            target: stmt_node_id.clone(),
+                            relation: "statement".to_string(),
+                            requiredness: ReferenceRequiredness::Required,
+                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                            resolution: ReferenceResolution::Resolved,
+                        });
+                        let path = caps[1].to_string();
+                        ctx.resolve_and_record(
+                            &stmt_node_id,
+                            &path,
+                            AssetKind::Video,
+                            "video",
+                            ReferenceRequiredness::Required,
+                        );
                     }
                     continue;
                 }
@@ -1008,7 +1090,7 @@ impl AssetAuditor for RenPyAssetAuditor {
                         resolution: ReferenceResolution::Resolved,
                     });
 
-                    let path = caps[2].to_string();
+                    let path = strip_audio_modifiers(&caps[2]).to_string();
                     ctx.resolve_and_record(
                         &stmt_node_id,
                         &path,
@@ -1041,7 +1123,7 @@ impl AssetAuditor for RenPyAssetAuditor {
                     let rest = caps[2].trim();
 
                     if let Some(str_cap) = quoted_str_regex().captures(rest) {
-                        let path = str_cap[1].to_string();
+                        let path = strip_audio_modifiers(&str_cap[1]).to_string();
                         ctx.resolve_and_record(
                             &stmt_node_id,
                             &path,
@@ -1170,14 +1252,114 @@ impl AssetAuditor for RenPyAssetAuditor {
                             evidence: EvidenceTrail::through(EvidenceStage::FileExists),
                             resolution: ReferenceResolution::RuntimeProvided,
                         });
-                    } else if let Some(path) = ctx.image_defs.get(rest).cloned() {
-                        ctx.resolve_and_record(
-                            &stmt_node_id,
-                            &path,
-                            AssetKind::Image,
-                            "image",
-                            ReferenceRequiredness::Required,
-                        );
+                    } else {
+                        let tag_part = rest.split_once(" with ").map(|(t, _)| t).unwrap_or(rest);
+                        let tag_part = tag_part
+                            .split_once(" at ")
+                            .map(|(t, _)| t)
+                            .unwrap_or(tag_part);
+                        let tag_part = tag_part
+                            .split_once(" as ")
+                            .map(|(t, _)| t)
+                            .unwrap_or(tag_part)
+                            .trim();
+
+                        if let Some(path) = ctx.image_defs.get(tag_part).cloned() {
+                            ctx.resolve_and_record(
+                                &stmt_node_id,
+                                &path,
+                                AssetKind::Image,
+                                "image",
+                                ReferenceRequiredness::Required,
+                            );
+                        } else {
+                            let clean_tag =
+                                tag_part.split_whitespace().collect::<Vec<_>>().join(" ");
+                            let auto_candidates = vec![
+                                format!("images/{clean_tag}"),
+                                format!("images/{}", tag_part.replace(' ', "/")),
+                                format!("images/{}", tag_part.replace(' ', "_")),
+                            ];
+                            let mut resolved = false;
+                            for base in auto_candidates {
+                                let cands = get_candidates(&base, AssetKind::Image);
+                                let rule = CandidateRule::Candidates(cands);
+                                let res = ctx.resolver.resolve(&rule, AssetKind::Image);
+                                if res.is_resolved() {
+                                    match res {
+                                        ResolutionResult::Exact(node) => {
+                                            ctx.ensure_node(
+                                                &node.id,
+                                                AssetKind::Image,
+                                                node.logical_path.clone(),
+                                            );
+                                            ctx.graph.edges.push(ReferenceEdge {
+                                                source: stmt_node_id.clone(),
+                                                target: node.id,
+                                                relation: "image".to_string(),
+                                                requiredness: ReferenceRequiredness::Required,
+                                                evidence: EvidenceTrail::through(
+                                                    EvidenceStage::FileExists,
+                                                ),
+                                                resolution: ReferenceResolution::Resolved,
+                                            });
+                                        }
+                                        ResolutionResult::CaseMismatch {
+                                            expected,
+                                            actual,
+                                            node,
+                                        } => {
+                                            ctx.ensure_node(
+                                                &node.id,
+                                                AssetKind::Image,
+                                                node.logical_path.clone(),
+                                            );
+                                            ctx.push_finding(
+                                                DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                                                ReferenceRequiredness::Required,
+                                                format!(
+                                                    "Case mismatch for reference '{expected}': actual file on disk is '{actual}'"
+                                                ),
+                                                vec![stmt_node_id.clone()],
+                                            );
+                                            ctx.graph.edges.push(ReferenceEdge {
+                                                source: stmt_node_id.clone(),
+                                                target: node.id,
+                                                relation: "image".to_string(),
+                                                requiredness: ReferenceRequiredness::Required,
+                                                evidence: EvidenceTrail::through(
+                                                    EvidenceStage::FileExists,
+                                                ),
+                                                resolution: ReferenceResolution::Resolved,
+                                            });
+                                        }
+                                        _ => {}
+                                    }
+                                    resolved = true;
+                                    break;
+                                }
+                            }
+                            if !resolved {
+                                let target_id = format!("image:images/{clean_tag}");
+                                ctx.ensure_node(&target_id, AssetKind::Image, None);
+                                ctx.push_finding(
+                                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                                    ReferenceRequiredness::Required,
+                                    format!(
+                                        "Referenced image tag '{rest}' not found in image definitions or images/ directory"
+                                    ),
+                                    vec![stmt_node_id.clone()],
+                                );
+                                ctx.graph.edges.push(ReferenceEdge {
+                                    source: stmt_node_id,
+                                    target: target_id,
+                                    relation: "image".to_string(),
+                                    requiredness: ReferenceRequiredness::Required,
+                                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                                    resolution: ReferenceResolution::Unresolved,
+                                });
+                            }
+                        }
                     }
                 }
             }
