@@ -3,7 +3,9 @@ mod graph;
 pub use graph::*;
 
 use crate::detection::EngineDescriptor;
-use crate::diagnostics::{Diagnostic, RemediationCategory};
+use crate::diagnostics::{
+    audit_diagnostic_spec, Diagnostic, DiagnosticCode, DiagnosticSeverity, RemediationCategory,
+};
 use crate::ingest::GameSourceIndex;
 use crate::EngineId;
 use serde::{Deserialize, Serialize};
@@ -138,6 +140,45 @@ pub enum FindingDisposition {
     Warning,
     Blocking,
     Indeterminate,
+}
+
+pub fn audit_finding_classification(
+    code: &str,
+    requiredness: ReferenceRequiredness,
+    orphan: bool,
+) -> Option<(FindingSeverity, FindingDisposition)> {
+    if orphan {
+        return audit_diagnostic_spec(code)
+            .map(|_| (FindingSeverity::Info, FindingDisposition::Informational));
+    }
+
+    let spec = audit_diagnostic_spec(code)?;
+    let severity = match spec.severity {
+        DiagnosticSeverity::Info => FindingSeverity::Info,
+        DiagnosticSeverity::Warning => FindingSeverity::Warning,
+        DiagnosticSeverity::Error => FindingSeverity::Error,
+    };
+    let disposition = match code {
+        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+        | DiagnosticCode::CMP_AUD_CASE_COLLISION
+        | DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE
+        | DiagnosticCode::CMP_AUD_UNSAFE_PATH
+        | DiagnosticCode::CMP_AUD_REPORT_INVALID => FindingDisposition::Blocking,
+        DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED
+        | DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+            if requiredness == ReferenceRequiredness::Required =>
+        {
+            FindingDisposition::Indeterminate
+        }
+        DiagnosticCode::CMP_AUDITOR_UNAVAILABLE | DiagnosticCode::CMP_AUD_LIMIT_REACHED
+            if requiredness == ReferenceRequiredness::Required =>
+        {
+            FindingDisposition::Indeterminate
+        }
+        _ if severity == FindingSeverity::Info => FindingDisposition::Informational,
+        _ => FindingDisposition::Warning,
+    };
+    Some((severity, disposition))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -419,7 +460,7 @@ impl AssetAuditorRegistry {
         }
         if !self.registered_ids.insert(id) {
             return Err(Diagnostic::error(
-                "CMP-AUD-001",
+                DiagnosticCode::CMP_AUDITOR_UNAVAILABLE,
                 format!("asset auditor ID is already registered: {id}"),
             )
             .with_remediation(RemediationCategory::Configuration));
@@ -517,11 +558,14 @@ fn auditor_panic_message(method: &str) -> String {
 }
 
 fn indeterminate_finding(message: String) -> AuditFinding {
+    let code = DiagnosticCode::CMP_AUDITOR_UNAVAILABLE;
+    let (severity, disposition) =
+        audit_finding_classification(code, ReferenceRequiredness::Required, false).unwrap();
     AuditFinding {
         id: "asset-auditor-unavailable".into(),
-        code: "CMP-AUD-001".into(),
-        severity: FindingSeverity::Warning,
-        disposition: FindingDisposition::Indeterminate,
+        code: code.into(),
+        severity,
+        disposition,
         requiredness: ReferenceRequiredness::Required,
         message,
         source_node_ids: Vec::new(),
