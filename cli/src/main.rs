@@ -1,5 +1,10 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use runtimepack_core::asset_audit::{
+    AssetAuditOptions, AssetAuditReport, AssetAuditor, AssetAuditorRegistry, AuditCompleteness,
+    AuditFinding, AuditMode, AuditOutcome, AuditOverride, AuditStatistics, DependencyGraph,
+    FindingDisposition, FindingSeverity, ReferenceRequiredness, RuntimeValidationState,
+};
 use runtimepack_core::build_plan::{
     AndroidManifestEntry, AndroidProjectGenerator, AppConfig, BuildManifest,
     ContentManifestEntry, EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry,
@@ -17,7 +22,8 @@ use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoDetector};
 use runtimepack_pack::GpackPacker;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 #[derive(Parser)]
@@ -52,10 +58,27 @@ enum Commands {
         /// Path to game source directory
         path: PathBuf,
     },
+    /// Audit game asset references without executing game code
+    Audit(AuditArgs),
     /// Build standalone Android APK/AAB from a game
     Build(BuildArgs),
     /// Display third-party notices and licenses
     Licenses,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct AuditArgs {
+    /// Path to game source directory
+    pub path: PathBuf,
+    /// Audit mode: standard or deep
+    #[arg(long, default_value = "standard")]
+    pub mode: String,
+    /// Permit bounded checks of external network resources
+    #[arg(long)]
+    pub allow_network_audit: bool,
+    /// Authoritative JSON report path
+    #[arg(short, long, default_value = "asset-audit-report.json")]
+    pub output: PathBuf,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -103,6 +126,68 @@ fn create_default_analyzer_registry() -> runtimepack_core::compatibility::Analyz
     registry.register(Box::new(runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer));
     registry.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
     registry.register(Box::new(TyranoAnalyzer));
+    registry
+}
+
+struct UnavailableAssetAuditor {
+    id: &'static str,
+    engine: EngineId,
+}
+
+impl AssetAuditor for UnavailableAssetAuditor {
+    fn id(&self) -> &'static str { self.id }
+    fn version(&self) -> &'static str { "0" }
+    fn supports(&self, engine: EngineId) -> bool { engine == self.engine }
+
+    fn audit(
+        &self,
+        _source: &GameSourceIndex,
+        engine: &runtimepack_core::detection::EngineDescriptor,
+        options: &AssetAuditOptions,
+    ) -> AssetAuditReport {
+        AssetAuditReport {
+            schema_version: 1,
+            engine: engine.id,
+            mode: options.mode,
+            outcome: AuditOutcome::Indeterminate,
+            completeness: AuditCompleteness {
+                required_scope_complete: false,
+                covered_reference_classes: Vec::new(),
+                uncovered_reference_classes: vec!["engine_asset_references".into()],
+            },
+            statistics: AuditStatistics { nodes: 0, references: 0, findings: 1 },
+            graph: DependencyGraph::default(),
+            findings: vec![AuditFinding {
+                id: format!("{}-unavailable", self.id),
+                code: "CMP-AUD-001".into(),
+                severity: FindingSeverity::Warning,
+                disposition: FindingDisposition::Indeterminate,
+                requiredness: ReferenceRequiredness::Required,
+                message: format!("asset auditor {} is not implemented", self.id),
+                source_node_ids: Vec::new(),
+                orphan: false,
+            }],
+            overrides: Vec::<AuditOverride>::new(),
+            runtime_validation: RuntimeValidationState::NotRun,
+        }
+    }
+}
+
+fn create_default_asset_auditor_registry() -> AssetAuditorRegistry {
+    let mut registry = AssetAuditorRegistry::new();
+    for (id, engine) in [
+        ("rgss1-placeholder", EngineId::RpgMakerXp),
+        ("rgss2-placeholder", EngineId::RpgMakerVx),
+        ("rgss3-placeholder", EngineId::RpgMakerVxAce),
+        ("rpgmaker-mv-placeholder", EngineId::RpgMakerMv),
+        ("rpgmaker-mz-placeholder", EngineId::RpgMakerMz),
+        ("renpy-placeholder", EngineId::RenPy),
+        ("tyrano-placeholder", EngineId::Tyrano),
+    ] {
+        registry
+            .register(Box::new(UnavailableAssetAuditor { id, engine }))
+            .expect("default asset auditor IDs must be unique");
+    }
     registry
 }
 
@@ -332,6 +417,124 @@ fn cmd_explain(path: &Path) {
     if !report.required_shims.is_empty() {
         println!("  Shims Required:  {}", report.required_shims.join(", "));
     }
+}
+
+fn cmd_audit(args: AuditArgs) {
+    let mode = match args.mode.to_ascii_lowercase().as_str() {
+        "standard" => AuditMode::Standard,
+        "deep" => AuditMode::Deep,
+        _ => {
+            eprintln!("[CMP-AUD-010] Invalid audit mode '{}'. Must be 'standard' or 'deep'.", args.mode);
+            std::process::exit(1);
+        }
+    };
+    let source_index = match GameSourceIndex::build(&args.path) {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("[ING-101] Failed to ingest source: {error}");
+            std::process::exit(1);
+        }
+    };
+    let descriptor = create_default_detector_registry().resolve(&source_index);
+    if descriptor.confidence == DetectionConfidence::Ambiguous {
+        eprintln!("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.");
+        std::process::exit(1);
+    }
+    if descriptor.id == EngineId::Unknown {
+        eprintln!("[DET-100] Detection failed: Engine could not be identified.");
+        std::process::exit(1);
+    }
+
+    let output = absolute_path(&args.output);
+    let source_root = match fs::canonicalize(&args.path) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("[ING-101] Failed to resolve source path: {error}");
+            std::process::exit(1);
+        }
+    };
+    if output.starts_with(&source_root) {
+        eprintln!("[CMP-AUD-010] Audit output must be outside the immutable source root.");
+        std::process::exit(1);
+    }
+    let output_parent = output.parent().unwrap_or_else(|| Path::new("."));
+    if let Err(error) = fs::create_dir_all(output_parent) {
+        eprintln!("[CMP-AUD-010] Failed to create report directory: {error}");
+        std::process::exit(1);
+    }
+    let resolved_parent = match fs::canonicalize(output_parent) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("[CMP-AUD-010] Failed to resolve report directory: {error}");
+            std::process::exit(1);
+        }
+    };
+    if resolved_parent.starts_with(&source_root) {
+        eprintln!("[CMP-AUD-010] Audit output must be outside the immutable source root.");
+        std::process::exit(1);
+    }
+
+    let options = AssetAuditOptions {
+        mode,
+        allow_network: args.allow_network_audit,
+        ..AssetAuditOptions::default()
+    };
+    let report = create_default_asset_auditor_registry().audit(&source_index, &descriptor, &options);
+    let json = match serde_json::to_vec_pretty(&report) {
+        Ok(json) => json,
+        Err(error) => {
+            eprintln!("[CMP-AUD-010] Failed to serialize audit report: {error}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(error) = write_atomic(&output, &json) {
+        eprintln!("[CMP-AUD-010] Failed to write audit report atomically: {error}");
+        std::process::exit(1);
+    }
+
+    println!("Detected engine: {}", descriptor.id);
+    println!("Audit mode: {:?}", mode);
+    println!("Network audit: {}", if args.allow_network_audit { "enabled" } else { "disabled" });
+    println!("Outcome: {:?}", report.outcome);
+    println!("Report: {}", output.display());
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
+    };
+    normalize_path(&path)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => { normalized.pop(); }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("asset-audit-report.json");
+    let temporary = path.with_file_name(format!(".{file_name}.tmp"));
+    let result = (|| {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(contents)?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn cmd_build(args: BuildArgs) {
@@ -689,6 +892,7 @@ fn main() {
         Some(Commands::Runtime { sub: RuntimeCommands::List }) => cmd_runtime_list(),
         Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
         Some(Commands::Explain { path }) => cmd_explain(&path),
+        Some(Commands::Audit(args)) => cmd_audit(args),
         Some(Commands::Build(args)) => cmd_build(args),
         Some(Commands::Licenses) => cmd_licenses(),
         None => {

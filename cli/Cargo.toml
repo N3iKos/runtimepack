@@ -21,6 +21,10 @@ path = "../tests/integration/build_test.rs"
 name = "integration_compatibility"
 path = "../tests/integration/compatibility_test.rs"
 
+[[test]]
+name = "asset_audit_cli_test"
+path = "../tests/integration/asset_audit_cli_test.rs"
+
 [dependencies]
 runtimepack-core = { path = "../core" }
 runtimepack-pack = { path = "../pack" }
