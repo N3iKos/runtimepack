@@ -199,3 +199,50 @@ No P0 release if:
 - unsigned APK emitted as release success;
 - license notices missing;
 - Tyrano legal gate bypassed.
+
+## 16. Asset audit tests (static and deep)
+
+### 16.1 Authoritative terminology and domain tests
+
+- **Monotonic stage sequence:**
+  - Verify that evidence stages progress strictly monotonically (`REFERENCE_FOUND` -> `PATH_RESOLVED` -> `FILE_EXISTS` -> `FILE_READABLE` -> `INTEGRITY_VERIFIED` -> `DECODE_SUCCESS` -> `ENGINE_LOAD_SUCCESS` -> `RUNTIME_USE_SUCCESS`).
+  - Verify that deserialization and validation reject evidence chains that skip intermediate stages (e.g. `ReferenceFound` directly to `DecodeSuccess`).
+- **Fail-closed outcome recomputation:**
+  - Table-driven tests verifying that any blocking finding on a required asset yields `FAIL`.
+  - Incomplete required scan scope or missing adapter yields `INDETERMINATE`.
+  - Non-blocking/optional issues yield `WARNING`.
+  - Fully verified declared scope yields `PASS`.
+- **Authoritative PASS definition:**
+  - Tests assert that `PASS` certifies **only that declared static scope passed**. Undeclared dynamic assets or unanalyzable expressions must yield `INDETERMINATE` and cannot be reported as `PASS`.
+- **Orphan asset classification:**
+  - Verify that unreferenced assets on disk are classified as `INFO | POSSIBLY_UNUSED` (`CMP-AUD-011`), never escalate outcome, and never block builds.
+- **Canonical serialization:**
+  - Verify that arbitrary insertion order of findings, nodes, and edges canonicalizes to byte-identical JSON.
+
+### 16.2 CLI isolation and source immutability tests
+
+- **Source immutability:**
+  - Verify that `runtimepack audit` leaves the source directory 100% untouched (SHA-256 hashes, file counts, and timestamps unchanged).
+- **Source output rejection:**
+  - Verify that specifying `--output` inside the source directory triggers stable diagnostic `CMP-AUD-009` and creates no files.
+- **Atomic file replacement:**
+  - Verify that report emission writes to a sibling temporary file first and replaces the target atomically.
+  - Verify that failed replacement cleans temporary files and preserves any existing report.
+- **Concurrency safety:**
+  - Verify that parallel audit runs on the same output path result in a single valid report with zero temporary file leaks.
+- **Process isolation:**
+  - Verify statically and via tests that the audit execution module has no process launch capability (`Command::new` or shell execution).
+
+### 16.3 Build policy gate and override tests
+
+- **Override matrix testing:**
+  - `PASS` / `WARNING` allow build to proceed.
+  - `FAIL` blocks build with `BLD-104`; allowed only when `--accept-audit-fail` is supplied; blocked when `--accept-audit-unknown` is supplied.
+  - `INDETERMINATE` blocks build with `BLD-104`; allowed only when `--accept-audit-unknown` is supplied; blocked when `--accept-audit-fail` is supplied.
+- **Hard blocker non-bypassability:**
+  - Verify that neither `--accept-audit-fail` nor `--accept-audit-unknown` bypasses `CMP-102` (native Windows DLL), `CNT-*` (container corruption), `TYR-101` (Tyrano legal gate), ambiguous engine detection, or unresolved runtime versions.
+- **Pre-build side-effect gating:**
+  - Verify that un-overridden audit failures abort the build before creating the output directory, packing content, generating Android projects, or running Gradle.
+- **Static and runtime separation:**
+  - Verify that static audit reports remain decoupled from runtime probe reports. In-game telemetry indicators (Diagnostic Suite) are tested as viewers only and cannot satisfy static verification gates.
+

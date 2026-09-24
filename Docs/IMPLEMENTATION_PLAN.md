@@ -41,6 +41,31 @@ runtimepack explain fixtures/*
 
 No Android build.
 
+## Milestone 1.5 — Deep asset audit foundation and build policy gates
+
+Establish engine-neutral asset dependency graph, static audit domain, CLI audit command, and build policy gating.
+
+### Authoritative Terminology and Semantics
+- **8 Monotonic Evidence Stages:** `REFERENCE_FOUND` -> `PATH_RESOLVED` -> `FILE_EXISTS` -> `FILE_READABLE` -> `INTEGRITY_VERIFIED` -> `DECODE_SUCCESS` -> `ENGINE_LOAD_SUCCESS` -> `RUNTIME_USE_SUCCESS`. Skipping stages is invalid.
+- **4 Outcomes:** `PASS`, `WARNING`, `FAIL`, `INDETERMINATE`.
+  - **PASS definition:** `PASS` certifies **only that declared static scope passed**; it never implies universal runtime playability or coverage of undeclared dynamic assets.
+- **Standard vs Deep Modes:** `standard` for bounded dependency checks; `deep` for comprehensive script AST, archive, and orphan scans.
+- **Override Constraints:**
+  - `--accept-audit-fail` accepts only `FAIL`; rejects `INDETERMINATE`.
+  - `--accept-audit-unknown` accepts only `INDETERMINATE`; rejects `FAIL`.
+  - Hard blockers (`CNT-*`, `TYR-101`, `DET-AMBIGUOUS`, `RUNTIME_VERSION_UNRESOLVED`, `CMP-102`) can never be bypassed.
+- **Static vs Runtime Separation:** Static audit runs without executing game code. In-game telemetry viewers (Diagnostic Suite) are non-authoritative viewers.
+- **Source Immutability:** Input source is strictly read-only. Audit outputs inside the source directory are rejected (`CMP-AUD-009`). Reports use atomic file replacement.
+
+Acceptance:
+
+```text
+runtimepack audit fixtures/*
+runtimepack build <game> --audit-mode standard|deep [--accept-audit-fail] [--accept-audit-unknown]
+```
+
+Build policy evaluates before output directory creation, content packaging, Android project emission, or Gradle compilation.
+
 ## Milestone 2 — Android shell
 
 Implement:
@@ -159,6 +184,7 @@ Suggested issue hierarchy:
 ```text
 CORE-*
 DET-*
+AUD-*
 AND-*
 CNT-*
 RGSS-*
@@ -193,6 +219,14 @@ Each issue should reference exact requirement IDs.
 18. CNT-002 GPACK prototype.
 19. TEST-001 detector fixture corpus.
 20. SPIKE-RGSS-ANDROID-001 runtime strategy comparison.
+
+### Foundation Asset Audit Tickets (Milestone 1.5)
+21. AUD-001 Asset audit domain types, graph model, and schemas.
+22. AUD-002 Engine auditor registry and fail-closed placeholder adapters.
+23. AUD-003 Stable diagnostics catalog (CMP-AUD-001..012, BLD-104).
+24. AUD-004 CLI `runtimepack audit` with source immutability and atomic emission.
+25. AUD-005 Build policy gate with strict override matrix and provenance tracking.
+26. AUD-006 Canonical documentation and authoritative terminology alignment.
 
 ## 4. What not to parallelize initially
 
