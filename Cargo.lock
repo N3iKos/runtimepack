@@ -699,6 +699,7 @@ version = "0.1.0"
 dependencies = [
  "runtimepack-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

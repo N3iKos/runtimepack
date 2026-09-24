@@ -40,14 +40,12 @@ impl ContentCrypto {
         let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
         let nonce = Self::make_nonce(chunk_index);
 
-        cipher
-            .encrypt(&nonce, plaintext)
-            .map_err(|_| {
-                DiagnosticError::from_code(
-                    DiagnosticCode::CNT_CORRUPTED_PACK,
-                    format!("Failed to encrypt chunk #{}", chunk_index),
-                )
-            })
+        cipher.encrypt(&nonce, plaintext).map_err(|_| {
+            DiagnosticError::from_code(
+                DiagnosticCode::CNT_CORRUPTED_PACK,
+                format!("Failed to encrypt chunk #{}", chunk_index),
+            )
+        })
     }
 
     pub fn decrypt_chunk(
@@ -58,16 +56,14 @@ impl ContentCrypto {
         let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
         let nonce = Self::make_nonce(chunk_index);
 
-        cipher
-            .decrypt(&nonce, ciphertext)
-            .map_err(|_| {
-                DiagnosticError::from_code(
-                    DiagnosticCode::CNT_CORRUPTED_PACK,
-                    format!(
-                        "Integrity verification failed for chunk #{}. Wrong key or data corrupted.",
-                        chunk_index
-                    ),
-                )
-            })
+        cipher.decrypt(&nonce, ciphertext).map_err(|_| {
+            DiagnosticError::from_code(
+                DiagnosticCode::CNT_CORRUPTED_PACK,
+                format!(
+                    "Integrity verification failed for chunk #{}. Wrong key or data corrupted.",
+                    chunk_index
+                ),
+            )
+        })
     }
 }

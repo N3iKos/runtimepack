@@ -32,7 +32,10 @@ impl AsarArchive {
         if magic != 4 || json_len == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid ASAR header: magic={}, json_len={}", magic, json_len),
+                format!(
+                    "Invalid ASAR header: magic={}, json_len={}",
+                    magic, json_len
+                ),
             ));
         }
 
@@ -53,10 +56,7 @@ impl AsarArchive {
 
         let data_offset = 16 + json_len as u64;
 
-        Ok(Self {
-            data_offset,
-            files,
-        })
+        Ok(Self { data_offset, files })
     }
 
     fn parse_node(val: &Value, prefix: &str, out: &mut HashMap<String, AsarFileEntry>) {
@@ -192,15 +192,23 @@ mod tests {
         let idx_bytes = archive.read_file_bytes(&asar_file, "index.html").unwrap();
         assert_eq!(idx_bytes, b"Hello World");
 
-        let tyrano_bytes = archive.read_file_bytes(&asar_file, "tyrano/tyrano.js").unwrap();
+        let tyrano_bytes = archive
+            .read_file_bytes(&asar_file, "tyrano/tyrano.js")
+            .unwrap();
         assert_eq!(tyrano_bytes, b"Tyrano Script OK!");
 
         // Extract all
         let extract_dir = temp_dir.join("extracted");
         let count = archive.extract_all(&asar_file, &extract_dir).unwrap();
         assert_eq!(count, 2);
-        assert_eq!(fs::read(extract_dir.join("index.html")).unwrap(), b"Hello World");
-        assert_eq!(fs::read(extract_dir.join("tyrano/tyrano.js")).unwrap(), b"Tyrano Script OK!");
+        assert_eq!(
+            fs::read(extract_dir.join("index.html")).unwrap(),
+            b"Hello World"
+        );
+        assert_eq!(
+            fs::read(extract_dir.join("tyrano/tyrano.js")).unwrap(),
+            b"Tyrano Script OK!"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

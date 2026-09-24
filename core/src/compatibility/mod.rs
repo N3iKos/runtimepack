@@ -57,7 +57,9 @@ impl CompatibilityReport {
     }
 
     pub fn add_issue(&mut self, issue: CompatibilityIssue) {
-        if issue.severity == DiagnosticSeverity::Error && self.status == CompatibilityStatus::Compatible {
+        if issue.severity == DiagnosticSeverity::Error
+            && self.status == CompatibilityStatus::Compatible
+        {
             self.status = CompatibilityStatus::UnsupportedDependency;
         }
         self.issues.push(issue);
@@ -85,7 +87,11 @@ impl AnalyzerRegistry {
         self.analyzers.push(analyzer);
     }
 
-    pub fn analyze(&self, source: &GameSourceIndex, engine: &EngineDescriptor) -> CompatibilityReport {
+    pub fn analyze(
+        &self,
+        source: &GameSourceIndex,
+        engine: &EngineDescriptor,
+    ) -> CompatibilityReport {
         for a in &self.analyzers {
             if a.supports(engine.id) {
                 return a.analyze(source, engine);

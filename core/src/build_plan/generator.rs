@@ -78,7 +78,8 @@ impl AndroidProjectGenerator {
                     }
                     if content.contains("\"gameTitle\":\"Termina\"")
                         || content.contains("\"gameTitle\": \"Termina\"")
-                        || (content.contains("gameTitle") && content.to_lowercase().contains("termina"))
+                        || (content.contains("gameTitle")
+                            && content.to_lowercase().contains("termina"))
                     {
                         return Some("termina".to_string());
                     }
@@ -93,26 +94,39 @@ impl AndroidProjectGenerator {
     }
 
     pub fn find_cheat_profile_path(profile_id: &str) -> Option<PathBuf> {
-        let rel1 = Path::new("profiles/games").join(profile_id).join("cheats.js");
+        let rel1 = Path::new("profiles/games")
+            .join(profile_id)
+            .join("cheats.js");
         if rel1.exists() {
             return Some(rel1);
         }
-        let rel2 = Path::new("../profiles/games").join(profile_id).join("cheats.js");
+        let rel2 = Path::new("../profiles/games")
+            .join(profile_id)
+            .join("cheats.js");
         if rel2.exists() {
             return Some(rel2);
         }
         if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-            let p = Path::new(&manifest_dir).join("profiles/games").join(profile_id).join("cheats.js");
+            let p = Path::new(&manifest_dir)
+                .join("profiles/games")
+                .join(profile_id)
+                .join("cheats.js");
             if p.exists() {
                 return Some(p);
             }
             if let Some(parent) = Path::new(&manifest_dir).parent() {
-                let p2 = parent.join("profiles/games").join(profile_id).join("cheats.js");
+                let p2 = parent
+                    .join("profiles/games")
+                    .join(profile_id)
+                    .join("cheats.js");
                 if p2.exists() {
                     return Some(p2);
                 }
                 if let Some(grandparent) = parent.parent() {
-                    let p3 = grandparent.join("profiles/games").join(profile_id).join("cheats.js");
+                    let p3 = grandparent
+                        .join("profiles/games")
+                        .join(profile_id)
+                        .join("cheats.js");
                     if p3.exists() {
                         return Some(p3);
                     }
@@ -153,7 +167,10 @@ impl AndroidProjectGenerator {
                     ));
                 }
             }
-            xml.push_str(&format!("    <uses-permission android:name=\"{}\" />\n", perm));
+            xml.push_str(&format!(
+                "    <uses-permission android:name=\"{}\" />\n",
+                perm
+            ));
         }
         Ok(xml)
     }
@@ -296,7 +313,10 @@ dependencies {{
             manifest,
             packed_content_path,
             None,
-            manifest.flavor.as_deref().or(manifest.provenance.flavor.as_deref()),
+            manifest
+                .flavor
+                .as_deref()
+                .or(manifest.provenance.flavor.as_deref()),
         )
     }
 
@@ -324,10 +344,7 @@ dependencies {{
         None
     }
 
-    pub fn configure_overlay_watermark(
-        overlay_dir: &Path,
-        flavor: &str,
-    ) -> std::io::Result<()> {
+    pub fn configure_overlay_watermark(overlay_dir: &Path, flavor: &str) -> std::io::Result<()> {
         if !overlay_dir.exists() {
             fs::create_dir_all(overlay_dir)?;
         }
@@ -408,7 +425,10 @@ dependencies {{
                 index_content.push_str(watermark_style);
             }
 
-            if !vpad_path.exists() && is_beta && !index_content.contains("<div id=\"fnh-watermark\">") {
+            if !vpad_path.exists()
+                && is_beta
+                && !index_content.contains("<div id=\"fnh-watermark\">")
+            {
                 let watermark_div = "\n    <div id=\"fnh-watermark\">\n        <div>Beta Test</div>\n        <div>Veldra Community</div>\n    </div>\n</body>";
                 if index_content.contains("</body>") {
                     index_content = index_content.replace("</body>", watermark_div);
@@ -424,7 +444,8 @@ dependencies {{
                     if index_content.contains("</body>") {
                         index_content = index_content.replace("</body>", diag_script);
                     } else {
-                        index_content.push_str("\n    <script src=\"diagnostic_suite.js\"></script>\n");
+                        index_content
+                            .push_str("\n    <script src=\"diagnostic_suite.js\"></script>\n");
                     }
                 }
             } else if index_content.contains("diagnostic_suite.js") {
@@ -483,9 +504,8 @@ dependencies {{
         fs::write(app_dir.join("build.gradle.kts"), gradle_kts)?;
 
         // Write build-manifest.json to assets
-        let manifest_json = serde_json::to_string_pretty(manifest).map_err(|e| {
-            DiagnosticError::Serialization(e.to_string())
-        })?;
+        let manifest_json = serde_json::to_string_pretty(manifest)
+            .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         fs::write(assets_dir.join("build-manifest.json"), &manifest_json)?;
 
         // Copy packed content if available
@@ -510,7 +530,8 @@ dependencies {{
 
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
         let overlay_dst = assets_dir.join("overlay");
-        let overlay_src = Self::find_overlay_src().unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+        let overlay_src = Self::find_overlay_src()
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
         if overlay_src.exists() {
             copy_dir_all(&overlay_src, &overlay_dst)?;
         }
@@ -558,7 +579,10 @@ dependencies {{
         // Copy Gradle wrapper if available in shell template
         let shell_dir = Path::new("android/shell");
         if shell_dir.join("gradlew.bat").exists() {
-            let _ = fs::copy(shell_dir.join("gradlew.bat"), project_dir.join("gradlew.bat"));
+            let _ = fs::copy(
+                shell_dir.join("gradlew.bat"),
+                project_dir.join("gradlew.bat"),
+            );
         }
         if shell_dir.join("gradlew").exists() {
             let _ = fs::copy(shell_dir.join("gradlew"), project_dir.join("gradlew"));

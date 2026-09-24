@@ -313,6 +313,10 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
+    // SAFETY: `source` and `destination` are vectors of UTF-16 code units explicitly
+    // null-terminated via `.chain(Some(0))`. Both vectors outlive the `MoveFileExW` call,
+    // ensuring that `source.as_ptr()` and `destination.as_ptr()` point to contiguous,
+    // valid, non-null, and properly null-terminated wide string buffers for the duration of the call.
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),

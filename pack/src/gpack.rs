@@ -72,7 +72,10 @@ impl GpackPacker {
 
     pub fn should_include_in_pack(path: &str) -> bool {
         let lower = path.to_ascii_lowercase();
-        if lower.contains("_commonredist/") || lower.starts_with("swiftshader/") || lower.contains("/swiftshader/") {
+        if lower.contains("_commonredist/")
+            || lower.starts_with("swiftshader/")
+            || lower.contains("/swiftshader/")
+        {
             return false;
         }
         let filename = lower.rsplit('/').next().unwrap_or(&lower);
@@ -298,7 +301,8 @@ impl GpackReader {
             if cursor + 4 > index_data.len() {
                 break;
             }
-            let path_len = u32::from_le_bytes(index_data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let path_len =
+                u32::from_le_bytes(index_data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + path_len > index_data.len() {
@@ -307,16 +311,21 @@ impl GpackReader {
                     "Corrupted path string in index",
                 ));
             }
-            let path_str = String::from_utf8(index_data[cursor..cursor + path_len].to_vec()).map_err(|_| {
-                DiagnosticError::from_code(DiagnosticCode::CNT_CORRUPTED_PACK, "Invalid UTF-8 path in index")
-            })?;
+            let path_str = String::from_utf8(index_data[cursor..cursor + path_len].to_vec())
+                .map_err(|_| {
+                    DiagnosticError::from_code(
+                        DiagnosticCode::CNT_CORRUPTED_PACK,
+                        "Invalid UTF-8 path in index",
+                    )
+                })?;
             cursor += path_len;
 
             let offset = u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
             cursor += 8;
             let size = u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
             cursor += 8;
-            let stored_size = u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
+            let stored_size =
+                u64::from_le_bytes(index_data[cursor..cursor + 8].try_into().unwrap());
             cursor += 8;
 
             let mut hash = [0u8; 32];
@@ -357,7 +366,10 @@ impl GpackReader {
     }
 
     pub fn has_file(&self, path: &str) -> bool {
-        let normalized = path.replace('\\', "/").trim_start_matches('/').to_ascii_lowercase();
+        let normalized = path
+            .replace('\\', "/")
+            .trim_start_matches('/')
+            .to_ascii_lowercase();
         self.entries.contains_key(&normalized)
     }
 
@@ -365,17 +377,28 @@ impl GpackReader {
         self.read_file_with_key(path, None)
     }
 
-    pub fn read_file_with_key(&mut self, path: &str, key: Option<&[u8; 32]>) -> Result<Vec<u8>, DiagnosticError> {
+    pub fn read_file_with_key(
+        &mut self,
+        path: &str,
+        key: Option<&[u8; 32]>,
+    ) -> Result<Vec<u8>, DiagnosticError> {
         // Validate path traversal
         GpackPacker::validate_logical_path(path)?;
 
-        let normalized = path.replace('\\', "/").trim_start_matches('/').to_ascii_lowercase();
-        let entry = self.entries.get(&normalized).ok_or_else(|| {
-            DiagnosticError::from_code(
-                DiagnosticCode::CNT_INVALID_PATH,
-                format!("File not found in pack: {}", path),
-            )
-        })?.clone();
+        let normalized = path
+            .replace('\\', "/")
+            .trim_start_matches('/')
+            .to_ascii_lowercase();
+        let entry = self
+            .entries
+            .get(&normalized)
+            .ok_or_else(|| {
+                DiagnosticError::from_code(
+                    DiagnosticCode::CNT_INVALID_PATH,
+                    format!("File not found in pack: {}", path),
+                )
+            })?
+            .clone();
 
         self.file.seek(SeekFrom::Start(entry.offset))?;
         let mut buffer = vec![0u8; entry.stored_size as usize];

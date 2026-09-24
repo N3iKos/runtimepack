@@ -18,7 +18,8 @@ impl Detector for TyranoDetector {
         let mut score = 0;
         let mut evidence = Vec::new();
 
-        let mut has_tyrano_js = source.has_file("tyrano/tyrano.js") || source.has_file("tyrano/tyrano.base.js");
+        let mut has_tyrano_js =
+            source.has_file("tyrano/tyrano.js") || source.has_file("tyrano/tyrano.base.js");
         let mut has_kag = false;
         let mut has_scenario = false;
         let mut has_index = source.has_file("index.html");
@@ -68,7 +69,9 @@ impl Detector for TyranoDetector {
                         rule: "DET-TYR-ASAR".to_string(),
                         path: "resources/app.asar".to_string(),
                         weight: 120,
-                        description: "Electron package resources/app.asar contains TyranoScript runtime".to_string(),
+                        description:
+                            "Electron package resources/app.asar contains TyranoScript runtime"
+                                .to_string(),
                     });
                 }
             }
@@ -81,7 +84,11 @@ impl Detector for TyranoDetector {
             score += 80;
             evidence.push(Evidence {
                 rule: "DET-TYR-001".to_string(),
-                path: if is_electron_asar { "resources/app.asar::index.html".to_string() } else { "index.html".to_string() },
+                path: if is_electron_asar {
+                    "resources/app.asar::index.html".to_string()
+                } else {
+                    "index.html".to_string()
+                },
                 weight: 80,
                 description: "index.html entrypoint exists".to_string(),
             });
@@ -91,7 +98,11 @@ impl Detector for TyranoDetector {
             score += 80;
             evidence.push(Evidence {
                 rule: "DET-TYR-002".to_string(),
-                path: if is_electron_asar { "resources/app.asar::tyrano/tyrano.js".to_string() } else { "tyrano/tyrano.js".to_string() },
+                path: if is_electron_asar {
+                    "resources/app.asar::tyrano/tyrano.js".to_string()
+                } else {
+                    "tyrano/tyrano.js".to_string()
+                },
                 weight: 80,
                 description: "Tyrano core script tyrano.js exists".to_string(),
             });
@@ -101,7 +112,11 @@ impl Detector for TyranoDetector {
             score += 50;
             evidence.push(Evidence {
                 rule: "DET-TYR-003".to_string(),
-                path: if is_electron_asar { "resources/app.asar::tyrano/plugins/kag/".to_string() } else { "tyrano/plugins/kag/".to_string() },
+                path: if is_electron_asar {
+                    "resources/app.asar::tyrano/plugins/kag/".to_string()
+                } else {
+                    "tyrano/plugins/kag/".to_string()
+                },
                 weight: 50,
                 description: "Tyrano KAG plugin stack exists".to_string(),
             });
@@ -111,7 +126,11 @@ impl Detector for TyranoDetector {
             score += 30;
             evidence.push(Evidence {
                 rule: "DET-TYR-004".to_string(),
-                path: if is_electron_asar { "resources/app.asar::data/scenario/".to_string() } else { "data/scenario/".to_string() },
+                path: if is_electron_asar {
+                    "resources/app.asar::data/scenario/".to_string()
+                } else {
+                    "data/scenario/".to_string()
+                },
                 weight: 30,
                 description: "Tyrano scenario data directory exists".to_string(),
             });

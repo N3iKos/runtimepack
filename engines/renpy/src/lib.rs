@@ -18,7 +18,8 @@ impl Detector for RenPyDetector {
 
         // Check if already an Android package (rejected as source)
         if source.has_file("AndroidManifest.xml") || source.has_file("classes.dex") {
-            conflicts.push("Game source appears to be an already-compiled Android package".to_string());
+            conflicts
+                .push("Game source appears to be an already-compiled Android package".to_string());
         }
 
         // Count .rpy, .rpyc, .rpa files

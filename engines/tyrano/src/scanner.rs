@@ -45,17 +45,24 @@ impl Analyzer for TyranoAnalyzer {
         let mut report = CompatibilityReport::new(engine);
 
         // Required web capabilities
-        report.required_capabilities.push("web.local_origin".to_string());
-        report.required_capabilities.push("web.javascript".to_string());
+        report
+            .required_capabilities
+            .push("web.local_origin".to_string());
+        report
+            .required_capabilities
+            .push("web.javascript".to_string());
         report.required_capabilities.push("web.webgl".to_string());
-        report.required_capabilities.push("web.webaudio".to_string());
+        report
+            .required_capabilities
+            .push("web.webaudio".to_string());
         report.required_capabilities.push("fs.vfs.read".to_string());
-        report.required_capabilities.push("fs.save.write".to_string());
+        report
+            .required_capabilities
+            .push("fs.save.write".to_string());
 
         let is_electron_package = source.has_file("resources/app.asar");
-        let is_desktop_wrapper = is_electron_package
-            || source.has_file("package.json")
-            || source.has_file("index.html");
+        let is_desktop_wrapper =
+            is_electron_package || source.has_file("package.json") || source.has_file("index.html");
 
         for (path, file) in &source.files {
             if path.ends_with(".node") {

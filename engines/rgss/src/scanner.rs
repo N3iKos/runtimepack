@@ -35,7 +35,9 @@ impl RgssAnalyzer {
             || filename == "discord_game_sdk.dll"
     }
 
-    pub fn is_known_shimmable_dll(path: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    pub fn is_known_shimmable_dll(
+        path: &str,
+    ) -> Option<(&'static str, &'static str, &'static str)> {
         let lower = path.to_ascii_lowercase();
         if lower.contains("lonamousewheel") || lower.contains("mousewhee") {
             Some((
@@ -74,9 +76,15 @@ impl Analyzer for RgssAnalyzer {
 
         // Required baseline capabilities for RGSS
         report.required_capabilities.push("fs.vfs.read".to_string());
-        report.required_capabilities.push("fs.save.write".to_string());
-        report.required_capabilities.push("graphics.surface".to_string());
-        report.required_capabilities.push("audio.standard".to_string());
+        report
+            .required_capabilities
+            .push("fs.save.write".to_string());
+        report
+            .required_capabilities
+            .push("graphics.surface".to_string());
+        report
+            .required_capabilities
+            .push("audio.standard".to_string());
 
         let mut has_unsupported_dll = false;
 
@@ -153,7 +161,11 @@ impl Analyzer for RgssAnalyzer {
         }
 
         // 2. Scan for Win32API calls in script archives or text files
-        let script_files = ["data/scripts.rxdata", "data/scripts.rvdata", "data/scripts.rvdata2"];
+        let script_files = [
+            "data/scripts.rxdata",
+            "data/scripts.rvdata",
+            "data/scripts.rvdata2",
+        ];
         let mut found_keyboard_shim = false;
         let mut found_ini_shim = false;
 
@@ -163,10 +175,14 @@ impl Analyzer for RgssAnalyzer {
                 if let Ok(bytes) = std::fs::read(full_path) {
                     let haystack = String::from_utf8_lossy(&bytes);
 
-                    if haystack.contains("GetKeyboardState") || haystack.contains("GetAsyncKeyState") {
+                    if haystack.contains("GetKeyboardState")
+                        || haystack.contains("GetAsyncKeyState")
+                    {
                         found_keyboard_shim = true;
                     }
-                    if haystack.contains("GetPrivateProfileString") || haystack.contains("WritePrivateProfileString") {
+                    if haystack.contains("GetPrivateProfileString")
+                        || haystack.contains("WritePrivateProfileString")
+                    {
                         found_ini_shim = true;
                     }
 
@@ -186,8 +202,12 @@ impl Analyzer for RgssAnalyzer {
         }
 
         if found_keyboard_shim {
-            report.required_capabilities.push("rgss.win32.user32.keyboard".to_string());
-            report.required_shims.push("user32.GetKeyboardState".to_string());
+            report
+                .required_capabilities
+                .push("rgss.win32.user32.keyboard".to_string());
+            report
+                .required_shims
+                .push("user32.GetKeyboardState".to_string());
             report.add_issue(CompatibilityIssue {
                 code: "CMP-101-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,
@@ -198,8 +218,12 @@ impl Analyzer for RgssAnalyzer {
         }
 
         if found_ini_shim {
-            report.required_capabilities.push("rgss.win32.kernel32.temp".to_string());
-            report.required_shims.push("kernel32.GetPrivateProfileString".to_string());
+            report
+                .required_capabilities
+                .push("rgss.win32.kernel32.temp".to_string());
+            report
+                .required_shims
+                .push("kernel32.GetPrivateProfileString".to_string());
             report.add_issue(CompatibilityIssue {
                 code: "CMP-101-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,

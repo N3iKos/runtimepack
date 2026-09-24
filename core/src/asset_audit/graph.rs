@@ -65,6 +65,7 @@ impl DependencyGraph {
                 &right.logical_path,
             ))
         });
+        self.nodes.dedup();
         self.edges.sort_by(|left, right| {
             (
                 &left.source,
@@ -83,5 +84,6 @@ impl DependencyGraph {
                     &right.resolution,
                 ))
         });
+        self.edges.dedup();
     }
 }

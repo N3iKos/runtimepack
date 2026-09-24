@@ -3,7 +3,9 @@ use runtimepack_core::detection::DetectorRegistry;
 use runtimepack_core::domain::{CompatibilityStatus, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_engine_rgss::{RgssAnalyzer, RpgMakerVxAceDetector};
-use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer};
+use runtimepack_engine_rpgmaker_web::{
+    RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer,
+};
 use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
@@ -26,8 +28,12 @@ fn test_rgss_win32_keyboard_shim_resolved() {
 
     let report = analyzers.analyze(&idx, &desc);
     assert_eq!(report.status, CompatibilityStatus::CompatibleWithShims);
-    assert!(report.required_capabilities.contains(&"rgss.win32.user32.keyboard".to_string()));
-    assert!(report.required_shims.contains(&"user32.GetKeyboardState".to_string()));
+    assert!(report
+        .required_capabilities
+        .contains(&"rgss.win32.user32.keyboard".to_string()));
+    assert!(report
+        .required_shims
+        .contains(&"user32.GetKeyboardState".to_string()));
 }
 
 #[test]
@@ -75,7 +81,9 @@ fn test_mv_node_path_shimmed() {
 
     let report = analyzers.analyze(&idx, &desc);
     assert_eq!(report.status, CompatibilityStatus::CompatibleWithShims);
-    assert!(report.required_capabilities.contains(&"web.node.path".to_string()));
+    assert!(report
+        .required_capabilities
+        .contains(&"web.node.path".to_string()));
 }
 
 #[test]
@@ -154,12 +162,9 @@ fn test_rpgmaker_mv_nwjs_wrapper_normalizes_desktop_dlls() {
 
     assert_ne!(report.status, CompatibilityStatus::UnsupportedDependency);
     assert!(
-        !report
-            .issues
-            .iter()
-            .any(|i| i.code == "CMP-102"
-                || i.source_path.as_deref() == Some("nw.dll")
-                || i.source_path.as_deref() == Some("node.dll")),
+        !report.issues.iter().any(|i| i.code == "CMP-102"
+            || i.source_path.as_deref() == Some("nw.dll")
+            || i.source_path.as_deref() == Some("node.dll")),
         "Desktop NW.js runner DLLs outside www/ should not trigger CMP-102 issues"
     );
 }
@@ -212,10 +217,7 @@ fn test_rpgmaker_mz_root_nwjs_wrapper_normalizes_desktop_dlls() {
 
     assert_ne!(report.status, CompatibilityStatus::UnsupportedDependency);
     assert!(
-        !report
-            .issues
-            .iter()
-            .any(|i| i.code == "CMP-102"),
+        !report.issues.iter().any(|i| i.code == "CMP-102"),
         "Desktop NW.js runner DLLs at root should be excluded and not trigger fatal CMP-102"
     );
     assert!(
@@ -226,4 +228,3 @@ fn test_rpgmaker_mz_root_nwjs_wrapper_normalizes_desktop_dlls() {
         "Desktop runner DLLs should emit CMP-DESKTOP-EXCLUDED info diagnostics"
     );
 }
-

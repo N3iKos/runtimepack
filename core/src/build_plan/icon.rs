@@ -60,8 +60,11 @@ pub fn extract_best_icon_from_pe(bytes: &[u8]) -> Option<DynamicImage> {
     if opt_header_offset + size_of_optional_header > bytes.len() {
         return None;
     }
-    let magic =
-        u16::from_le_bytes(bytes[opt_header_offset..opt_header_offset + 2].try_into().ok()?);
+    let magic = u16::from_le_bytes(
+        bytes[opt_header_offset..opt_header_offset + 2]
+            .try_into()
+            .ok()?,
+    );
     let data_dir_offset = match magic {
         0x10B => opt_header_offset + 96,
         0x20B => opt_header_offset + 112,
@@ -216,7 +219,9 @@ pub fn extract_best_icon_from_pe(bytes: &[u8]) -> Option<DynamicImage> {
     // Now find best.n_id in RT_ICON (type 3)
     let icon_type_dir_off = rsrc_root_offset + ((icon_entry.1 & 0x7FFF_FFFF) as usize);
     let icon_type_dir = parse_resource_dir(icon_type_dir_off)?;
-    let matching_icon = icon_type_dir.iter().find(|(id, _)| *id == best.n_id as u32)?;
+    let matching_icon = icon_type_dir
+        .iter()
+        .find(|(id, _)| *id == best.n_id as u32)?;
 
     let icon_lang_dir_off = rsrc_root_offset + ((matching_icon.1 & 0x7FFF_FFFF) as usize);
     let icon_lang_dir = parse_resource_dir(icon_lang_dir_off)?;
@@ -399,7 +404,9 @@ pub fn find_candidate_executables(game_dir: &Path, app_name: Option<&str>) -> Ve
             }
         };
 
-        rank(&name_a).cmp(&rank(&name_b)).then_with(|| name_a.cmp(&name_b))
+        rank(&name_a)
+            .cmp(&rank(&name_b))
+            .then_with(|| name_a.cmp(&name_b))
     });
 
     direct_exes
@@ -455,8 +462,7 @@ pub fn extract_and_generate_icons(
             let _ = resized.save_with_format(out_dir.join("ic_launcher.png"), ImageFormat::Png);
 
             let round = create_round_icon(&resized);
-            let _ =
-                round.save_with_format(out_dir.join("ic_launcher_round.png"), ImageFormat::Png);
+            let _ = round.save_with_format(out_dir.join("ic_launcher_round.png"), ImageFormat::Png);
         }
         true
     } else {
@@ -475,7 +481,10 @@ mod tests {
         if sample_exe.exists() {
             let bytes = fs::read(sample_exe).unwrap();
             let img = extract_best_icon_from_pe(&bytes);
-            assert!(img.is_some(), "Expected icon extracted from BLACK SOULS/Game.exe");
+            assert!(
+                img.is_some(),
+                "Expected icon extracted from BLACK SOULS/Game.exe"
+            );
             let img = img.unwrap();
             assert_eq!(img.width(), 256);
             assert_eq!(img.height(), 256);
@@ -491,7 +500,8 @@ mod tests {
         let res_dir = temp_dir.join("res");
         let sample_dir = Path::new("../Raw-Game/The_Witchs_House_MV");
         if sample_dir.exists() {
-            let extracted = extract_and_generate_icons(sample_dir, Some("The Witch's House"), &res_dir);
+            let extracted =
+                extract_and_generate_icons(sample_dir, Some("The Witch's House"), &res_dir);
             assert!(extracted, "Should extract icon from The Witch's House MV");
             for (folder, size) in MIPMAP_TARGETS {
                 let sq = res_dir.join(folder).join("ic_launcher.png");
@@ -527,4 +537,3 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
     }
 }
-

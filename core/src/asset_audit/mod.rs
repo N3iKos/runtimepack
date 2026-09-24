@@ -344,6 +344,7 @@ impl AssetAuditReport {
         self.graph.canonicalize();
         for finding in &mut self.findings {
             finding.source_node_ids.sort();
+            finding.source_node_ids.dedup();
         }
         self.findings.sort_by(|left, right| {
             (
@@ -367,11 +368,15 @@ impl AssetAuditReport {
                     right.orphan,
                 ))
         });
+        self.findings.dedup();
         self.completeness.covered_reference_classes.sort();
+        self.completeness.covered_reference_classes.dedup();
         self.completeness.uncovered_reference_classes.sort();
+        self.completeness.uncovered_reference_classes.dedup();
         self.overrides.sort_by(|left, right| {
             (&left.flag, &left.rationale).cmp(&(&right.flag, &right.rationale))
         });
+        self.overrides.dedup();
         self.statistics = AuditStatistics {
             nodes: self.graph.nodes.len() as u64,
             references: self.graph.edges.len() as u64,
@@ -701,6 +706,55 @@ mod tests {
             serde_json::to_string(&left).unwrap(),
             serde_json::to_string(&right).unwrap()
         );
+    }
+
+    #[test]
+    fn canonicalization_deduplicates_set_like_vectors() {
+        let mut report = report(false);
+        report.graph.nodes.push(report.graph.nodes[0].clone());
+        report.graph.edges.push(report.graph.edges[0].clone());
+        report
+            .completeness
+            .covered_reference_classes
+            .push("images".into());
+        report
+            .completeness
+            .uncovered_reference_classes
+            .push("uncovered".into());
+        report
+            .completeness
+            .uncovered_reference_classes
+            .push("uncovered".into());
+        report.findings[0].source_node_ids = vec!["map:a".into(), "map:a".into()];
+        report.findings.push(report.findings[0].clone());
+        report.overrides.push(AuditOverride {
+            flag: "test".into(),
+            rationale: "test".into(),
+        });
+        report.overrides.push(AuditOverride {
+            flag: "test".into(),
+            rationale: "test".into(),
+        });
+
+        report.canonicalize();
+
+        assert_eq!(report.graph.nodes.len(), 2);
+        assert_eq!(report.graph.edges.len(), 2);
+        assert_eq!(
+            report.completeness.covered_reference_classes,
+            vec!["audio", "images"]
+        );
+        assert_eq!(
+            report.completeness.uncovered_reference_classes,
+            vec!["uncovered"]
+        );
+        assert_eq!(report.findings[0].source_node_ids, vec!["image:z"]);
+        assert_eq!(report.findings[1].source_node_ids, vec!["map:a"]);
+        assert_eq!(report.findings.len(), 2);
+        assert_eq!(report.overrides.len(), 1);
+        assert_eq!(report.statistics.nodes, 2);
+        assert_eq!(report.statistics.references, 2);
+        assert_eq!(report.statistics.findings, 2);
     }
 
     #[test]

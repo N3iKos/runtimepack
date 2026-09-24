@@ -69,9 +69,9 @@ impl GameSourceIndex {
                 }
             }
 
-            let rel = path
-                .strip_prefix(&canonical_root)
-                .map_err(|e| DiagnosticError::from_code(DiagnosticCode::ING_FILE_READ_ERROR, e.to_string()))?;
+            let rel = path.strip_prefix(&canonical_root).map_err(|e| {
+                DiagnosticError::from_code(DiagnosticCode::ING_FILE_READ_ERROR, e.to_string())
+            })?;
 
             // Normalize path to forward slashes (TECH-INPUT-002)
             let logical_path = rel

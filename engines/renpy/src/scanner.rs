@@ -16,9 +16,15 @@ impl Analyzer for RenPyAnalyzer {
 
         // Baseline Ren'Py capabilities
         report.required_capabilities.push("fs.vfs.read".to_string());
-        report.required_capabilities.push("fs.save.write".to_string());
-        report.required_capabilities.push("renpy.runtime.versioned".to_string());
-        report.required_capabilities.push("renpy.python.pure".to_string());
+        report
+            .required_capabilities
+            .push("fs.save.write".to_string());
+        report
+            .required_capabilities
+            .push("renpy.runtime.versioned".to_string());
+        report
+            .required_capabilities
+            .push("renpy.python.pure".to_string());
 
         // 1. Scan for Windows-specific Python native extensions (.pyd, .dll)
         for (path, file) in &source.files {
@@ -55,11 +61,17 @@ impl Analyzer for RenPyAnalyzer {
         for (path, file) in &source.files {
             if path.ends_with(".rpy") || path.ends_with(".txt") || path.ends_with(".json") {
                 if let Some(text) = source.read_small_text(&file.logical_path, 8192) {
-                    if text.contains("renpy 8.") || text.contains("Ren'Py 8.") || text.contains("version = \"8.") {
+                    if text.contains("renpy 8.")
+                        || text.contains("Ren'Py 8.")
+                        || text.contains("version = \"8.")
+                    {
                         detected_generation = Some("8");
                         break;
                     }
-                    if text.contains("renpy 7.") || text.contains("Ren'Py 7.") || text.contains("version = \"7.") {
+                    if text.contains("renpy 7.")
+                        || text.contains("Ren'Py 7.")
+                        || text.contains("version = \"7.")
+                    {
                         detected_generation = Some("7");
                         break;
                     }

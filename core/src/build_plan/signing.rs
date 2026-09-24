@@ -55,16 +55,19 @@ impl SigningManager {
 
     pub fn generate_gradle_signing_block(config: &SigningConfig) -> String {
         match config.mode {
-            SigningMode::Debug => {
-                r#"    signingConfigs {
+            SigningMode::Debug => r#"    signingConfigs {
         getByName("debug") {
             // Standard Android debug key
         }
     }
-"#.to_string()
-            }
+"#
+            .to_string(),
             SigningMode::ReleaseLocal | SigningMode::ReleaseExternalKeystore => {
-                let ks_path = config.keystore_path.as_deref().unwrap_or("release.keystore").replace('\\', "/");
+                let ks_path = config
+                    .keystore_path
+                    .as_deref()
+                    .unwrap_or("release.keystore")
+                    .replace('\\', "/");
                 let alias = config.key_alias.as_deref().unwrap_or("key0");
                 format!(
                     r#"    signingConfigs {{

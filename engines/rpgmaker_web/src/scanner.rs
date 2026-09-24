@@ -50,12 +50,20 @@ impl Analyzer for RpgMakerWebAnalyzer {
         let mut report = CompatibilityReport::new(engine);
 
         // Baseline web capabilities
-        report.required_capabilities.push("web.local_origin".to_string());
-        report.required_capabilities.push("web.javascript".to_string());
+        report
+            .required_capabilities
+            .push("web.local_origin".to_string());
+        report
+            .required_capabilities
+            .push("web.javascript".to_string());
         report.required_capabilities.push("web.webgl".to_string());
-        report.required_capabilities.push("web.webaudio".to_string());
+        report
+            .required_capabilities
+            .push("web.webaudio".to_string());
         report.required_capabilities.push("fs.vfs.read".to_string());
-        report.required_capabilities.push("fs.save.write".to_string());
+        report
+            .required_capabilities
+            .push("fs.save.write".to_string());
 
         let mut found_path_shim = false;
         let mut found_nwjs_shim = false;
@@ -136,11 +144,14 @@ impl Analyzer for RpgMakerWebAnalyzer {
             if path.ends_with(".js") {
                 // Read small snippet or scan JS content safely as text
                 if let Some(js_code) = source.read_small_text(&file.logical_path, 32768) {
-                    if js_code.contains("require('path')") || js_code.contains("require(\"path\")") {
+                    if js_code.contains("require('path')") || js_code.contains("require(\"path\")")
+                    {
                         found_path_shim = true;
                     }
 
-                    if js_code.contains("require('child_process')") || js_code.contains("require(\"child_process\")") {
+                    if js_code.contains("require('child_process')")
+                        || js_code.contains("require(\"child_process\")")
+                    {
                         report.add_issue(CompatibilityIssue {
                             code: DiagnosticCode::CMP_NODE_UNSUPPORTED_REQUIRE.to_string(),
                             severity: DiagnosticSeverity::Error,
@@ -177,7 +188,9 @@ impl Analyzer for RpgMakerWebAnalyzer {
         }
 
         if found_path_shim {
-            report.required_capabilities.push("web.node.path".to_string());
+            report
+                .required_capabilities
+                .push("web.node.path".to_string());
             report.required_shims.push("node.path".to_string());
             if report.status == CompatibilityStatus::Compatible {
                 report.status = CompatibilityStatus::CompatibleWithShims;
@@ -185,14 +198,18 @@ impl Analyzer for RpgMakerWebAnalyzer {
             report.add_issue(CompatibilityIssue {
                 code: "CMP-104-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,
-                message: "Node.js 'path' module detected; mapped to compatibility shim 'web.node.path'".to_string(),
+                message:
+                    "Node.js 'path' module detected; mapped to compatibility shim 'web.node.path'"
+                        .to_string(),
                 source_path: None,
                 remediation: None,
             });
         }
 
         if found_nwjs_shim {
-            report.required_capabilities.push("web.nwjs_subset".to_string());
+            report
+                .required_capabilities
+                .push("web.nwjs_subset".to_string());
             report.required_shims.push("nw.Window".to_string());
             if report.status == CompatibilityStatus::Compatible {
                 report.status = CompatibilityStatus::CompatibleWithShims;
@@ -200,7 +217,9 @@ impl Analyzer for RpgMakerWebAnalyzer {
             report.add_issue(CompatibilityIssue {
                 code: "CMP-104-SHIM".to_string(),
                 severity: DiagnosticSeverity::Info,
-                message: "NW.js window API detected; mapped to compatibility shim 'web.nwjs_subset'".to_string(),
+                message:
+                    "NW.js window API detected; mapped to compatibility shim 'web.nwjs_subset'"
+                        .to_string(),
                 source_path: None,
                 remediation: None,
             });
