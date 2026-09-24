@@ -334,6 +334,15 @@ impl AssetAuditReport {
     }
 
     pub fn recompute_outcome(&mut self) {
+        if self
+            .findings
+            .iter()
+            .any(|finding| !finding.classification_is_consistent())
+        {
+            self.outcome = AuditOutcome::Fail;
+            return;
+        }
+
         let mut relevant = self.findings.iter().filter(|finding| !finding.orphan);
         let required_blocking = relevant.clone().any(|finding| {
             finding.disposition == FindingDisposition::Blocking
@@ -516,22 +525,63 @@ mod tests {
     }
 
     #[test]
-    fn required_error_cannot_bypass_fail_closed_outcome() {
-        let mut report = report(false);
-        report.findings = vec![AuditFinding {
-            id: "contradictory".into(),
-            code: "CMP-AUD-002".into(),
-            severity: FindingSeverity::Error,
-            disposition: FindingDisposition::Informational,
-            requiredness: ReferenceRequiredness::Required,
-            message: "required asset missing".into(),
-            source_node_ids: Vec::new(),
-            orphan: false,
-        }];
+    fn directly_constructed_contradictory_findings_fail_closed() {
+        let contradictions = [
+            (
+                FindingSeverity::Error,
+                FindingDisposition::Informational,
+                ReferenceRequiredness::Required,
+                false,
+            ),
+            (
+                FindingSeverity::Warning,
+                FindingDisposition::Informational,
+                ReferenceRequiredness::Required,
+                false,
+            ),
+            (
+                FindingSeverity::Info,
+                FindingDisposition::Warning,
+                ReferenceRequiredness::Optional,
+                false,
+            ),
+            (
+                FindingSeverity::Warning,
+                FindingDisposition::Blocking,
+                ReferenceRequiredness::Required,
+                false,
+            ),
+            (
+                FindingSeverity::Error,
+                FindingDisposition::Blocking,
+                ReferenceRequiredness::Optional,
+                false,
+            ),
+            (
+                FindingSeverity::Warning,
+                FindingDisposition::Warning,
+                ReferenceRequiredness::Optional,
+                true,
+            ),
+        ];
 
-        report.recompute_outcome();
+        for (severity, disposition, requiredness, orphan) in contradictions {
+            let mut report = report(false);
+            report.findings = vec![AuditFinding {
+                id: "contradictory".into(),
+                code: "CMP-AUD-002".into(),
+                severity,
+                disposition,
+                requiredness,
+                message: "contradictory finding".into(),
+                source_node_ids: Vec::new(),
+                orphan,
+            }];
 
-        assert_eq!(report.outcome, AuditOutcome::Fail);
+            report.recompute_outcome();
+
+            assert_eq!(report.outcome, AuditOutcome::Fail);
+        }
     }
 
     #[test]
@@ -609,9 +659,9 @@ mod tests {
         report.findings = vec![AuditFinding {
             id: "orphan".into(),
             code: "CMP-AUD-012".into(),
-            severity: FindingSeverity::Error,
-            disposition: FindingDisposition::Blocking,
-            requiredness: ReferenceRequiredness::Required,
+            severity: FindingSeverity::Info,
+            disposition: FindingDisposition::Informational,
+            requiredness: ReferenceRequiredness::Optional,
             message: "possibly unused".into(),
             source_node_ids: Vec::new(),
             orphan: true,
