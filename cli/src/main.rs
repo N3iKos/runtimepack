@@ -25,6 +25,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Parser)]
 #[command(name = "runtimepack")]
@@ -520,21 +521,91 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("asset-audit-report.json");
-    let temporary = path.with_file_name(format!(".{file_name}.tmp"));
+    let (temporary, mut file) = create_unique_sibling(path)?;
     let result = (|| {
-        let mut file = fs::File::create(&temporary)?;
         file.write_all(contents)?;
         file.write_all(b"\n")?;
         file.flush()?;
         file.sync_all()?;
-        fs::rename(&temporary, path)
+        drop(file);
+        replace_file(&temporary, path)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+fn create_unique_sibling(path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("asset-audit-report.json");
+    for _ in 0..128 {
+        let sequence = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary = path.with_file_name(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => return Ok((temporary, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique sibling temporary report",
+    ))
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn cmd_build(args: BuildArgs) {

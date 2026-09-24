@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn workspace_root() -> PathBuf {
@@ -65,6 +66,20 @@ fn source_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 
 fn read_report(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+fn temp_artifacts(report_path: &Path) -> Vec<PathBuf> {
+    let prefix = format!(".{}.", report_path.file_name().unwrap().to_string_lossy());
+    fs::read_dir(report_path.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&prefix)
+        })
+        .collect()
 }
 
 #[test]
@@ -161,6 +176,113 @@ fn every_v1_engine_uses_an_unavailable_placeholder_until_adapters_land() {
         );
         fs::remove_dir_all(working_dir).unwrap();
     }
+}
+
+#[test]
+fn audit_replaces_an_existing_report() {
+    let working_dir = temp_dir("replace");
+    let source = fixture("vxace_min");
+    let report_path = working_dir.join("report.json");
+    fs::write(&report_path, b"old report").unwrap();
+
+    let output = run_audit(
+        &working_dir,
+        &[
+            source.to_str().unwrap(),
+            "--output",
+            report_path.to_str().unwrap(),
+        ],
+    );
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(read_report(&report_path)["engine"], "rpg-maker-vx-ace");
+    assert!(temp_artifacts(&report_path).is_empty());
+    fs::remove_dir_all(working_dir).unwrap();
+}
+
+#[test]
+fn failed_replacement_preserves_the_old_destination_and_cleans_temp_files() {
+    let working_dir = temp_dir("failed-replace");
+    let source = fixture("vxace_min");
+    let report_path = working_dir.join("report.json");
+    fs::create_dir(&report_path).unwrap();
+    fs::write(report_path.join("old-report"), b"preserve me").unwrap();
+
+    let output = run_audit(
+        &working_dir,
+        &[
+            source.to_str().unwrap(),
+            "--output",
+            report_path.to_str().unwrap(),
+        ],
+    );
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read(report_path.join("old-report")).unwrap(), b"preserve me");
+    assert!(temp_artifacts(&report_path).is_empty());
+    fs::remove_dir_all(working_dir).unwrap();
+}
+
+#[test]
+fn concurrent_audits_leave_one_complete_report_and_no_temp_files() {
+    let working_dir = temp_dir("concurrent");
+    let report_path = working_dir.join("report.json");
+    let handles = ["vxace_min", "mv_min"].map(|fixture_name| {
+        let working_dir = working_dir.clone();
+        let report_path = report_path.clone();
+        thread::spawn(move || {
+            let source = fixture(fixture_name);
+            run_audit(
+                &working_dir,
+                &[
+                    source.to_str().unwrap(),
+                    "--output",
+                    report_path.to_str().unwrap(),
+                ],
+            )
+        })
+    });
+
+    for output in handles.into_iter().map(|handle| handle.join().unwrap()) {
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let report = read_report(&report_path);
+    assert!(matches!(
+        report["engine"].as_str(),
+        Some("rpg-maker-vx-ace" | "rpg-maker-mv")
+    ));
+    assert_eq!(report["outcome"], "INDETERMINATE");
+    assert!(temp_artifacts(&report_path).is_empty());
+    fs::remove_dir_all(working_dir).unwrap();
+}
+
+#[test]
+fn audit_never_executes_game_files() {
+    let working_dir = temp_dir("non-executing");
+    let source = working_dir.join("game");
+    fs::create_dir_all(source.join("Data")).unwrap();
+    fs::write(
+        source.join("Game.ini"),
+        b"[Game]\nLibrary=RGSS301.dll\nScripts=Data\\Scripts.rvdata2\n",
+    )
+    .unwrap();
+    fs::write(source.join("Data/Scripts.rvdata2"), b"fixture").unwrap();
+    fs::write(source.join("Game.exe"), b"sentinel: must never execute").unwrap();
+    let sentinel = working_dir.join("executed.txt");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .env("RUNTIMEPACK_EXECUTION_SENTINEL", &sentinel)
+        .arg("audit")
+        .arg(&source)
+        .arg("--output")
+        .arg(working_dir.join("report.json"))
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!sentinel.exists());
+    fs::remove_dir_all(working_dir).unwrap();
 }
 
 #[test]
