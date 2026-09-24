@@ -63,3 +63,39 @@ Workspace-wide `cargo fmt --all -- --check` also reports extensive pre-existing 
 Implementation and initial report: `a5088de` (`feat: add asset auditor registry`).
 
 Report hash update is committed separately because a commit cannot contain its own final hash.
+
+## Fix Round 1 — Panic Containment Review
+
+### Review Finding
+
+The initial registry guarded only `audit()`. Calls to `id()`, `version()`, and `supports()` could unwind, and the `audit()` recovery path called `id()` and `version()` again without protection.
+
+### Fix
+
+- Guarded every third-party `AssetAuditor` method used by the registry with `catch_unwind`.
+- Converted `id()` and `version()` registration panics into retained failed-adapter state that produces a deterministic audit finding.
+- Converted `supports()` and `audit()` panics directly into deterministic `INDETERMINATE` findings.
+- Recovery messages identify only the failed method and never re-enter `id()` or `version()`.
+- Preserved duplicate ID rejection and `supports(EngineId)` dispatch without `EngineId` branching.
+
+### Regression Tests
+
+Added independent tests for panic from:
+
+- `id()`
+- `version()`
+- `supports()`
+- `audit()`
+
+Each test proves the registry does not unwind and returns an incomplete `INDETERMINATE` report with `CMP-AUD-001` and the exact message `asset auditor panicked while calling <method>`.
+
+### Verification
+
+```text
+cargo test -p runtimepack-core asset_audit::tests::registry -- --nocapture
+cargo test -p runtimepack-core asset_audit
+cargo check -p runtimepack-core --all-targets
+rustfmt --edition 2021 --check core/src/asset_audit/mod.rs
+```
+
+All passed. Rust tests retain the existing clang `-no-pie` linker warning. `Cargo.lock` resolution noise was reverted and is not part of the fix.

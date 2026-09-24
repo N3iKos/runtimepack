@@ -382,9 +382,14 @@ pub trait AssetAuditor: Send + Sync {
     ) -> AssetAuditReport;
 }
 
+struct RegisteredAssetAuditor {
+    auditor: Option<Box<dyn AssetAuditor>>,
+    registration_panic: Option<&'static str>,
+}
+
 #[derive(Default)]
 pub struct AssetAuditorRegistry {
-    auditors: Vec<Box<dyn AssetAuditor>>,
+    auditors: Vec<RegisteredAssetAuditor>,
     registered_ids: BTreeSet<&'static str>,
 }
 
@@ -395,7 +400,23 @@ impl AssetAuditorRegistry {
 
     #[allow(clippy::result_large_err)]
     pub fn register(&mut self, auditor: Box<dyn AssetAuditor>) -> Result<(), Diagnostic> {
-        let id = auditor.id();
+        let id = match catch_unwind(AssertUnwindSafe(|| auditor.id())) {
+            Ok(id) => id,
+            Err(_) => {
+                self.auditors.push(RegisteredAssetAuditor {
+                    auditor: None,
+                    registration_panic: Some("id"),
+                });
+                return Ok(());
+            }
+        };
+        if catch_unwind(AssertUnwindSafe(|| auditor.version())).is_err() {
+            self.auditors.push(RegisteredAssetAuditor {
+                auditor: None,
+                registration_panic: Some("version"),
+            });
+            return Ok(());
+        }
         if !self.registered_ids.insert(id) {
             return Err(Diagnostic::error(
                 "CMP-AUD-001",
@@ -403,7 +424,10 @@ impl AssetAuditorRegistry {
             )
             .with_remediation(RemediationCategory::Configuration));
         }
-        self.auditors.push(auditor);
+        self.auditors.push(RegisteredAssetAuditor {
+            auditor: Some(auditor),
+            registration_panic: None,
+        });
         Ok(())
     }
 
@@ -413,29 +437,42 @@ impl AssetAuditorRegistry {
         engine: &EngineDescriptor,
         options: &AssetAuditOptions,
     ) -> AssetAuditReport {
-        let applicable: Vec<_> = self
-            .auditors
-            .iter()
-            .filter(|auditor| auditor.supports(engine.id))
-            .collect();
-        if applicable.is_empty() {
+        let mut combined = empty_audit_report(engine.id, options.mode);
+        let mut applicable_count = 0;
+        for registered in &self.auditors {
+            if let Some(method) = registered.registration_panic {
+                combined
+                    .findings
+                    .push(indeterminate_finding(auditor_panic_message(method)));
+                continue;
+            }
+            let auditor = registered.auditor.as_ref().unwrap();
+            let supported = match catch_unwind(AssertUnwindSafe(|| auditor.supports(engine.id))) {
+                Ok(supported) => supported,
+                Err(_) => {
+                    combined
+                        .findings
+                        .push(indeterminate_finding(auditor_panic_message("supports")));
+                    continue;
+                }
+            };
+            if !supported {
+                continue;
+            }
+            applicable_count += 1;
+            match catch_unwind(AssertUnwindSafe(|| auditor.audit(source, engine, options))) {
+                Ok(report) => merge_report(&mut combined, report),
+                Err(_) => combined
+                    .findings
+                    .push(indeterminate_finding(auditor_panic_message("audit"))),
+            }
+        }
+        if applicable_count == 0 && combined.findings.is_empty() {
             return indeterminate_report(
                 engine.id,
                 options.mode,
                 "no asset auditor is registered for the selected engine".into(),
             );
-        }
-
-        let mut combined = empty_audit_report(engine.id, options.mode);
-        for auditor in applicable {
-            match catch_unwind(AssertUnwindSafe(|| auditor.audit(source, engine, options))) {
-                Ok(report) => merge_report(&mut combined, report),
-                Err(_) => combined.findings.push(indeterminate_finding(format!(
-                    "asset auditor {} version {} failed",
-                    auditor.id(),
-                    auditor.version()
-                ))),
-            }
         }
         combined.completeness.required_scope_complete &= !combined
             .findings
@@ -473,6 +510,10 @@ fn indeterminate_report(engine: EngineId, mode: AuditMode, message: String) -> A
     report.recompute_outcome();
     report.canonicalize();
     report
+}
+
+fn auditor_panic_message(method: &str) -> String {
+    format!("asset auditor panicked while calling {method}")
 }
 
 fn indeterminate_finding(message: String) -> AuditFinding {
@@ -849,28 +890,55 @@ mod tests {
         }
     }
 
-    struct PanickingAuditor;
+    #[derive(Clone, Copy)]
+    enum PanickingMethod {
+        Id,
+        Version,
+        Supports,
+        Audit,
+    }
+
+    struct PanickingAuditor {
+        method: PanickingMethod,
+    }
 
     impl AssetAuditor for PanickingAuditor {
         fn id(&self) -> &'static str {
-            "panicking"
+            if matches!(self.method, PanickingMethod::Id) {
+                panic!("id failed")
+            }
+            match self.method {
+                PanickingMethod::Version => "panics-version",
+                PanickingMethod::Supports => "panics-supports",
+                PanickingMethod::Audit => "panics-audit",
+                PanickingMethod::Id => unreachable!(),
+            }
         }
 
         fn version(&self) -> &'static str {
+            if matches!(self.method, PanickingMethod::Version) {
+                panic!("version failed")
+            }
             "1"
         }
 
         fn supports(&self, _engine: EngineId) -> bool {
+            if matches!(self.method, PanickingMethod::Supports) {
+                panic!("supports failed")
+            }
             true
         }
 
         fn audit(
             &self,
             _source: &GameSourceIndex,
-            _engine: &EngineDescriptor,
-            _options: &AssetAuditOptions,
+            engine: &EngineDescriptor,
+            options: &AssetAuditOptions,
         ) -> AssetAuditReport {
-            panic!("adapter failed")
+            if matches!(self.method, PanickingMethod::Audit) {
+                panic!("audit failed")
+            }
+            empty_report(engine.id, options.mode)
         }
     }
 
@@ -983,10 +1051,25 @@ mod tests {
         );
     }
 
+    fn assert_indeterminate_panic_report(report: AssetAuditReport, expected_method: &str) {
+        assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+        assert!(!report.completeness.required_scope_complete);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].code, "CMP-AUD-001");
+        assert_eq!(
+            report.findings[0].message,
+            format!("asset auditor panicked while calling {expected_method}")
+        );
+    }
+
     #[test]
-    fn registry_converts_adapter_panics_to_indeterminate_findings() {
+    fn registry_contains_supports_panics() {
         let mut registry = AssetAuditorRegistry::new();
-        registry.register(Box::new(PanickingAuditor)).unwrap();
+        registry
+            .register(Box::new(PanickingAuditor {
+                method: PanickingMethod::Supports,
+            }))
+            .unwrap();
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             registry.audit(
@@ -996,10 +1079,75 @@ mod tests {
             )
         }));
 
-        let report = result.expect("registry must contain adapter panics");
-        assert_eq!(report.outcome, AuditOutcome::Indeterminate);
-        assert_eq!(report.findings.len(), 1);
-        assert_eq!(report.findings[0].code, "CMP-AUD-001");
-        assert!(report.findings[0].message.contains("panicking"));
+        assert_indeterminate_panic_report(
+            result.expect("registry must contain supports panic"),
+            "supports",
+        );
+    }
+
+    #[test]
+    fn registry_contains_id_panics() {
+        let mut registry = AssetAuditorRegistry::new();
+        registry
+            .register(Box::new(PanickingAuditor {
+                method: PanickingMethod::Id,
+            }))
+            .unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.audit(
+                &source(),
+                &descriptor(EngineId::RpgMakerMv),
+                &AssetAuditOptions::default(),
+            )
+        }));
+
+        assert_indeterminate_panic_report(result.expect("registry must contain id panic"), "id");
+    }
+
+    #[test]
+    fn registry_contains_version_panics() {
+        let mut registry = AssetAuditorRegistry::new();
+        registry
+            .register(Box::new(PanickingAuditor {
+                method: PanickingMethod::Version,
+            }))
+            .unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.audit(
+                &source(),
+                &descriptor(EngineId::RpgMakerMv),
+                &AssetAuditOptions::default(),
+            )
+        }));
+
+        assert_indeterminate_panic_report(
+            result.expect("registry must contain version panic"),
+            "version",
+        );
+    }
+
+    #[test]
+    fn registry_contains_audit_panics_without_reentering_metadata_methods() {
+        let mut registry = AssetAuditorRegistry::new();
+        registry
+            .register(Box::new(PanickingAuditor {
+                method: PanickingMethod::Audit,
+            }))
+            .unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.audit(
+                &source(),
+                &descriptor(EngineId::RpgMakerMv),
+                &AssetAuditOptions::default(),
+            )
+        }));
+
+        assert_indeterminate_panic_report(
+            result.expect("registry must contain audit panic"),
+            "audit",
+        );
     }
 }
