@@ -1,3 +1,4 @@
+pub mod asset_audit;
 pub mod build_plan;
 pub mod compatibility;
 pub mod detection;

@@ -1,0 +1,217 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AssetAuditReport",
+  "description": "Authoritative static asset audit report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine",
+    "mode",
+    "outcome",
+    "completeness",
+    "statistics",
+    "graph",
+    "findings",
+    "overrides",
+    "runtime_validation"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "engine": {
+      "type": "string",
+      "enum": [
+        "rpg-maker-xp",
+        "rpg-maker-vx",
+        "rpg-maker-vx-ace",
+        "rpg-maker-mv",
+        "rpg-maker-mz",
+        "ren-py",
+        "tyrano",
+        "unknown"
+      ]
+    },
+    "mode": { "type": "string", "enum": ["STANDARD", "DEEP"] },
+    "outcome": {
+      "type": "string",
+      "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"]
+    },
+    "completeness": { "$ref": "#/definitions/completeness" },
+    "statistics": { "$ref": "#/definitions/statistics" },
+    "graph": { "$ref": "#/definitions/graph" },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "overrides": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/override" }
+    },
+    "runtime_validation": {
+      "type": "string",
+      "enum": ["NOT_RUN", "PASS", "WARNING", "FAIL", "INDETERMINATE"]
+    }
+  },
+  "definitions": {
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_scope_complete",
+        "covered_reference_classes",
+        "uncovered_reference_classes"
+      ],
+      "properties": {
+        "required_scope_complete": { "type": "boolean" },
+        "covered_reference_classes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "uncovered_reference_classes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "references", "findings"],
+      "properties": {
+        "nodes": { "type": "integer", "minimum": 0 },
+        "references": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/node" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/edge" }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "logical_path"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "MAP",
+            "EVENT",
+            "EVENT_PAGE",
+            "COMMAND",
+            "DATABASE_ENTITY",
+            "SCRIPT",
+            "PLUGIN",
+            "IMAGE",
+            "AUDIO",
+            "FONT",
+            "VIDEO",
+            "ARCHIVE_ENTRY",
+            "EXTERNAL_RESOURCE",
+            "RUNTIME_PROVIDED_RESOURCE",
+            "UNRESOLVED_DYNAMIC_REFERENCE"
+          ]
+        },
+        "logical_path": { "type": ["string", "null"] }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "target",
+        "relation",
+        "requiredness",
+        "evidence",
+        "resolution"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "relation": { "type": "string" },
+        "requiredness": {
+          "type": "string",
+          "enum": ["REQUIRED", "OPTIONAL"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "REFERENCE_FOUND",
+              "PATH_RESOLVED",
+              "FILE_EXISTS",
+              "FILE_READABLE",
+              "INTEGRITY_VERIFIED",
+              "DECODE_SUCCESS",
+              "ENGINE_LOAD_SUCCESS",
+              "RUNTIME_USE_SUCCESS"
+            ]
+          }
+        },
+        "resolution": {
+          "type": "string",
+          "enum": ["RESOLVED", "UNRESOLVED", "EXTERNAL", "RUNTIME_PROVIDED"]
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "code",
+        "severity",
+        "disposition",
+        "requiredness",
+        "message",
+        "source_node_ids",
+        "orphan"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["INFO", "WARNING", "ERROR"]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["INFORMATIONAL", "WARNING", "BLOCKING", "INDETERMINATE"]
+        },
+        "requiredness": {
+          "type": "string",
+          "enum": ["REQUIRED", "OPTIONAL"]
+        },
+        "message": { "type": "string" },
+        "source_node_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "orphan": { "type": "boolean" }
+      }
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flag", "rationale"],
+      "properties": {
+        "flag": { "type": "string" },
+        "rationale": { "type": "string" }
+      }
+    }
+  }
+}
