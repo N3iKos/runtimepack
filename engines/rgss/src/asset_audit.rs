@@ -9,25 +9,20 @@ use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::GameSourceIndex;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static FINDING_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-fn next_finding_id(code: &str) -> String {
-    let count = FINDING_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{code}-{count}")
-}
+use std::collections::HashSet;
 
 fn make_finding(
     code: &'static str,
     requiredness: ReferenceRequiredness,
     message: String,
     source_node_ids: Vec<String>,
+    finding_counter: &mut usize,
 ) -> AuditFinding {
+    *finding_counter += 1;
     let (severity, disposition) = audit_finding_classification(code, requiredness, false)
         .unwrap_or((FindingSeverity::Warning, FindingDisposition::Warning));
     AuditFinding {
-        id: next_finding_id(code),
+        id: format!("{code}-{finding_counter}"),
         code: code.to_string(),
         severity,
         disposition,
@@ -162,7 +157,7 @@ impl MarshalValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MarshalError {
     UnexpectedEof,
     BadMagic,
@@ -200,6 +195,10 @@ impl<'a> MarshalReader<'a> {
         }
     }
 
+    fn remaining_bytes(&self) -> usize {
+        self.data.len().saturating_sub(self.pos)
+    }
+
     fn read_byte(&mut self) -> Result<u8, MarshalError> {
         if self.pos >= self.data.len() {
             return Err(MarshalError::UnexpectedEof);
@@ -223,29 +222,29 @@ impl<'a> MarshalReader<'a> {
         if b == 0 {
             return Ok(0);
         }
-        if (4..=127).contains(&b) {
+        if (5..=127).contains(&b) {
             return Ok((b - 5) as i32);
         }
-        if (-128..=-4).contains(&b) {
+        if (-128..=-5).contains(&b) {
             return Ok((b + 5) as i32);
         }
         if (1..=4).contains(&b) {
             let count = b as usize;
-            let mut val = 0i32;
+            let mut val = 0i64;
             for i in 0..count {
                 let byte = self.read_byte()?;
-                val |= (byte as i32) << (8 * i);
+                val |= (byte as i64) << (8 * i);
             }
-            return Ok(val);
+            return Ok(val as i32);
         }
         if (-4..=-1).contains(&b) {
             let count = (-b) as usize;
-            let mut val = -1i32;
+            let mut val = -1i64;
             for i in 0..count {
                 let byte = self.read_byte()?;
-                val = (val & !(0xff << (8 * i))) | ((byte as i32) << (8 * i));
+                val = (val & !(0xff << (8 * i))) | ((byte as i64) << (8 * i));
             }
-            return Ok(val);
+            return Ok(val as i32);
         }
         Err(MarshalError::Corrupt(format!("invalid long prefix: {b}")))
     }
@@ -257,6 +256,12 @@ impl<'a> MarshalReader<'a> {
                 let len = self.read_long()?;
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative symbol length".into()));
+                }
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "symbol length {len} exceeds remaining bytes {rem}"
+                    )));
                 }
                 let bytes = self.read_bytes(len as usize)?;
                 let sym = String::from_utf8_lossy(bytes).into_owned();
@@ -303,6 +308,12 @@ impl<'a> MarshalReader<'a> {
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative symbol length".into()));
                 }
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "symbol length {len} exceeds remaining bytes {rem}"
+                    )));
+                }
                 let bytes = self.read_bytes(len as usize)?;
                 let sym = String::from_utf8_lossy(bytes).into_owned();
                 self.symbols.push(sym.clone());
@@ -333,18 +344,31 @@ impl<'a> MarshalReader<'a> {
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative string length".into()));
                 }
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "string length {len} exceeds remaining bytes {rem}"
+                    )));
+                }
                 let bytes = self.read_bytes(len as usize)?.to_vec();
                 let val = MarshalValue::String(bytes);
                 self.objects[slot] = val.clone();
                 Ok(val)
             }
             b'I' => {
+                let slot = self.objects.len();
                 let target = self.parse_value()?;
                 let ivar_count = self.read_long()?;
                 if ivar_count < 0 {
                     return Err(MarshalError::Corrupt("negative ivar count".into()));
                 }
-                let mut ivars = Vec::with_capacity(ivar_count as usize);
+                let rem = self.remaining_bytes();
+                if (ivar_count as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "ivar count {ivar_count} exceeds remaining bytes {rem}"
+                    )));
+                }
+                let mut ivars = Vec::with_capacity((ivar_count as usize).min(rem));
                 for _ in 0..ivar_count {
                     let sym = self.read_symbol()?;
                     let val = self.parse_value()?;
@@ -354,6 +378,11 @@ impl<'a> MarshalReader<'a> {
                     target: Box::new(target),
                     ivars,
                 };
+                if slot < self.objects.len() {
+                    self.objects[slot] = res.clone();
+                } else {
+                    self.objects.push(res.clone());
+                }
                 Ok(res)
             }
             b'[' => {
@@ -363,7 +392,13 @@ impl<'a> MarshalReader<'a> {
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative array length".into()));
                 }
-                let mut items = Vec::with_capacity(len as usize);
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "array length {len} exceeds remaining bytes {rem}"
+                    )));
+                }
+                let mut items = Vec::with_capacity((len as usize).min(rem));
                 for _ in 0..len {
                     items.push(self.parse_value()?);
                 }
@@ -378,7 +413,13 @@ impl<'a> MarshalReader<'a> {
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative hash length".into()));
                 }
-                let mut pairs = Vec::with_capacity(len as usize);
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "hash length {len} exceeds remaining bytes {rem}"
+                    )));
+                }
+                let mut pairs = Vec::with_capacity((len as usize).min(rem));
                 for _ in 0..len {
                     let k = self.parse_value()?;
                     let v = self.parse_value()?;
@@ -396,7 +437,13 @@ impl<'a> MarshalReader<'a> {
                 if ivar_count < 0 {
                     return Err(MarshalError::Corrupt("negative object ivar count".into()));
                 }
-                let mut ivars = Vec::with_capacity(ivar_count as usize);
+                let rem = self.remaining_bytes();
+                if (ivar_count as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "object ivar count {ivar_count} exceeds remaining bytes {rem}"
+                    )));
+                }
+                let mut ivars = Vec::with_capacity((ivar_count as usize).min(rem));
                 for _ in 0..ivar_count {
                     let k = self.read_symbol()?;
                     let v = self.parse_value()?;
@@ -413,6 +460,12 @@ impl<'a> MarshalReader<'a> {
                 let len = self.read_long()?;
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative user data length".into()));
+                }
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "user data length {len} exceeds remaining bytes {rem}"
+                    )));
                 }
                 let data = self.read_bytes(len as usize)?.to_vec();
                 let val = MarshalValue::UserDefined { class_name, data };
@@ -438,6 +491,12 @@ impl<'a> MarshalReader<'a> {
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative float length".into()));
                 }
+                let rem = self.remaining_bytes();
+                if (len as usize) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "float length {len} exceeds remaining bytes {rem}"
+                    )));
+                }
                 let bytes = self.read_bytes(len as usize)?;
                 let s = String::from_utf8_lossy(bytes).into_owned();
                 let val = MarshalValue::String(s.into_bytes());
@@ -451,6 +510,12 @@ impl<'a> MarshalReader<'a> {
                 let len = self.read_long()?;
                 if len < 0 {
                     return Err(MarshalError::Corrupt("negative bignum length".into()));
+                }
+                let rem = self.remaining_bytes();
+                if (len as usize * 2) > rem {
+                    return Err(MarshalError::Corrupt(format!(
+                        "bignum length {len} exceeds remaining bytes {rem}"
+                    )));
                 }
                 let bytes = self.read_bytes((len * 2) as usize)?.to_vec();
                 let val = MarshalValue::String(bytes);
@@ -523,6 +588,7 @@ impl AssetAuditor for RgssAssetAuditor {
         engine: &EngineDescriptor,
         options: &AssetAuditOptions,
     ) -> AssetAuditReport {
+        let mut finding_counter = 0usize;
         let gen = match RgssGeneration::for_engine(engine.id) {
             Some(g) => g,
             None => {
@@ -542,6 +608,7 @@ impl AssetAuditor for RgssAssetAuditor {
                             engine.id
                         ),
                         Vec::new(),
+                        &mut finding_counter,
                     )],
                     overrides: Vec::new(),
                     runtime_validation: RuntimeValidationState::NotRun,
@@ -554,10 +621,11 @@ impl AssetAuditor for RgssAssetAuditor {
 
         let mut findings = Vec::new();
         let mut graph = DependencyGraph::default();
+        let mut node_ids = HashSet::new();
         let mut coverage = AuditCoverage::new();
         let resolver = AssetResolver::new(source);
 
-        // Check limits
+        // Check limits: max_files, max_total_bytes, max_single_file_bytes
         if source.files.len() as u64 > options.limits.max_files
             || source.total_size_bytes > options.limits.max_total_bytes
         {
@@ -570,7 +638,23 @@ impl AssetAuditor for RgssAssetAuditor {
                     source.total_size_bytes
                 ),
                 Vec::new(),
+                &mut finding_counter,
             ));
+        }
+
+        for file in source.files.values() {
+            if file.size_bytes > options.limits.max_single_file_bytes {
+                findings.push(make_finding(
+                    DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+                    ReferenceRequiredness::Required,
+                    format!(
+                        "File '{}' size {} bytes exceeds max_single_file_bytes limit {}",
+                        file.logical_path, file.size_bytes, options.limits.max_single_file_bytes
+                    ),
+                    vec![file.logical_path.clone()],
+                    &mut finding_counter,
+                ));
+            }
         }
 
         // Declare covered reference classes in standard mode
@@ -581,6 +665,84 @@ impl AssetAuditor for RgssAssetAuditor {
 
         let ext = gen.data_extension();
 
+        // Check encrypted archive
+        let has_encrypted_archive = source.files.values().any(|f| {
+            f.logical_path
+                .to_ascii_lowercase()
+                .ends_with(gen.encrypted_extension())
+        });
+
+        // Required database files check (Critical 2)
+        let required_db_files: &[&str] = match gen {
+            RgssGeneration::Xp => &[
+                "System.rxdata",
+                "Actors.rxdata",
+                "Classes.rxdata",
+                "Skills.rxdata",
+                "Items.rxdata",
+                "Weapons.rxdata",
+                "Armors.rxdata",
+                "Enemies.rxdata",
+                "Troops.rxdata",
+                "States.rxdata",
+                "Animations.rxdata",
+                "Tilesets.rxdata",
+                "CommonEvents.rxdata",
+            ],
+            RgssGeneration::Vx => &[
+                "System.rvdata",
+                "Actors.rvdata",
+                "Classes.rvdata",
+                "Skills.rvdata",
+                "Items.rvdata",
+                "Weapons.rvdata",
+                "Armors.rvdata",
+                "Enemies.rvdata",
+                "Troops.rvdata",
+                "States.rvdata",
+                "Animations.rvdata",
+                "CommonEvents.rvdata",
+            ],
+            RgssGeneration::VxAce => &[
+                "System.rvdata2",
+                "Actors.rvdata2",
+                "Classes.rvdata2",
+                "Skills.rvdata2",
+                "Items.rvdata2",
+                "Weapons.rvdata2",
+                "Armors.rvdata2",
+                "Enemies.rvdata2",
+                "Troops.rvdata2",
+                "States.rvdata2",
+                "Animations.rvdata2",
+                "Tilesets.rvdata2",
+                "CommonEvents.rvdata2",
+            ],
+        };
+
+        if !has_encrypted_archive {
+            for db_file in required_db_files {
+                let db_path = format!("Data/{db_file}");
+                if source.get_file(&db_path).is_none() {
+                    let source_id = format!("database_file:{db_path}");
+                    findings.push(make_finding(
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                        ReferenceRequiredness::Required,
+                        format!("Required database file '{db_path}' is missing on disk"),
+                        vec![source_id.clone()],
+                        &mut finding_counter,
+                    ));
+                    if node_ids.insert(source_id.clone()) {
+                        graph.nodes.push(AssetNode {
+                            id: source_id,
+                            kind: AssetKind::DatabaseEntity,
+                            logical_path: Some(db_path),
+                        });
+                    }
+                }
+            }
+        }
+
         // 1. Audit System data
         let system_path = format!("Data/System.{ext}");
         audit_system_file(
@@ -589,22 +751,34 @@ impl AssetAuditor for RgssAssetAuditor {
             source,
             &resolver,
             &mut graph,
+            &mut node_ids,
             &mut findings,
+            &mut finding_counter,
         );
 
         // 2. Audit Database files
-        audit_database_files(gen, source, &resolver, &mut graph, &mut findings);
+        audit_database_files(
+            gen,
+            source,
+            &resolver,
+            &mut graph,
+            &mut node_ids,
+            &mut findings,
+            &mut finding_counter,
+        );
 
         // 3. Audit Map files
-        audit_map_files(gen, source, &resolver, &mut graph, &mut findings);
+        audit_map_files(
+            gen,
+            source,
+            &resolver,
+            &mut graph,
+            &mut node_ids,
+            &mut findings,
+            &mut finding_counter,
+        );
 
         // 4. Standard vs Deep mode checks
-        let has_encrypted_archive = source.files.values().any(|f| {
-            f.logical_path
-                .to_ascii_lowercase()
-                .ends_with(gen.encrypted_extension())
-        });
-
         if has_encrypted_archive {
             let archive_path = source
                 .files
@@ -624,6 +798,7 @@ impl AssetAuditor for RgssAssetAuditor {
                     ReferenceRequiredness::Required,
                     format!("Encrypted RGSS archive '{archive_path}' requires decryption key and runtime extraction for static inventory"),
                     vec![archive_path],
+                    &mut finding_counter,
                 ));
             } else if !source.has_file(&system_path) {
                 // In standard mode, if Data/System does not exist unpacked because it is in an encrypted archive
@@ -633,6 +808,7 @@ impl AssetAuditor for RgssAssetAuditor {
                     ReferenceRequiredness::Required,
                     format!("Game content is stored in encrypted archive '{archive_path}' without unpacked data files"),
                     vec![archive_path],
+                    &mut finding_counter,
                 ));
             }
         }
@@ -650,6 +826,7 @@ impl AssetAuditor for RgssAssetAuditor {
                                 ReferenceRequiredness::Required,
                                 format!("RGSS script archive '{scripts_path}' contains dynamic Ruby code that cannot be fully verified statically"),
                                 vec![scripts_path],
+                                &mut finding_counter,
                             ));
                         }
                         Err(e) => {
@@ -660,6 +837,7 @@ impl AssetAuditor for RgssAssetAuditor {
                                     "Malformed or corrupt script archive '{scripts_path}': {e}"
                                 ),
                                 vec![scripts_path],
+                                &mut finding_counter,
                             ));
                         }
                     },
@@ -669,6 +847,7 @@ impl AssetAuditor for RgssAssetAuditor {
                             ReferenceRequiredness::Required,
                             format!("Failed to read script archive '{scripts_path}': {e}"),
                             vec![scripts_path],
+                            &mut finding_counter,
                         ));
                     }
                 }
@@ -699,6 +878,7 @@ fn read_and_parse_data_file(
     logical_path: &str,
     source: &GameSourceIndex,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) -> Option<MarshalValue> {
     let indexed_file = source.get_file(logical_path)?;
     let full_path = source.root_path.join(&indexed_file.relative_path);
@@ -710,6 +890,7 @@ fn read_and_parse_data_file(
                 ReferenceRequiredness::Required,
                 format!("Failed to read data file '{logical_path}': {e}"),
                 vec![logical_path.to_string()],
+                finding_counter,
             ));
             return None;
         }
@@ -722,6 +903,7 @@ fn read_and_parse_data_file(
                 ReferenceRequiredness::Required,
                 format!("Malformed or corrupt data file '{logical_path}': {e}"),
                 vec![logical_path.to_string()],
+                finding_counter,
             ));
             None
         }
@@ -732,12 +914,14 @@ fn read_and_parse_data_file(
 fn resolve_and_record(
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
     source_node_id: &str,
     target_base_path: &str,
     extensions: &[&str],
     kind: AssetKind,
     requiredness: ReferenceRequiredness,
+    finding_counter: &mut usize,
 ) {
     let rule = CandidateRule::with_extensions(target_base_path, extensions.iter().copied());
     let res = resolver.resolve(&rule, kind);
@@ -758,6 +942,7 @@ fn resolve_and_record(
                 ReferenceRequiredness::Required,
                 format!("Asset reference '{expected}' has case mismatch with '{actual}' on disk"),
                 vec![source_node_id.to_string()],
+                finding_counter,
             ));
             (
                 node.id.clone(),
@@ -774,6 +959,7 @@ fn resolve_and_record(
                     colliding
                 ),
                 vec![source_node_id.to_string()],
+                finding_counter,
             ));
             (
                 format!("{}:{target_base_path}", kind.as_str()),
@@ -795,6 +981,7 @@ fn resolve_and_record(
                     attempted
                 ),
                 vec![source_node_id.to_string()],
+                finding_counter,
             ));
             (
                 format!("{}:{target_base_path}", kind.as_str()),
@@ -808,6 +995,7 @@ fn resolve_and_record(
                 ReferenceRequiredness::Required,
                 format!("Unsafe path traversal in asset reference: '{path}'"),
                 vec![source_node_id.to_string()],
+                finding_counter,
             ));
             (
                 format!("{}:{target_base_path}", kind.as_str()),
@@ -817,7 +1005,7 @@ fn resolve_and_record(
         }
     };
 
-    if !graph.nodes.iter().any(|n| n.id == target_id) {
+    if node_ids.insert(target_id.clone()) {
         graph.nodes.push(AssetNode {
             id: target_id.clone(),
             kind,
@@ -838,13 +1026,16 @@ fn resolve_and_record(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audit_audio_val(
     audio: &MarshalValue,
     folder: &str,
     source_node: &str,
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) {
     if let Some(name) = audio.get_ivar_str("@name").or_else(|| audio.as_str()) {
         if !name.is_empty() {
@@ -852,31 +1043,36 @@ fn audit_audio_val(
             resolve_and_record(
                 resolver,
                 graph,
+                node_ids,
                 findings,
                 source_node,
                 &base,
                 AUDIO_EXTENSIONS,
                 AssetKind::Audio,
                 ReferenceRequiredness::Required,
+                finding_counter,
             );
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audit_system_file(
     logical_path: &str,
     gen: RgssGeneration,
     source: &GameSourceIndex,
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) {
-    let sys = match read_and_parse_data_file(logical_path, source, findings) {
+    let sys = match read_and_parse_data_file(logical_path, source, findings, finding_counter) {
         Some(s) => s,
         None => return,
     };
     let sys_node_id = "Database:System".to_string();
-    if !graph.nodes.iter().any(|n| n.id == sys_node_id) {
+    if node_ids.insert(sys_node_id.clone()) {
         graph.nodes.push(AssetNode {
             id: sys_node_id.clone(),
             kind: AssetKind::DatabaseEntity,
@@ -899,12 +1095,14 @@ fn audit_system_file(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &sys_node_id,
                             &format!("{folder}/{name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
@@ -912,12 +1110,30 @@ fn audit_system_file(
 
             for field in ["@title_bgm", "@battle_bgm"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/BGM", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/BGM",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for field in ["@battle_end_me", "@gameover_me"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/ME", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/ME",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for field in [
@@ -935,7 +1151,16 @@ fn audit_system_file(
                 "@enemy_collapse_se",
             ] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/SE", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/SE",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
         }
@@ -945,28 +1170,57 @@ fn audit_system_file(
                     resolve_and_record(
                         resolver,
                         graph,
+                        node_ids,
                         findings,
                         &sys_node_id,
                         &format!("Graphics/System/{name}"),
                         IMAGE_EXTENSIONS,
                         AssetKind::Image,
                         ReferenceRequiredness::Required,
+                        finding_counter,
                     );
                 }
             }
             for field in ["@title_bgm", "@battle_bgm"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/BGM", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/BGM",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for field in ["@battle_end_me", "@gameover_me"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/ME", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/ME",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             if let Some(sounds) = sys.get_ivar("@sounds").and_then(|v| v.as_array()) {
                 for sound in sounds {
-                    audit_audio_val(sound, "Audio/SE", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        sound,
+                        "Audio/SE",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for v_name in ["@boat", "@ship", "@airship"] {
@@ -976,17 +1230,28 @@ fn audit_system_file(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &sys_node_id,
                                 &format!("Graphics/Characters/{c_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
                     if let Some(bgm) = vehicle.get_ivar("@bgm") {
-                        audit_audio_val(bgm, "Audio/BGM", &sys_node_id, resolver, graph, findings);
+                        audit_audio_val(
+                            bgm,
+                            "Audio/BGM",
+                            &sys_node_id,
+                            resolver,
+                            graph,
+                            node_ids,
+                            findings,
+                            finding_counter,
+                        );
                     }
                 }
             }
@@ -1003,29 +1268,58 @@ fn audit_system_file(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &sys_node_id,
                             &format!("{folder}/{name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
             }
             for field in ["@title_bgm", "@battle_bgm"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/BGM", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/BGM",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for field in ["@battle_end_me", "@gameover_me"] {
                 if let Some(audio) = sys.get_ivar(field) {
-                    audit_audio_val(audio, "Audio/ME", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/ME",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             if let Some(sounds) = sys.get_ivar("@sounds").and_then(|v| v.as_array()) {
                 for sound in sounds {
-                    audit_audio_val(sound, "Audio/SE", &sys_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        sound,
+                        "Audio/SE",
+                        &sys_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             for v_name in ["@boat", "@ship", "@airship"] {
@@ -1035,17 +1329,28 @@ fn audit_system_file(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &sys_node_id,
                                 &format!("Graphics/Characters/{c_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
                     if let Some(bgm) = vehicle.get_ivar("@bgm") {
-                        audit_audio_val(bgm, "Audio/BGM", &sys_node_id, resolver, graph, findings);
+                        audit_audio_val(
+                            bgm,
+                            "Audio/BGM",
+                            &sys_node_id,
+                            resolver,
+                            graph,
+                            node_ids,
+                            findings,
+                            finding_counter,
+                        );
                     }
                 }
             }
@@ -1053,18 +1358,21 @@ fn audit_system_file(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audit_database_files(
     gen: RgssGeneration,
     source: &GameSourceIndex,
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) {
     let ext = gen.data_extension();
 
     // Actors
     let actors_path = format!("Data/Actors.{ext}");
-    if let Some(val) = read_and_parse_data_file(&actors_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&actors_path, source, findings, finding_counter) {
         if let Some(actors) = val.as_array() {
             for actor in actors {
                 let id = actor.get_ivar_i32("@id").unwrap_or(0);
@@ -1072,7 +1380,7 @@ fn audit_database_files(
                     continue;
                 }
                 let node_id = format!("Database:Actors:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1084,12 +1392,14 @@ fn audit_database_files(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &node_id,
                             &format!("Graphics/Characters/{c_name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
@@ -1100,12 +1410,14 @@ fn audit_database_files(
                                 resolve_and_record(
                                     resolver,
                                     graph,
+                                    node_ids,
                                     findings,
                                     &node_id,
                                     &format!("Graphics/Battlers/{b_name}"),
                                     IMAGE_EXTENSIONS,
                                     AssetKind::Image,
                                     ReferenceRequiredness::Required,
+                                    finding_counter,
                                 );
                             }
                         }
@@ -1116,12 +1428,14 @@ fn audit_database_files(
                                 resolve_and_record(
                                     resolver,
                                     graph,
+                                    node_ids,
                                     findings,
                                     &node_id,
                                     &format!("Graphics/Faces/{f_name}"),
                                     IMAGE_EXTENSIONS,
                                     AssetKind::Image,
                                     ReferenceRequiredness::Required,
+                                    finding_counter,
                                 );
                             }
                         }
@@ -1131,9 +1445,323 @@ fn audit_database_files(
         }
     }
 
+    // Classes
+    let classes_path = format!("Data/Classes.{ext}");
+    if let Some(val) = read_and_parse_data_file(&classes_path, source, findings, finding_counter) {
+        if let Some(classes) = val.as_array() {
+            for cls in classes {
+                let id = cls.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:Classes:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id,
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+            }
+        }
+    }
+
+    // Skills
+    let skills_path = format!("Data/Skills.{ext}");
+    if let Some(val) = read_and_parse_data_file(&skills_path, source, findings, finding_counter) {
+        if let Some(skills) = val.as_array() {
+            for skill in skills {
+                let id = skill.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:Skills:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id.clone(),
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+                match gen {
+                    RgssGeneration::Xp => {
+                        if let Some(icon) = skill.get_ivar_str("@icon_name") {
+                            if !icon.is_empty() {
+                                resolve_and_record(
+                                    resolver,
+                                    graph,
+                                    node_ids,
+                                    findings,
+                                    &node_id,
+                                    &format!("Graphics/Icons/{icon}"),
+                                    IMAGE_EXTENSIONS,
+                                    AssetKind::Image,
+                                    ReferenceRequiredness::Required,
+                                    finding_counter,
+                                );
+                            }
+                        }
+                        if let Some(se) = skill.get_ivar("@sound_effect") {
+                            audit_audio_val(
+                                se,
+                                "Audio/SE",
+                                &node_id,
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                finding_counter,
+                            );
+                        }
+                    }
+                    RgssGeneration::Vx | RgssGeneration::VxAce => {
+                        if skill.get_ivar_i32("@icon_index").unwrap_or(0) > 0 {
+                            resolve_and_record(
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                &node_id,
+                                "Graphics/System/IconSet",
+                                IMAGE_EXTENSIONS,
+                                AssetKind::Image,
+                                ReferenceRequiredness::Required,
+                                finding_counter,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Items
+    let items_path = format!("Data/Items.{ext}");
+    if let Some(val) = read_and_parse_data_file(&items_path, source, findings, finding_counter) {
+        if let Some(items) = val.as_array() {
+            for item in items {
+                let id = item.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:Items:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id.clone(),
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+                match gen {
+                    RgssGeneration::Xp => {
+                        if let Some(icon) = item.get_ivar_str("@icon_name") {
+                            if !icon.is_empty() {
+                                resolve_and_record(
+                                    resolver,
+                                    graph,
+                                    node_ids,
+                                    findings,
+                                    &node_id,
+                                    &format!("Graphics/Icons/{icon}"),
+                                    IMAGE_EXTENSIONS,
+                                    AssetKind::Image,
+                                    ReferenceRequiredness::Required,
+                                    finding_counter,
+                                );
+                            }
+                        }
+                        if let Some(menu_se) = item.get_ivar_str("@menu_se_name") {
+                            if !menu_se.is_empty() {
+                                resolve_and_record(
+                                    resolver,
+                                    graph,
+                                    node_ids,
+                                    findings,
+                                    &node_id,
+                                    &format!("Audio/SE/{menu_se}"),
+                                    AUDIO_EXTENSIONS,
+                                    AssetKind::Audio,
+                                    ReferenceRequiredness::Required,
+                                    finding_counter,
+                                );
+                            }
+                        }
+                    }
+                    RgssGeneration::Vx | RgssGeneration::VxAce => {
+                        if item.get_ivar_i32("@icon_index").unwrap_or(0) > 0 {
+                            resolve_and_record(
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                &node_id,
+                                "Graphics/System/IconSet",
+                                IMAGE_EXTENSIONS,
+                                AssetKind::Image,
+                                ReferenceRequiredness::Required,
+                                finding_counter,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Weapons
+    let weapons_path = format!("Data/Weapons.{ext}");
+    if let Some(val) = read_and_parse_data_file(&weapons_path, source, findings, finding_counter) {
+        if let Some(weapons) = val.as_array() {
+            for weapon in weapons {
+                let id = weapon.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:Weapons:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id.clone(),
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+                match gen {
+                    RgssGeneration::Xp => {
+                        if let Some(icon) = weapon.get_ivar_str("@icon_name") {
+                            if !icon.is_empty() {
+                                resolve_and_record(
+                                    resolver,
+                                    graph,
+                                    node_ids,
+                                    findings,
+                                    &node_id,
+                                    &format!("Graphics/Icons/{icon}"),
+                                    IMAGE_EXTENSIONS,
+                                    AssetKind::Image,
+                                    ReferenceRequiredness::Required,
+                                    finding_counter,
+                                );
+                            }
+                        }
+                    }
+                    RgssGeneration::Vx | RgssGeneration::VxAce => {
+                        if weapon.get_ivar_i32("@icon_index").unwrap_or(0) > 0 {
+                            resolve_and_record(
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                &node_id,
+                                "Graphics/System/IconSet",
+                                IMAGE_EXTENSIONS,
+                                AssetKind::Image,
+                                ReferenceRequiredness::Required,
+                                finding_counter,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Armors
+    let armors_path = format!("Data/Armors.{ext}");
+    if let Some(val) = read_and_parse_data_file(&armors_path, source, findings, finding_counter) {
+        if let Some(armors) = val.as_array() {
+            for armor in armors {
+                let id = armor.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:Armors:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id.clone(),
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+                match gen {
+                    RgssGeneration::Xp => {
+                        if let Some(icon) = armor.get_ivar_str("@icon_name") {
+                            if !icon.is_empty() {
+                                resolve_and_record(
+                                    resolver,
+                                    graph,
+                                    node_ids,
+                                    findings,
+                                    &node_id,
+                                    &format!("Graphics/Icons/{icon}"),
+                                    IMAGE_EXTENSIONS,
+                                    AssetKind::Image,
+                                    ReferenceRequiredness::Required,
+                                    finding_counter,
+                                );
+                            }
+                        }
+                    }
+                    RgssGeneration::Vx | RgssGeneration::VxAce => {
+                        if armor.get_ivar_i32("@icon_index").unwrap_or(0) > 0 {
+                            resolve_and_record(
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                &node_id,
+                                "Graphics/System/IconSet",
+                                IMAGE_EXTENSIONS,
+                                AssetKind::Image,
+                                ReferenceRequiredness::Required,
+                                finding_counter,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // States
+    let states_path = format!("Data/States.{ext}");
+    if let Some(val) = read_and_parse_data_file(&states_path, source, findings, finding_counter) {
+        if let Some(states) = val.as_array() {
+            for state in states {
+                let id = state.get_ivar_i32("@id").unwrap_or(0);
+                if id == 0 {
+                    continue;
+                }
+                let node_id = format!("Database:States:{id}");
+                if node_ids.insert(node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: node_id.clone(),
+                        kind: AssetKind::DatabaseEntity,
+                        logical_path: None,
+                    });
+                }
+                if matches!(gen, RgssGeneration::Vx | RgssGeneration::VxAce)
+                    && state.get_ivar_i32("@icon_index").unwrap_or(0) > 0
+                {
+                    resolve_and_record(
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        &node_id,
+                        "Graphics/System/IconSet",
+                        IMAGE_EXTENSIONS,
+                        AssetKind::Image,
+                        ReferenceRequiredness::Required,
+                        finding_counter,
+                    );
+                }
+            }
+        }
+    }
+
     // Enemies
     let enemies_path = format!("Data/Enemies.{ext}");
-    if let Some(val) = read_and_parse_data_file(&enemies_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&enemies_path, source, findings, finding_counter) {
         if let Some(enemies) = val.as_array() {
             for enemy in enemies {
                 let id = enemy.get_ivar_i32("@id").unwrap_or(0);
@@ -1141,7 +1769,7 @@ fn audit_database_files(
                     continue;
                 }
                 let node_id = format!("Database:Enemies:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1153,12 +1781,14 @@ fn audit_database_files(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &node_id,
                             &format!("Graphics/Battlers/{b_name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
@@ -1168,7 +1798,7 @@ fn audit_database_files(
 
     // Tilesets
     let tilesets_path = format!("Data/Tilesets.{ext}");
-    if let Some(val) = read_and_parse_data_file(&tilesets_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&tilesets_path, source, findings, finding_counter) {
         if let Some(tilesets) = val.as_array() {
             for ts in tilesets {
                 let id = ts.get_ivar_i32("@id").unwrap_or(0);
@@ -1176,7 +1806,7 @@ fn audit_database_files(
                     continue;
                 }
                 let node_id = format!("Database:Tilesets:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1190,12 +1820,14 @@ fn audit_database_files(
                                 resolve_and_record(
                                     resolver,
                                     graph,
+                                    node_ids,
                                     findings,
                                     &node_id,
                                     &format!("Graphics/Tilesets/{ts_name}"),
                                     IMAGE_EXTENSIONS,
                                     AssetKind::Image,
                                     ReferenceRequiredness::Required,
+                                    finding_counter,
                                 );
                             }
                         }
@@ -1208,12 +1840,14 @@ fn audit_database_files(
                                         resolve_and_record(
                                             resolver,
                                             graph,
+                                            node_ids,
                                             findings,
                                             &node_id,
                                             &format!("Graphics/Autotiles/{at_name}"),
                                             IMAGE_EXTENSIONS,
                                             AssetKind::Image,
                                             ReferenceRequiredness::Required,
+                                            finding_counter,
                                         );
                                     }
                                 }
@@ -1229,12 +1863,14 @@ fn audit_database_files(
                                     resolve_and_record(
                                         resolver,
                                         graph,
+                                        node_ids,
                                         findings,
                                         &node_id,
                                         &format!("{folder}/{name}"),
                                         IMAGE_EXTENSIONS,
                                         AssetKind::Image,
                                         ReferenceRequiredness::Required,
+                                        finding_counter,
                                     );
                                 }
                             }
@@ -1251,12 +1887,14 @@ fn audit_database_files(
                                         resolve_and_record(
                                             resolver,
                                             graph,
+                                            node_ids,
                                             findings,
                                             &node_id,
                                             &format!("Graphics/Tilesets/{name}"),
                                             IMAGE_EXTENSIONS,
                                             AssetKind::Image,
                                             ReferenceRequiredness::Required,
+                                            finding_counter,
                                         );
                                     }
                                 }
@@ -1270,15 +1908,15 @@ fn audit_database_files(
 
     // Animations
     let anims_path = format!("Data/Animations.{ext}");
-    if let Some(val) = read_and_parse_data_file(&anims_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&anims_path, source, findings, finding_counter) {
         if let Some(anims) = val.as_array() {
             for anim in anims {
                 let id = anim.get_ivar_i32("@id").unwrap_or(0);
                 if id == 0 {
                     continue;
                 }
-                let node_id = format!("Database:Animations:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                let node_id = format!("database_entity:Animation:{id}");
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1292,12 +1930,14 @@ fn audit_database_files(
                                 resolve_and_record(
                                     resolver,
                                     graph,
+                                    node_ids,
                                     findings,
                                     &node_id,
                                     &format!("Graphics/Animations/{name}"),
                                     IMAGE_EXTENSIONS,
                                     AssetKind::Image,
                                     ReferenceRequiredness::Required,
+                                    finding_counter,
                                 );
                             }
                         }
@@ -1309,12 +1949,14 @@ fn audit_database_files(
                                     resolve_and_record(
                                         resolver,
                                         graph,
+                                        node_ids,
                                         findings,
                                         &node_id,
                                         &format!("Graphics/Animations/{name}"),
                                         IMAGE_EXTENSIONS,
                                         AssetKind::Image,
                                         ReferenceRequiredness::Required,
+                                        finding_counter,
                                     );
                                 }
                             }
@@ -1324,7 +1966,16 @@ fn audit_database_files(
                 if let Some(timings) = anim.get_ivar("@timings").and_then(|v| v.as_array()) {
                     for timing in timings {
                         if let Some(se) = timing.get_ivar("@se") {
-                            audit_audio_val(se, "Audio/SE", &node_id, resolver, graph, findings);
+                            audit_audio_val(
+                                se,
+                                "Audio/SE",
+                                &node_id,
+                                resolver,
+                                graph,
+                                node_ids,
+                                findings,
+                                finding_counter,
+                            );
                         }
                     }
                 }
@@ -1334,7 +1985,7 @@ fn audit_database_files(
 
     // CommonEvents
     let ce_path = format!("Data/CommonEvents.{ext}");
-    if let Some(val) = read_and_parse_data_file(&ce_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&ce_path, source, findings, finding_counter) {
         if let Some(ces) = val.as_array() {
             for ce in ces {
                 let id = ce.get_ivar_i32("@id").unwrap_or(0);
@@ -1342,7 +1993,7 @@ fn audit_database_files(
                     continue;
                 }
                 let node_id = format!("Database:CommonEvents:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1350,7 +2001,16 @@ fn audit_database_files(
                     });
                 }
                 if let Some(list) = ce.get_ivar("@list").and_then(|v| v.as_array()) {
-                    audit_event_commands(list, &node_id, gen, resolver, graph, findings);
+                    audit_event_commands(
+                        list,
+                        &node_id,
+                        gen,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
         }
@@ -1358,7 +2018,7 @@ fn audit_database_files(
 
     // Troops
     let troops_path = format!("Data/Troops.{ext}");
-    if let Some(val) = read_and_parse_data_file(&troops_path, source, findings) {
+    if let Some(val) = read_and_parse_data_file(&troops_path, source, findings, finding_counter) {
         if let Some(troops) = val.as_array() {
             for troop in troops {
                 let id = troop.get_ivar_i32("@id").unwrap_or(0);
@@ -1366,7 +2026,7 @@ fn audit_database_files(
                     continue;
                 }
                 let node_id = format!("Database:Troops:{id}");
-                if !graph.nodes.iter().any(|n| n.id == node_id) {
+                if node_ids.insert(node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: node_id.clone(),
                         kind: AssetKind::DatabaseEntity,
@@ -1375,8 +2035,8 @@ fn audit_database_files(
                 }
                 if let Some(pages) = troop.get_ivar("@pages").and_then(|v| v.as_array()) {
                     for (page_idx, page) in pages.iter().enumerate() {
-                        let page_node_id = format!("{node_id}:Page{page_idx}");
-                        if !graph.nodes.iter().any(|n| n.id == page_node_id) {
+                        let page_node_id = format!("{node_id}:Page{}", page_idx + 1);
+                        if node_ids.insert(page_node_id.clone()) {
                             graph.nodes.push(AssetNode {
                                 id: page_node_id.clone(),
                                 kind: AssetKind::EventPage,
@@ -1390,7 +2050,9 @@ fn audit_database_files(
                                 gen,
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
+                                finding_counter,
                             );
                         }
                     }
@@ -1398,22 +2060,49 @@ fn audit_database_files(
             }
         }
     }
+
+    // MapInfos (verify parsing)
+    let mapinfos_path = format!("Data/MapInfos.{ext}");
+    let _ = read_and_parse_data_file(&mapinfos_path, source, findings, finding_counter);
 }
 
+fn is_map_file(logical_path: &str, ext: &str) -> bool {
+    let lower = logical_path.to_ascii_lowercase();
+    let expected_suffix = format!(".{ext}");
+    if !lower.starts_with("data/map") || !lower.ends_with(&expected_suffix) {
+        return false;
+    }
+    let filename = logical_path.rsplit('/').next().unwrap_or(logical_path);
+    if let Some(rest) = filename
+        .strip_prefix("Map")
+        .or_else(|| filename.strip_prefix("map"))
+    {
+        if let Some(digits) = rest
+            .strip_suffix(&format!(".{ext}"))
+            .or_else(|| rest.strip_suffix(&expected_suffix))
+        {
+            return !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit());
+        }
+    }
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
 fn audit_map_files(
     gen: RgssGeneration,
     source: &GameSourceIndex,
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) {
     let ext = gen.data_extension();
     let mut map_paths: Vec<String> = source
         .files
         .values()
         .filter_map(|f| {
-            let lower = f.logical_path.to_ascii_lowercase();
-            if lower.starts_with("data/map") && lower.ends_with(&format!(".{ext}")) {
+            if is_map_file(&f.logical_path, ext) {
                 Some(f.logical_path.clone())
             } else {
                 None
@@ -1423,19 +2112,19 @@ fn audit_map_files(
     map_paths.sort();
 
     for map_path in map_paths {
-        let map_obj = match read_and_parse_data_file(&map_path, source, findings) {
+        let map_obj = match read_and_parse_data_file(&map_path, source, findings, finding_counter) {
             Some(m) => m,
             None => continue,
         };
 
-        // Extract map identifier e.g. "Map001"
+        // Canonical map node ID: map:Data/Map001.rxdata
+        let map_node_id = format!("map:{map_path}");
         let filename = map_path.rsplit('/').next().unwrap_or(&map_path);
         let map_name = filename
             .strip_suffix(&format!(".{ext}"))
             .unwrap_or(filename);
-        let map_node_id = map_name.to_string();
 
-        if !graph.nodes.iter().any(|n| n.id == map_node_id) {
+        if node_ids.insert(map_node_id.clone()) {
             graph.nodes.push(AssetNode {
                 id: map_node_id.clone(),
                 kind: AssetKind::Map,
@@ -1445,10 +2134,28 @@ fn audit_map_files(
 
         // BGM / BGS
         if let Some(bgm) = map_obj.get_ivar("@bgm") {
-            audit_audio_val(bgm, "Audio/BGM", &map_node_id, resolver, graph, findings);
+            audit_audio_val(
+                bgm,
+                "Audio/BGM",
+                &map_node_id,
+                resolver,
+                graph,
+                node_ids,
+                findings,
+                finding_counter,
+            );
         }
         if let Some(bgs) = map_obj.get_ivar("@bgs") {
-            audit_audio_val(bgs, "Audio/BGS", &map_node_id, resolver, graph, findings);
+            audit_audio_val(
+                bgs,
+                "Audio/BGS",
+                &map_node_id,
+                resolver,
+                graph,
+                node_ids,
+                findings,
+                finding_counter,
+            );
         }
 
         // Parallax / Panorama / Fog / Battleback
@@ -1464,12 +2171,14 @@ fn audit_map_files(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &map_node_id,
                                 &format!("{folder}/{name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
@@ -1481,12 +2190,14 @@ fn audit_map_files(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &map_node_id,
                             &format!("Graphics/Parallaxes/{name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
@@ -1502,12 +2213,14 @@ fn audit_map_files(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &map_node_id,
                                 &format!("{folder}/{name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
@@ -1534,19 +2247,27 @@ fn audit_map_files(
                 if event_id == 0 {
                     continue;
                 }
-                let event_node_id = format!("{map_node_id}:Event{event_id}");
-                if !graph.nodes.iter().any(|n| n.id == event_node_id) {
+                let event_node_id = format!("{map_name}:Event{event_id}");
+                if node_ids.insert(event_node_id.clone()) {
                     graph.nodes.push(AssetNode {
                         id: event_node_id.clone(),
                         kind: AssetKind::Event,
                         logical_path: None,
                     });
                 }
+                graph.edges.push(ReferenceEdge {
+                    source: map_node_id.clone(),
+                    target: event_node_id.clone(),
+                    relation: "contains_event".into(),
+                    requiredness: ReferenceRequiredness::Required,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Resolved,
+                });
 
                 if let Some(pages) = event.get_ivar("@pages").and_then(|v| v.as_array()) {
                     for (page_idx, page) in pages.iter().enumerate() {
                         let page_node_id = format!("{event_node_id}:Page{}", page_idx + 1);
-                        if !graph.nodes.iter().any(|n| n.id == page_node_id) {
+                        if node_ids.insert(page_node_id.clone()) {
                             graph.nodes.push(AssetNode {
                                 id: page_node_id.clone(),
                                 kind: AssetKind::EventPage,
@@ -1561,12 +2282,14 @@ fn audit_map_files(
                                     resolve_and_record(
                                         resolver,
                                         graph,
+                                        node_ids,
                                         findings,
                                         &page_node_id,
                                         &format!("Graphics/Characters/{char_name}"),
                                         IMAGE_EXTENSIONS,
                                         AssetKind::Image,
                                         ReferenceRequiredness::Required,
+                                        finding_counter,
                                     );
                                 }
                             }
@@ -1592,12 +2315,14 @@ fn audit_map_files(
                                                 resolve_and_record(
                                                     resolver,
                                                     graph,
+                                                    node_ids,
                                                     findings,
                                                     &page_node_id,
                                                     &format!("Graphics/Characters/{g_name}"),
                                                     IMAGE_EXTENSIONS,
                                                     AssetKind::Image,
                                                     ReferenceRequiredness::Required,
+                                                    finding_counter,
                                                 );
                                             }
                                         }
@@ -1611,7 +2336,9 @@ fn audit_map_files(
                                                 &page_node_id,
                                                 resolver,
                                                 graph,
+                                                node_ids,
                                                 findings,
+                                                finding_counter,
                                             );
                                         }
                                     }
@@ -1627,7 +2354,9 @@ fn audit_map_files(
                                 gen,
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
+                                finding_counter,
                             );
                         }
                     }
@@ -1637,13 +2366,16 @@ fn audit_map_files(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audit_event_commands(
     commands: &[MarshalValue],
     provenance_prefix: &str,
     gen: RgssGeneration,
     resolver: &AssetResolver,
     graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
 ) {
     for (cmd_idx, cmd) in commands.iter().enumerate() {
         let code = cmd.get_ivar_i32("@code").unwrap_or(0);
@@ -1656,7 +2388,7 @@ fn audit_event_commands(
             .unwrap_or(&[]);
         let cmd_node_id = format!("{provenance_prefix}:Command{cmd_idx}");
 
-        if !graph.nodes.iter().any(|n| n.id == cmd_node_id) {
+        if node_ids.insert(cmd_node_id.clone()) {
             graph.nodes.push(AssetNode {
                 id: cmd_node_id.clone(),
                 kind: AssetKind::Command,
@@ -1677,7 +2409,31 @@ fn audit_event_commands(
                     let target_id = format!("map:{target_map_path}");
                     match res {
                         ResolutionResult::Exact(node) => {
-                            if !graph.nodes.iter().any(|n| n.id == node.id) {
+                            if node_ids.insert(node.id.clone()) {
+                                graph.nodes.push(node.clone());
+                            }
+                            graph.edges.push(ReferenceEdge {
+                                source: cmd_node_id.clone(),
+                                target: node.id,
+                                relation: "transfer_target".into(),
+                                requiredness: ReferenceRequiredness::Required,
+                                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                                resolution: ReferenceResolution::Resolved,
+                            });
+                        }
+                        ResolutionResult::CaseMismatch {
+                            node,
+                            expected,
+                            actual,
+                        } => {
+                            findings.push(make_finding(
+                                DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                                ReferenceRequiredness::Required,
+                                format!("Player transfer target map '{expected}' has case mismatch with '{actual}' on disk"),
+                                vec![cmd_node_id.clone()],
+                                finding_counter,
+                            ));
+                            if node_ids.insert(node.id.clone()) {
                                 graph.nodes.push(node.clone());
                             }
                             graph.edges.push(ReferenceEdge {
@@ -1690,7 +2446,7 @@ fn audit_event_commands(
                             });
                         }
                         _ => {
-                            if !graph.nodes.iter().any(|n| n.id == target_id) {
+                            if node_ids.insert(target_id.clone()) {
                                 graph.nodes.push(AssetNode {
                                     id: target_id.clone(),
                                     kind: AssetKind::Map,
@@ -1710,13 +2466,14 @@ fn audit_event_commands(
                                 ReferenceRequiredness::Required,
                                 format!("Player transfer target map '{target_map_path}' does not exist on disk"),
                                 vec![cmd_node_id.clone()],
+                                finding_counter,
                             ));
                         }
                     }
                 } else {
                     // Variable transfer: appointment_method == 1
                     let dyn_id = "unresolved_dynamic_reference:variable_transfer".to_string();
-                    if !graph.nodes.iter().any(|n| n.id == dyn_id) {
+                    if node_ids.insert(dyn_id.clone()) {
                         graph.nodes.push(AssetNode {
                             id: dyn_id.clone(),
                             kind: AssetKind::UnresolvedDynamicReference,
@@ -1738,7 +2495,7 @@ fn audit_event_commands(
                 let anim_id = params.get(1).and_then(|v| v.as_i32()).unwrap_or(0);
                 if anim_id > 0 {
                     let anim_target = format!("database_entity:Animation:{anim_id}");
-                    if !graph.nodes.iter().any(|n| n.id == anim_target) {
+                    if node_ids.insert(anim_target.clone()) {
                         graph.nodes.push(AssetNode {
                             id: anim_target.clone(),
                             kind: AssetKind::DatabaseEntity,
@@ -1762,12 +2519,14 @@ fn audit_event_commands(
                         resolve_and_record(
                             resolver,
                             graph,
+                            node_ids,
                             findings,
                             &cmd_node_id,
                             &format!("Graphics/Pictures/{pic_name}"),
                             IMAGE_EXTENSIONS,
                             AssetKind::Image,
                             ReferenceRequiredness::Required,
+                            finding_counter,
                         );
                     }
                 }
@@ -1775,25 +2534,61 @@ fn audit_event_commands(
             // 241: Play BGM
             241 => {
                 if let Some(audio) = params.first() {
-                    audit_audio_val(audio, "Audio/BGM", &cmd_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/BGM",
+                        &cmd_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             // 245: Play BGS
             245 => {
                 if let Some(audio) = params.first() {
-                    audit_audio_val(audio, "Audio/BGS", &cmd_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/BGS",
+                        &cmd_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             // 249: Play ME
             249 => {
                 if let Some(audio) = params.first() {
-                    audit_audio_val(audio, "Audio/ME", &cmd_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/ME",
+                        &cmd_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             // 250: Play SE
             250 => {
                 if let Some(audio) = params.first() {
-                    audit_audio_val(audio, "Audio/SE", &cmd_node_id, resolver, graph, findings);
+                    audit_audio_val(
+                        audio,
+                        "Audio/SE",
+                        &cmd_node_id,
+                        resolver,
+                        graph,
+                        node_ids,
+                        findings,
+                        finding_counter,
+                    );
                 }
             }
             // 322: Change Actor Graphic
@@ -1804,12 +2599,14 @@ fn audit_event_commands(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &cmd_node_id,
                                 &format!("Graphics/Characters/{char_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
@@ -1818,12 +2615,14 @@ fn audit_event_commands(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &cmd_node_id,
                                 &format!("Graphics/Battlers/{battler_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
@@ -1834,12 +2633,14 @@ fn audit_event_commands(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &cmd_node_id,
                                 &format!("Graphics/Characters/{char_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
@@ -1848,18 +2649,125 @@ fn audit_event_commands(
                             resolve_and_record(
                                 resolver,
                                 graph,
+                                node_ids,
                                 findings,
                                 &cmd_node_id,
                                 &format!("Graphics/Faces/{face_name}"),
                                 IMAGE_EXTENSIONS,
                                 AssetKind::Image,
                                 ReferenceRequiredness::Required,
+                                finding_counter,
                             );
                         }
                     }
                 }
             },
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_marshal_fixnum_decoding() {
+        // 0
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 0]).unwrap(),
+            MarshalValue::Fixnum(0)
+        );
+        // Small positive 1 (1 + 5 = 6)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 6]).unwrap(),
+            MarshalValue::Fixnum(1)
+        );
+        // Small positive 122 (122 + 5 = 127)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 127]).unwrap(),
+            MarshalValue::Fixnum(122)
+        );
+        // 1-byte positive: 123 (count = 1, byte = 123)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 1, 123]).unwrap(),
+            MarshalValue::Fixnum(123)
+        );
+        // 2-byte positive: 300
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 2, 0x2c, 0x01]).unwrap(),
+            MarshalValue::Fixnum(300)
+        );
+        // 3-byte positive: 100_000
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 3, 0xa0, 0x86, 0x01]).unwrap(),
+            MarshalValue::Fixnum(100_000)
+        );
+        // 4-byte positive: 1_000_000_000
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 4, 0x00, 0xca, 0x9a, 0x3b]).unwrap(),
+            MarshalValue::Fixnum(1_000_000_000)
+        );
+
+        // Small negative -1 (-1 - 5 = -6 -> 250 / 0xfa)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 0xfa]).unwrap(),
+            MarshalValue::Fixnum(-1)
+        );
+        // Small negative -123 (-123 - 5 = -128 -> 128 / 0x80)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 0x80]).unwrap(),
+            MarshalValue::Fixnum(-123)
+        );
+        // 1-byte negative: -124 (-1 as count -> -124)
+        assert_eq!(
+            parse_marshal(&[0x04, 0x08, b'i', 0xff, 0x84]).unwrap(),
+            MarshalValue::Fixnum(-124)
+        );
+        // 4-byte negative: -100_000
+        let neg_100k = (-100_000i32).to_le_bytes();
+        assert_eq!(
+            parse_marshal(&[
+                0x04,
+                0x08,
+                b'i',
+                0xfc,
+                neg_100k[0],
+                neg_100k[1],
+                neg_100k[2],
+                neg_100k[3]
+            ])
+            .unwrap(),
+            MarshalValue::Fixnum(-100_000)
+        );
+    }
+
+    #[test]
+    fn test_bounded_allocation_rejects_huge_capacity() {
+        // Array with prefix claiming 100_000 elements in a buffer of only 5 bytes
+        let malformed = [0x04, 0x08, b'[', 3, 0xa0, 0x86, 0x01];
+        let res = parse_marshal(&malformed);
+        assert!(matches!(res, Err(MarshalError::Corrupt(_))));
+    }
+
+    #[test]
+    fn test_instance_vars_wrapper_updates_object_slot() {
+        // Ruby string "test" wrapped in I with ivar :@custom "val"
+        // Followed by an array [@1] which links back to the wrapped object (slot 1)
+        let data = [
+            0x04, 0x08, b'[', 7, // array length 2 (2 + 5 = 7)
+            b'I', b'"', 9, b'h', b'e', b'l', b'l', // string "hell" (len 4 -> 4 + 5 = 9)
+            6,    // 1 ivar (1 + 5 = 6)
+            b':', 7, b'@', b'f', // symbol :@f (len 2 -> 2 + 5 = 7)
+            b'T', // true
+            b'@', 6, // object link back to slot 1 (1 + 5 = 6)
+        ];
+        let val = parse_marshal(&data).unwrap();
+        if let MarshalValue::Array(items) = val {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], items[1]);
+        } else {
+            panic!("Expected array");
         }
     }
 }

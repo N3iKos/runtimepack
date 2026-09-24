@@ -326,7 +326,7 @@ fn test_xp_missing_animation_timing_se() {
         })
         .expect("Expected missing AnimSeXP finding");
 
-    assert!(missing.source_node_ids[0].contains("Database:Animations:1"));
+    assert!(missing.source_node_ids[0].contains("Animation:1"));
 }
 
 #[test]
@@ -392,7 +392,48 @@ fn test_xp_missing_troop_se() {
         })
         .expect("Expected missing BattleSe finding");
 
-    assert!(missing.source_node_ids[0].contains("Database:Troops:1:Page0:Command0"));
+    assert!(missing.source_node_ids[0].contains("Database:Troops:1:Page1:Command0"));
+}
+
+#[test]
+fn test_missing_database_file_fails_audit() {
+    let root = fixture_dir("xp_missing_database_file");
+    let index = make_index(&root);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerXp), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let missing = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Actors.rxdata")
+        })
+        .expect("Expected missing Actors.rxdata finding");
+
+    assert!(missing.source_node_ids[0].contains("Actors.rxdata"));
+}
+
+#[test]
+fn test_vxace_transfer_case_mismatch() {
+    let root = fixture_dir("vxace_transfer_case_mismatch");
+    let index = make_index(&root);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Warning);
+    let mismatch = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH && f.message.contains("Map001"))
+        .expect("Expected transfer Map001 case mismatch finding");
+
+    assert!(mismatch.source_node_ids[0].contains("Command0"));
 }
 
 #[test]

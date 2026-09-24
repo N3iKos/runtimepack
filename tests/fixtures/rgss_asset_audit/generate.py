@@ -162,6 +162,15 @@ def create_xp_valid(root: str):
     })
     make_file(os.path.join(root, "Data", "CommonEvents.rxdata"), dump_marshal([None, ce]))
 
+    # Classes, Skills, Items, Weapons, Armors, States, MapInfos
+    make_file(os.path.join(root, "Data", "Classes.rxdata"), dump_marshal([None, RubyObj("RPG::Class", {"@id": 1, "@name": "Warrior"})]))
+    make_file(os.path.join(root, "Data", "Skills.rxdata"), dump_marshal([None, RubyObj("RPG::Skill", {"@id": 1, "@icon_name": "SkillIconXP", "@sound_effect": audio_file("SkillSeXP")})]))
+    make_file(os.path.join(root, "Data", "Items.rxdata"), dump_marshal([None, RubyObj("RPG::Item", {"@id": 1, "@icon_name": "ItemIconXP", "@menu_se_name": "ItemSeXP"})]))
+    make_file(os.path.join(root, "Data", "Weapons.rxdata"), dump_marshal([None, RubyObj("RPG::Weapon", {"@id": 1, "@icon_name": "WeaponIconXP"})]))
+    make_file(os.path.join(root, "Data", "Armors.rxdata"), dump_marshal([None, RubyObj("RPG::Armor", {"@id": 1, "@icon_name": "ArmorIconXP"})]))
+    make_file(os.path.join(root, "Data", "States.rxdata"), dump_marshal([None, RubyObj("RPG::State", {"@id": 1, "@name": "Normal"})]))
+    make_file(os.path.join(root, "Data", "MapInfos.rxdata"), dump_marshal({ 1: RubyObj("RPG::MapInfo", {"@name": "Map 1", "@parent_id": 0, "@order": 1}) }))
+
     # Troops.rxdata
     troop_page = RubyObj("RPG::Troop::Page", {
         "@list": [
@@ -238,6 +247,10 @@ def create_xp_valid(root: str):
         "Graphics/Animations/AnimationXP.png",
         "Graphics/Pictures/CommonPic.png",
         "Graphics/Pictures/MapPicXP.png",
+        "Graphics/Icons/SkillIconXP.png",
+        "Graphics/Icons/ItemIconXP.png",
+        "Graphics/Icons/WeaponIconXP.png",
+        "Graphics/Icons/ArmorIconXP.png",
     ]:
         make_dummy(os.path.join(root, g))
 
@@ -255,6 +268,8 @@ def create_xp_valid(root: str):
         "Audio/SE/AnimSeXP.ogg",
         "Audio/SE/BattleSe.ogg",
         "Audio/SE/StepSe.ogg",
+        "Audio/SE/SkillSeXP.ogg",
+        "Audio/SE/ItemSeXP.ogg",
     ]:
         make_dummy(os.path.join(root, a))
 
@@ -304,6 +319,16 @@ def create_vx_valid(root: str):
     })
     make_file(os.path.join(root, "Data", "Animations.rvdata"), dump_marshal([None, anim]))
 
+    make_file(os.path.join(root, "Data", "Classes.rvdata"), dump_marshal([None, RubyObj("RPG::Class", {"@id": 1})]))
+    make_file(os.path.join(root, "Data", "Skills.rvdata"), dump_marshal([None, RubyObj("RPG::Skill", {"@id": 1, "@icon_index": 1})]))
+    make_file(os.path.join(root, "Data", "Items.rvdata"), dump_marshal([None, RubyObj("RPG::Item", {"@id": 1, "@icon_index": 2})]))
+    make_file(os.path.join(root, "Data", "Weapons.rvdata"), dump_marshal([None, RubyObj("RPG::Weapon", {"@id": 1, "@icon_index": 3})]))
+    make_file(os.path.join(root, "Data", "Armors.rvdata"), dump_marshal([None, RubyObj("RPG::Armor", {"@id": 1, "@icon_index": 4})]))
+    make_file(os.path.join(root, "Data", "States.rvdata"), dump_marshal([None, RubyObj("RPG::State", {"@id": 1, "@icon_index": 5})]))
+    make_file(os.path.join(root, "Data", "CommonEvents.rvdata"), dump_marshal([None, RubyObj("RPG::CommonEvent", {"@id": 1, "@list": [event_cmd(0, 0, [])]})]))
+    make_file(os.path.join(root, "Data", "Troops.rvdata"), dump_marshal([None, RubyObj("RPG::Troop", {"@id": 1, "@pages": [RubyObj("RPG::Troop::Page", {"@list": [event_cmd(0, 0, [])]})]})]))
+    make_file(os.path.join(root, "Data", "MapInfos.rvdata"), dump_marshal({ 1: RubyObj("RPG::MapInfo", {"@name": "Map 1"}) }))
+
     event_page = RubyObj("RPG::Event::Page", {
         "@graphic": RubyObj("RPG::Event::Page::Graphic", { "@character_name": "NpcVX" }),
         "@move_route": RubyObj("RPG::MoveRoute", { "@list": [] }),
@@ -335,6 +360,7 @@ def create_vx_valid(root: str):
         "Graphics/Animations/Anim2VX.png",
         "Graphics/Parallaxes/ParallaxVX.png",
         "Graphics/Pictures/MapPicVX.png",
+        "Graphics/System/IconSet.png",
     ]:
         make_dummy(os.path.join(root, g))
 
@@ -398,6 +424,16 @@ def create_vxace_valid(root: str):
     })
     make_file(os.path.join(root, "Data", "Tilesets.rvdata2"), dump_marshal([None, tileset]))
 
+    make_file(os.path.join(root, "Data", "Classes.rvdata2"), dump_marshal([None, RubyObj("RPG::Class", {"@id": 1})]))
+    make_file(os.path.join(root, "Data", "Skills.rvdata2"), dump_marshal([None, RubyObj("RPG::Skill", {"@id": 1, "@icon_index": 1})]))
+    make_file(os.path.join(root, "Data", "Items.rvdata2"), dump_marshal([None, RubyObj("RPG::Item", {"@id": 1, "@icon_index": 2})]))
+    make_file(os.path.join(root, "Data", "Weapons.rvdata2"), dump_marshal([None, RubyObj("RPG::Weapon", {"@id": 1, "@icon_index": 3})]))
+    make_file(os.path.join(root, "Data", "Armors.rvdata2"), dump_marshal([None, RubyObj("RPG::Armor", {"@id": 1, "@icon_index": 4})]))
+    make_file(os.path.join(root, "Data", "States.rvdata2"), dump_marshal([None, RubyObj("RPG::State", {"@id": 1, "@icon_index": 5})]))
+    make_file(os.path.join(root, "Data", "CommonEvents.rvdata2"), dump_marshal([None, RubyObj("RPG::CommonEvent", {"@id": 1, "@list": [event_cmd(0, 0, [])]})]))
+    make_file(os.path.join(root, "Data", "Troops.rvdata2"), dump_marshal([None, RubyObj("RPG::Troop", {"@id": 1, "@pages": [RubyObj("RPG::Troop::Page", {"@list": [event_cmd(0, 0, [])]})]})]))
+    make_file(os.path.join(root, "Data", "MapInfos.rvdata2"), dump_marshal({ 1: RubyObj("RPG::MapInfo", {"@name": "Map 1"}) }))
+
     anim = RubyObj("RPG::Animation", {
         "@id": 1,
         "@animation1_name": "Anim1Ace",
@@ -447,6 +483,7 @@ def create_vxace_valid(root: str):
         "Graphics/Battlebacks1/Grassland.png",
         "Graphics/Battlebacks2/Grassland.png",
         "Graphics/Pictures/PictureAce.png",
+        "Graphics/System/IconSet.png",
     ]:
         make_dummy(os.path.join(root, g))
 
@@ -524,6 +561,16 @@ def create_vxace_variable_transfer(root: str):
     make_file(os.path.join(root, "Data", "Map001.rvdata2"), dump_marshal(map_obj))
 
 
+def create_vxace_transfer_case_mismatch(root: str):
+    create_vxace_valid(root)
+    # Rename Data/Map001.rvdata2 to Data/map001.rvdata2
+    old_p = os.path.join(root, "Data", "Map001.rvdata2")
+    new_p = os.path.join(root, "Data", "map001.rvdata2")
+    if os.path.exists(old_p):
+        os.rename(old_p, new_p + ".tmp")
+        os.rename(new_p + ".tmp", new_p)
+
+
 def create_vxace_deep_encrypted(root: str):
     create_vxace_valid(root)
     # Add Game.rgss3a
@@ -570,6 +617,13 @@ def create_rgss3_encrypted_only(root: str):
     make_file(os.path.join(root, "Game.rgss3a"), b"RGSSAD\x03\x00\x00\x00ENCRYPTED_HEADER_TEST")
 
 
+def create_xp_missing_database_file(root: str):
+    create_xp_valid(root)
+    p = os.path.join(root, "Data", "Actors.rxdata")
+    if os.path.exists(p):
+        os.remove(p)
+
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fixtures = {
@@ -581,12 +635,14 @@ def main():
         "vxace_corrupt_marshal": create_vxace_corrupt_marshal,
         "vxace_broken_transfer": create_vxace_broken_transfer,
         "vxace_variable_transfer": create_vxace_variable_transfer,
+        "vxace_transfer_case_mismatch": create_vxace_transfer_case_mismatch,
         "vxace_deep_encrypted": create_vxace_deep_encrypted,
         "xp_missing_autotile": create_xp_missing_autotile,
         "xp_missing_animation_se": create_xp_missing_animation_se,
         "xp_missing_move_route_se": create_xp_missing_move_route_se,
         "xp_missing_common_event_pic": create_xp_missing_common_event_pic,
         "xp_missing_troop_se": create_xp_missing_troop_se,
+        "xp_missing_database_file": create_xp_missing_database_file,
         "rgss3_encrypted_only": create_rgss3_encrypted_only,
     }
     for name, func in fixtures.items():

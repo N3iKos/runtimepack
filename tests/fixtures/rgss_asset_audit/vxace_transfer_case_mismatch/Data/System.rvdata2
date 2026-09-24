@@ -1,0 +1,11 @@
+o:RPG::System:@title1_nameI"Title1Ace:ET:@title2_nameI"Title2Ace:ET:@gameover_nameI"GameOverAce:ET:@windowskin_nameI"Window:ET:@title_bgmo:RPG::BGM:
+@nameI"TitleBgmAce:ET:@volumeii:@pitchii:@battle_bgmo:RPG::BGM:
+@nameI"BattleBgmAce:ET:@volumeii:@pitchii:@battle_end_meo:RPG::ME:
+@nameI"VictoryMeAce:ET:@volumeii:@pitchii:@gameover_meo:RPG::ME:
+@nameI"GameOverMeAce:ET:@volumeii:@pitchii:@sounds[o:RPG::SE:
+@nameI"CursorSeAce:ET:@volumeii:@pitchii:
+@boato:RPG::System::Vehicle:@character_nameI"BoatAce:ET:	@bgmo:RPG::BGM:
+@nameI"BoatBgmAce:ET:@volumeii:@pitchii:
+@shipo:RPG::System::Vehicle:@character_nameI"ShipAce:ET:	@bgmo:RPG::BGM:
+@nameI"ShipBgmAce:ET:@volumeii:@pitchii:@airshipo:RPG::System::Vehicle:@character_nameI"AirshipAce:ET:	@bgmo:RPG::BGM:
+@nameI"AirshipBgmAce:ET:@volumeii:@pitchii
