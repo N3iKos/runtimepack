@@ -186,16 +186,16 @@ impl Analyzer for RgssAnalyzer {
                         found_ini_shim = true;
                     }
 
-                    if haystack.contains("Win32API.new") || haystack.contains("Win32API") {
-                        if haystack.contains("ShellExecute") || haystack.contains("CreateWindow") {
-                            report.add_issue(CompatibilityIssue {
-                                code: DiagnosticCode::CMP_UNSUPPORTED_WIN32.to_string(),
-                                severity: DiagnosticSeverity::Warning,
-                                message: "Win32API windowing/shell calls detected. Desktop UI behavior will be stubbed or ignored on mobile.".to_string(),
-                                source_path: Some(file_info.logical_path.clone()),
-                                remediation: Some(RemediationCategory::UnsupportedFeature),
-                            });
-                        }
+                    if (haystack.contains("Win32API.new") || haystack.contains("Win32API"))
+                        && (haystack.contains("ShellExecute") || haystack.contains("CreateWindow"))
+                    {
+                        report.add_issue(CompatibilityIssue {
+                            code: DiagnosticCode::CMP_UNSUPPORTED_WIN32.to_string(),
+                            severity: DiagnosticSeverity::Warning,
+                            message: "Win32API windowing/shell calls detected. Desktop UI behavior will be stubbed or ignored on mobile.".to_string(),
+                            source_path: Some(file_info.logical_path.clone()),
+                            remediation: Some(RemediationCategory::UnsupportedFeature),
+                        });
                     }
                 }
             }

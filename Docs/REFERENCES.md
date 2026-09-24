@@ -206,6 +206,17 @@ Supports historical architecture statements:
 
 Use only as historical context when current docs are silent.
 
+### S27 — Ruby Marshal 4.8 Format and RGSS Data Specifications
+URL: https://docs.ruby-lang.org/en/3.2/marshal_rdoc.html
+Preserved RGSS1/RGSS2/RGSS3 specifications and Enterbrain documentation for RPG Maker XP / VX / VX Ace.
+
+Supports:
+- Ruby Marshal 4.8 binary format specification: major 4 minor 8 magic bytes `\x04\x08`, type tokens for nil (`0`), bool (`T`/`F`), fixnum (`i`), string (`"`), symbol (`:`), symbol link (`;`), object link (`@`), array (`[`), hash (`{`), object (`o`), instance variable wrapper (`I`), user-defined dump (`u`), user marshal (`U`).
+- RGSS file extensions: `.rxdata` (XP / RGSS1), `.rvdata` (VX / RGSS2), `.rvdata2` (VX Ace / RGSS3).
+- RGSS data structure schemas: `RPG::System`, `RPG::Map`, `RPG::Event`, `RPG::Event::Page`, `RPG::EventCommand`, `RPG::MoveRoute`, `RPG::MoveCommand`, `RPG::Actor`, `RPG::Enemy`, `RPG::Animation`, `RPG::Tileset`, `RPG::CommonEvent`, `RPG::Troop`, `RPG::AudioFile`, `RPG::BGM`, `RPG::BGS`, `RPG::ME`, `RPG::SE`.
+- Event command codes: 201 (Player Transfer), 212 (Show Animation), 231 (Show Picture), 241 (Play BGM), 245 (Play BGS), 249 (Play ME), 250 (Play SE), 322 (Change Actor Graphic).
+- Move route command codes: 41 (Change Graphic), 44 (Play SE).
+
 ## Source hygiene
 
 Implementation agents must not introduce new external claims without adding an Sxx entry.

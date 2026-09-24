@@ -1,4 +1,6 @@
+pub mod asset_audit;
 pub mod scanner;
+pub use asset_audit::RgssAssetAuditor;
 pub use scanner::RgssAnalyzer;
 
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};
@@ -25,7 +27,7 @@ impl Detector for RpgMakerXpDetector {
             });
         }
 
-        for (path, _) in &source.files {
+        for path in source.files.keys() {
             if path.to_ascii_lowercase().ends_with(".rgssad") {
                 score += 120;
                 evidence.push(Evidence {
@@ -103,7 +105,7 @@ impl Detector for RpgMakerVxDetector {
             });
         }
 
-        for (path, _) in &source.files {
+        for path in source.files.keys() {
             if path.to_ascii_lowercase().ends_with(".rgss2a") {
                 score += 120;
                 evidence.push(Evidence {
@@ -181,7 +183,7 @@ impl Detector for RpgMakerVxAceDetector {
             });
         }
 
-        for (path, _) in &source.files {
+        for path in source.files.keys() {
             if path.to_ascii_lowercase().ends_with(".rgss3a") {
                 score += 120;
                 evidence.push(Evidence {
