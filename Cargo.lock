@@ -689,8 +689,10 @@ dependencies = [
 name = "runtimepack-engine-rpgmaker-web"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "runtimepack-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

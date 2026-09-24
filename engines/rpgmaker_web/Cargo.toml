@@ -8,3 +8,10 @@ authors.workspace = true
 [dependencies]
 runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+
+[[test]]
+name = "web_asset_audit_test"
+path = "../../tests/integration/web_asset_audit_test.rs"
+

@@ -1,4 +1,6 @@
+pub mod asset_audit;
 pub mod scanner;
+pub use asset_audit::RpgMakerWebAssetAuditor;
 pub use scanner::RpgMakerWebAnalyzer;
 
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};
