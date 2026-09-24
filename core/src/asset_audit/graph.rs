@@ -43,6 +43,7 @@ pub struct ReferenceEdge {
     pub source: String,
     pub target: String,
     pub relation: String,
+    #[serde(default)]
     pub requiredness: super::ReferenceRequiredness,
     pub evidence: super::EvidenceTrail,
     pub resolution: ReferenceResolution,

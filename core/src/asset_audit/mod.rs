@@ -68,10 +68,11 @@ pub struct EvidenceTrail(Vec<EvidenceStage>);
 
 impl EvidenceTrail {
     pub fn new(stages: Vec<EvidenceStage>) -> Result<Self, EvidenceStageSequenceError> {
-        if stages
-            .iter()
-            .enumerate()
-            .all(|(index, stage)| stage.index() == index)
+        if !stages.is_empty()
+            && stages
+                .iter()
+                .enumerate()
+                .all(|(index, stage)| stage.index() == index)
         {
             Ok(Self(stages))
         } else {
@@ -109,9 +110,10 @@ impl<'de> Deserialize<'de> for EvidenceTrail {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ReferenceRequiredness {
+    #[default]
     Required,
     Optional,
 }
@@ -133,8 +135,7 @@ pub enum FindingDisposition {
     Indeterminate,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditFinding {
     pub id: String,
     pub code: String,
@@ -144,6 +145,68 @@ pub struct AuditFinding {
     pub message: String,
     pub source_node_ids: Vec<String>,
     pub orphan: bool,
+}
+
+impl AuditFinding {
+    fn classification_is_consistent(&self) -> bool {
+        if self.orphan {
+            return self.severity == FindingSeverity::Info
+                && self.disposition == FindingDisposition::Informational;
+        }
+
+        match self.disposition {
+            FindingDisposition::Informational => self.severity == FindingSeverity::Info,
+            FindingDisposition::Warning => self.severity == FindingSeverity::Warning,
+            FindingDisposition::Blocking => {
+                self.severity == FindingSeverity::Error
+                    && self.requiredness == ReferenceRequiredness::Required
+            }
+            FindingDisposition::Indeterminate => {
+                self.requiredness == ReferenceRequiredness::Required
+                    && self.severity != FindingSeverity::Info
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AuditFinding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct RawAuditFinding {
+            id: String,
+            code: String,
+            severity: FindingSeverity,
+            disposition: FindingDisposition,
+            #[serde(default)]
+            requiredness: ReferenceRequiredness,
+            message: String,
+            source_node_ids: Vec<String>,
+            orphan: bool,
+        }
+
+        let raw = RawAuditFinding::deserialize(deserializer)?;
+        let finding = Self {
+            id: raw.id,
+            code: raw.code,
+            severity: raw.severity,
+            disposition: raw.disposition,
+            requiredness: raw.requiredness,
+            message: raw.message,
+            source_node_ids: raw.source_node_ids,
+            orphan: raw.orphan,
+        };
+        if finding.classification_is_consistent() {
+            Ok(finding)
+        } else {
+            Err(serde::de::Error::custom(
+                "finding severity, disposition, requiredness, and orphan state are contradictory",
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,13 +336,12 @@ impl AssetAuditReport {
     pub fn recompute_outcome(&mut self) {
         let mut relevant = self.findings.iter().filter(|finding| !finding.orphan);
         let required_blocking = relevant.clone().any(|finding| {
-            finding.requiredness == ReferenceRequiredness::Required
-                && finding.disposition == FindingDisposition::Blocking
+            finding.disposition == FindingDisposition::Blocking
+                || finding.severity == FindingSeverity::Error
         });
-        let indeterminate = relevant.clone().any(|finding| {
-            finding.requiredness == ReferenceRequiredness::Required
-                && finding.disposition == FindingDisposition::Indeterminate
-        });
+        let indeterminate = relevant
+            .clone()
+            .any(|finding| finding.disposition == FindingDisposition::Indeterminate);
         let warning = relevant.any(|finding| finding.disposition == FindingDisposition::Warning);
 
         self.outcome = if required_blocking {
@@ -391,7 +453,8 @@ mod tests {
     }
 
     #[test]
-    fn evidence_cannot_skip_intermediate_stages() {
+    fn evidence_cannot_be_empty_or_skip_intermediate_stages() {
+        assert!(EvidenceTrail::new(Vec::new()).is_err());
         assert!(EvidenceTrail::new(vec![
             EvidenceStage::ReferenceFound,
             EvidenceStage::DecodeSuccess,
@@ -406,6 +469,100 @@ mod tests {
             EvidenceStage::DecodeSuccess,
         ])
         .is_ok());
+    }
+
+    #[test]
+    fn serde_rejects_invalid_evidence_sequences() {
+        for invalid in [
+            r#"[]"#,
+            r#"["REFERENCE_FOUND","DECODE_SUCCESS"]"#,
+            r#"["REFERENCE_FOUND","PATH_RESOLVED","PATH_RESOLVED"]"#,
+            r#"["PATH_RESOLVED","REFERENCE_FOUND"]"#,
+        ] {
+            assert!(serde_json::from_str::<EvidenceTrail>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn omitted_reference_requiredness_defaults_to_required() {
+        let edge: ReferenceEdge = serde_json::from_str(
+            r#"{
+                "source":"map:a",
+                "target":"image:z",
+                "relation":"uses",
+                "evidence":["REFERENCE_FOUND"],
+                "resolution":"RESOLVED"
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(edge.requiredness, ReferenceRequiredness::Required);
+    }
+
+    #[test]
+    fn serde_rejects_contradictory_finding_classification() {
+        let contradictory = r#"{
+            "id":"missing-required",
+            "code":"CMP-AUD-002",
+            "severity":"ERROR",
+            "disposition":"INFORMATIONAL",
+            "requiredness":"REQUIRED",
+            "message":"required asset missing",
+            "source_node_ids":[],
+            "orphan":false
+        }"#;
+
+        assert!(serde_json::from_str::<AuditFinding>(contradictory).is_err());
+    }
+
+    #[test]
+    fn required_error_cannot_bypass_fail_closed_outcome() {
+        let mut report = report(false);
+        report.findings = vec![AuditFinding {
+            id: "contradictory".into(),
+            code: "CMP-AUD-002".into(),
+            severity: FindingSeverity::Error,
+            disposition: FindingDisposition::Informational,
+            requiredness: ReferenceRequiredness::Required,
+            message: "required asset missing".into(),
+            source_node_ids: Vec::new(),
+            orphan: false,
+        }];
+
+        report.recompute_outcome();
+
+        assert_eq!(report.outcome, AuditOutcome::Fail);
+    }
+
+    #[test]
+    fn schema_encodes_exact_evidence_prefixes_and_required_default() {
+        let schema: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../schemas/asset-audit-report.schema.json"
+        )))
+        .unwrap();
+        let evidence = &schema["definitions"]["edge"]["properties"]["evidence"];
+        let prefixes = evidence["oneOf"].as_array().unwrap();
+
+        assert_eq!(prefixes.len(), EvidenceStage::all().len());
+        for (index, prefix) in prefixes.iter().enumerate() {
+            assert_eq!(prefix["minItems"], index + 1);
+            assert_eq!(prefix["maxItems"], index + 1);
+            assert_eq!(prefix["items"].as_array().unwrap().len(), index + 1);
+        }
+        assert_eq!(
+            schema["definitions"]["edge"]["properties"]["requiredness"]["default"],
+            "REQUIRED"
+        );
+        assert_eq!(
+            schema["definitions"]["finding"]["properties"]["requiredness"]["default"],
+            "REQUIRED"
+        );
+        assert!(!schema["definitions"]["edge"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "requiredness"));
     }
 
     #[test]

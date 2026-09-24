@@ -134,7 +134,6 @@
         "source",
         "target",
         "relation",
-        "requiredness",
         "evidence",
         "resolution"
       ],
@@ -144,23 +143,95 @@
         "relation": { "type": "string" },
         "requiredness": {
           "type": "string",
-          "enum": ["REQUIRED", "OPTIONAL"]
+          "enum": ["REQUIRED", "OPTIONAL"],
+          "default": "REQUIRED"
         },
         "evidence": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "REFERENCE_FOUND",
-              "PATH_RESOLVED",
-              "FILE_EXISTS",
-              "FILE_READABLE",
-              "INTEGRITY_VERIFIED",
-              "DECODE_SUCCESS",
-              "ENGINE_LOAD_SUCCESS",
-              "RUNTIME_USE_SUCCESS"
-            ]
-          }
+          "oneOf": [
+            {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": [{ "const": "REFERENCE_FOUND" }]
+            },
+            {
+              "minItems": 2,
+              "maxItems": 2,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" }
+              ]
+            },
+            {
+              "minItems": 3,
+              "maxItems": 3,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" }
+              ]
+            },
+            {
+              "minItems": 4,
+              "maxItems": 4,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" },
+                { "const": "FILE_READABLE" }
+              ]
+            },
+            {
+              "minItems": 5,
+              "maxItems": 5,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" },
+                { "const": "FILE_READABLE" },
+                { "const": "INTEGRITY_VERIFIED" }
+              ]
+            },
+            {
+              "minItems": 6,
+              "maxItems": 6,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" },
+                { "const": "FILE_READABLE" },
+                { "const": "INTEGRITY_VERIFIED" },
+                { "const": "DECODE_SUCCESS" }
+              ]
+            },
+            {
+              "minItems": 7,
+              "maxItems": 7,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" },
+                { "const": "FILE_READABLE" },
+                { "const": "INTEGRITY_VERIFIED" },
+                { "const": "DECODE_SUCCESS" },
+                { "const": "ENGINE_LOAD_SUCCESS" }
+              ]
+            },
+            {
+              "minItems": 8,
+              "maxItems": 8,
+              "items": [
+                { "const": "REFERENCE_FOUND" },
+                { "const": "PATH_RESOLVED" },
+                { "const": "FILE_EXISTS" },
+                { "const": "FILE_READABLE" },
+                { "const": "INTEGRITY_VERIFIED" },
+                { "const": "DECODE_SUCCESS" },
+                { "const": "ENGINE_LOAD_SUCCESS" },
+                { "const": "RUNTIME_USE_SUCCESS" }
+              ]
+            }
+          ]
         },
         "resolution": {
           "type": "string",
@@ -176,7 +247,6 @@
         "code",
         "severity",
         "disposition",
-        "requiredness",
         "message",
         "source_node_ids",
         "orphan"
@@ -194,7 +264,8 @@
         },
         "requiredness": {
           "type": "string",
-          "enum": ["REQUIRED", "OPTIONAL"]
+          "enum": ["REQUIRED", "OPTIONAL"],
+          "default": "REQUIRED"
         },
         "message": { "type": "string" },
         "source_node_ids": {
@@ -202,7 +273,46 @@
           "items": { "type": "string" }
         },
         "orphan": { "type": "boolean" }
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "orphan": { "const": true },
+            "severity": { "const": "INFO" },
+            "disposition": { "const": "INFORMATIONAL" }
+          }
+        },
+        {
+          "properties": {
+            "orphan": { "const": false },
+            "severity": { "const": "INFO" },
+            "disposition": { "const": "INFORMATIONAL" }
+          }
+        },
+        {
+          "properties": {
+            "orphan": { "const": false },
+            "severity": { "const": "WARNING" },
+            "disposition": { "const": "WARNING" }
+          }
+        },
+        {
+          "properties": {
+            "orphan": { "const": false },
+            "severity": { "const": "ERROR" },
+            "disposition": { "const": "BLOCKING" },
+            "requiredness": { "const": "REQUIRED" }
+          }
+        },
+        {
+          "properties": {
+            "orphan": { "const": false },
+            "severity": { "enum": ["WARNING", "ERROR"] },
+            "disposition": { "const": "INDETERMINATE" },
+            "requiredness": { "const": "REQUIRED" }
+          }
+        }
+      ]
     },
     "override": {
       "type": "object",
