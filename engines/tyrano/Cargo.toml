@@ -9,3 +9,8 @@ authors.workspace = true
 runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+regex = { workspace = true }
+
+[[test]]
+name = "tyrano_asset_audit_test"
+path = "../../tests/integration/tyrano_asset_audit_test.rs"

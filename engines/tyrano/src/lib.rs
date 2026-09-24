@@ -1,7 +1,9 @@
 pub mod asar;
+pub mod asset_audit;
 pub mod scanner;
 
 pub use asar::AsarArchive;
+pub use asset_audit::TyranoAssetAuditor;
 pub use scanner::TyranoAnalyzer;
 
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};
@@ -24,7 +26,7 @@ impl Detector for TyranoDetector {
         let mut has_scenario = false;
         let mut has_index = source.has_file("index.html");
 
-        for (path, _) in &source.files {
+        for path in source.files.keys() {
             if path.starts_with("tyrano/plugins/kag/") {
                 has_kag = true;
             }

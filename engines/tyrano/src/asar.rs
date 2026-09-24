@@ -100,6 +100,18 @@ impl AsarArchive {
         self.files.contains_key(path)
     }
 
+    pub fn get_file(&self, path: &str) -> Option<&AsarFileEntry> {
+        self.files.get(path)
+    }
+
+    pub fn get_file_size(&self, path: &str) -> Option<u64> {
+        self.files.get(path).map(|e| e.size)
+    }
+
+    pub fn total_size_bytes(&self) -> u64 {
+        self.files.values().map(|e| e.size).sum()
+    }
+
     pub fn list_files(&self) -> Vec<String> {
         let mut list: Vec<String> = self.files.keys().cloned().collect();
         list.sort();
@@ -107,12 +119,31 @@ impl AsarArchive {
     }
 
     pub fn read_file_bytes(&self, asar_path: &Path, rel_path: &str) -> io::Result<Vec<u8>> {
+        self.read_file_bytes_bounded(asar_path, rel_path, u64::MAX)
+    }
+
+    pub fn read_file_bytes_bounded(
+        &self,
+        asar_path: &Path,
+        rel_path: &str,
+        max_bytes: u64,
+    ) -> io::Result<Vec<u8>> {
         let entry = self.files.get(rel_path).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("File '{}' not found in ASAR archive", rel_path),
             )
         })?;
+
+        if entry.size > max_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "File '{}' in ASAR archive exceeds limit ({} > {} bytes)",
+                    rel_path, entry.size, max_bytes
+                ),
+            ));
+        }
 
         let mut file = File::open(asar_path)?;
         let abs_offset = self.data_offset + entry.offset;
@@ -121,6 +152,17 @@ impl AsarArchive {
         let mut buf = vec![0u8; entry.size as usize];
         file.read_exact(&mut buf)?;
         Ok(buf)
+    }
+
+    pub fn read_file_string_bounded(
+        &self,
+        asar_path: &Path,
+        rel_path: &str,
+        max_bytes: u64,
+    ) -> io::Result<String> {
+        let bytes = self.read_file_bytes_bounded(asar_path, rel_path, max_bytes)?;
+        let s = String::from_utf8_lossy(&bytes);
+        Ok(s.strip_prefix('\u{feff}').unwrap_or(&s).to_string())
     }
 
     pub fn extract_all(&self, asar_path: &Path, dest_dir: &Path) -> io::Result<usize> {
@@ -196,6 +238,19 @@ mod tests {
             .read_file_bytes(&asar_file, "tyrano/tyrano.js")
             .unwrap();
         assert_eq!(tyrano_bytes, b"Tyrano Script OK!");
+
+        // Bounded read tests
+        assert_eq!(archive.get_file_size("index.html"), Some(11));
+        assert_eq!(archive.total_size_bytes(), 28);
+        assert!(archive
+            .read_file_bytes_bounded(&asar_file, "index.html", 10)
+            .is_err());
+        assert_eq!(
+            archive
+                .read_file_string_bounded(&asar_file, "index.html", 50)
+                .unwrap(),
+            "Hello World"
+        );
 
         // Extract all
         let extract_dir = temp_dir.join("extracted");
