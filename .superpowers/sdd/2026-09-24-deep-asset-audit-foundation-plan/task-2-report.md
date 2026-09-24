@@ -60,4 +60,6 @@ Workspace-wide `cargo fmt --all -- --check` also reports extensive pre-existing 
 
 ## Commit
 
-Pending at report creation; final commit hash will be appended after commit.
+Implementation and initial report: `a5088de` (`feat: add asset auditor registry`).
+
+Report hash update is committed separately because a commit cannot contain its own final hash.
