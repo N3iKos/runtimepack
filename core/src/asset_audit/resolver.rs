@@ -94,44 +94,47 @@ impl CandidateRule {
                     return vec![base_path.clone()];
                 }
 
-                // Check if base_path already has one of the specified extensions (case-insensitively)
-                let base_lower = base_path.to_lowercase();
-                let mut matched_ext = None;
-                for ext in extensions {
-                    let cleaned = ext.strip_prefix('.').unwrap_or(ext);
-                    let suffix = format!(".{}", cleaned.to_lowercase());
-                    if base_lower.ends_with(&suffix) {
-                        matched_ext = Some(suffix);
-                        break;
+                // File extension must occur within the filename component after the last path separator
+                let filename_start = base_path
+                    .rfind(|c| c == '/' || c == '\\')
+                    .map(|idx| idx + 1)
+                    .unwrap_or(0);
+                let filename = &base_path[filename_start..];
+
+                if let Some(dot_offset) = filename.rfind('.') {
+                    let dot_idx = filename_start + dot_offset;
+                    let existing_ext = &base_path[dot_idx + 1..];
+
+                    let matches_any = extensions.iter().any(|ext| {
+                        let cleaned = ext.strip_prefix('.').unwrap_or(ext);
+                        existing_ext.eq_ignore_ascii_case(cleaned)
+                    });
+
+                    if matches_any {
+                        let stem = &base_path[..dot_idx];
+                        let mut list = Vec::with_capacity(extensions.len());
+                        list.push(base_path.clone());
+                        for ext in extensions {
+                            let cleaned = ext.strip_prefix('.').unwrap_or(ext);
+                            let candidate = format!("{stem}.{cleaned}");
+                            if !candidate.eq_ignore_ascii_case(base_path) {
+                                list.push(candidate);
+                            }
+                        }
+                        return list;
                     }
                 }
 
-                if let Some(matched_suffix) = matched_ext {
-                    // base_path already ends with one of the extensions
-                    let stem_len = base_path.len() - matched_suffix.len();
-                    let stem = &base_path[..stem_len];
-                    let mut list = Vec::new();
-                    list.push(base_path.clone());
-                    for ext in extensions {
-                        let cleaned = ext.strip_prefix('.').unwrap_or(ext);
-                        let candidate = format!("{stem}.{cleaned}");
-                        if !candidate.eq_ignore_ascii_case(base_path) {
-                            list.push(candidate);
-                        }
+                let mut list = Vec::with_capacity(extensions.len());
+                for ext in extensions {
+                    let cleaned = ext.strip_prefix('.').unwrap_or(ext);
+                    if cleaned.is_empty() {
+                        list.push(base_path.clone());
+                    } else {
+                        list.push(format!("{base_path}.{cleaned}"));
                     }
-                    list
-                } else {
-                    let mut list = Vec::with_capacity(extensions.len());
-                    for ext in extensions {
-                        let cleaned = ext.strip_prefix('.').unwrap_or(ext);
-                        if cleaned.is_empty() {
-                            list.push(base_path.clone());
-                        } else {
-                            list.push(format!("{base_path}.{cleaned}"));
-                        }
-                    }
-                    list
                 }
+                list
             }
         }
     }
@@ -211,8 +214,6 @@ impl<'a> AssetResolver<'a> {
             }
         }
 
-        let mut first_mismatch = None;
-
         for candidate in &candidates {
             let normalized = normalize_candidate(candidate);
             let folded = case_fold(&normalized);
@@ -229,30 +230,22 @@ impl<'a> AssetResolver<'a> {
                 let actual_file = matching_files[0];
                 let actual_path = &actual_file.logical_path;
 
+                let node = AssetNode {
+                    id: format!("{}:{actual_path}", kind.as_str()),
+                    kind,
+                    logical_path: Some(actual_path.clone()),
+                };
+
                 if actual_path == &normalized {
-                    let node = AssetNode {
-                        id: format!("{}:{actual_path}", kind.as_str()),
-                        kind,
-                        logical_path: Some(actual_path.clone()),
-                    };
                     return ResolutionResult::Exact(node);
-                } else if first_mismatch.is_none() {
-                    let node = AssetNode {
-                        id: format!("{}:{actual_path}", kind.as_str()),
-                        kind,
-                        logical_path: Some(actual_path.clone()),
+                } else {
+                    return ResolutionResult::CaseMismatch {
+                        expected: candidate.clone(),
+                        actual: actual_path.clone(),
+                        node,
                     };
-                    first_mismatch = Some((candidate.clone(), actual_path.clone(), node));
                 }
             }
-        }
-
-        if let Some((expected, actual, node)) = first_mismatch {
-            return ResolutionResult::CaseMismatch {
-                expected,
-                actual,
-                node,
-            };
         }
 
         ResolutionResult::Missing(candidates)
@@ -278,15 +271,24 @@ fn normalize_path_slashes(path: &str) -> String {
 }
 
 fn case_fold(path: &str) -> String {
-    normalize_path_slashes(path).to_lowercase()
+    normalize_candidate(path).to_lowercase()
 }
 
 fn normalize_candidate(path: &str) -> String {
-    let mut normalized = normalize_path_slashes(path);
-    while let Some(stripped) = normalized.strip_prefix("./") {
-        normalized = stripped.to_string();
+    let replaced = normalize_path_slashes(path);
+    let mut components = Vec::new();
+    for part in replaced.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        components.push(part);
     }
-    normalized
+    components.join("/")
+}
+
+fn has_drive_letter(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 fn is_unsafe_path(path: &str) -> bool {
@@ -302,13 +304,33 @@ fn is_unsafe_path(path: &str) -> bool {
     }
 
     // Windows drive letter: C: or D:/
-    let bytes = path.as_bytes();
-    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+    if has_drive_letter(&normalized) {
         return true;
     }
 
     // Traversal: any path component equal to ".."
     for component in normalized.split('/') {
+        if component == ".." {
+            return true;
+        }
+    }
+
+    // Disguised path check: strip leading "./" prefixes
+    let mut stripped = normalized.as_str();
+    while let Some(rest) = stripped.strip_prefix("./") {
+        stripped = rest;
+    }
+
+    // After stripping leading "./", check if it reveals an absolute path, drive letter, or traversal
+    if stripped.starts_with('/')
+        || has_drive_letter(stripped)
+        || stripped == ".."
+        || stripped.starts_with("../")
+    {
+        return true;
+    }
+
+    for component in stripped.split('/') {
         if component == ".." {
             return true;
         }
@@ -568,6 +590,9 @@ mod tests {
             "Graphics/../../secret.txt",
             "Data/../secret.txt",
             "..\\windows\\system32",
+            "./..",
+            "./../secret",
+            ".\\..",
         ] {
             let result = resolver.resolve_path(unsafe_path, AssetKind::Image);
             match result {
@@ -589,6 +614,9 @@ mod tests {
             "\\Windows\\System32",
             "C:\\boot.ini",
             "D:/game/data.json",
+            ".//etc/passwd",
+            "./C:/Windows",
+            ".//./etc/shadow",
         ] {
             let result = resolver.resolve_path(abs_path, AssetKind::Image);
             match result {
@@ -834,5 +862,69 @@ mod tests {
 
         cov.add_unsupported("scripts", ReferenceRequiredness::Optional);
         assert!(cov.has_unsupported_or_dynamic());
+    }
+
+    #[test]
+    fn test_redundant_slashes_normalized() {
+        let index = make_index(&["Graphics/Titles/Title.png"]);
+        let resolver = AssetResolver::new(&index);
+
+        let result = resolver.resolve_path("Graphics//Titles///Title.png", AssetKind::Image);
+        match result {
+            ResolutionResult::Exact(node) => {
+                assert_eq!(node.logical_path, Some("Graphics/Titles/Title.png".into()));
+            }
+            other => panic!("expected Exact for redundant slashes, got {other:?}"),
+        }
+
+        assert!(resolver.contains_exact("Graphics//Titles///Title.png"));
+    }
+
+    #[test]
+    fn test_candidate_extension_precedence_case_mismatch_beats_subsequent_exact() {
+        // Disk has Audio/BGM/Battle.ogg (uppercase Battle) and Audio/BGM/battle.mp3 (exact lowercase battle)
+        let index = make_index(&["Audio/BGM/Battle.ogg", "Audio/BGM/battle.mp3"]);
+        let resolver = AssetResolver::new(&index);
+
+        // Requested base is Audio/BGM/battle with candidates [.ogg, .mp3].
+        // Because .ogg is probed first and exists with case mismatch, it MUST take precedence over .mp3
+        let rule = CandidateRule::with_extensions("Audio/BGM/battle", ["ogg", "mp3"]);
+        let result = resolver.resolve(&rule, AssetKind::Audio);
+
+        match result {
+            ResolutionResult::CaseMismatch {
+                expected,
+                actual,
+                node,
+            } => {
+                assert_eq!(expected, "Audio/BGM/battle.ogg");
+                assert_eq!(actual, "Audio/BGM/Battle.ogg");
+                assert_eq!(node.logical_path, Some("Audio/BGM/Battle.ogg".into()));
+            }
+            other => panic!("expected CaseMismatch on .ogg to take precedence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_extension_candidates_with_dot_in_directory() {
+        let rule =
+            CandidateRule::with_extensions("v1.0/Graphics/Pictures/pic.png", ["png", "rpgmvp"]);
+        assert_eq!(
+            rule.expand_candidates(),
+            vec![
+                "v1.0/Graphics/Pictures/pic.png",
+                "v1.0/Graphics/Pictures/pic.rpgmvp"
+            ]
+        );
+
+        let rule_no_ext =
+            CandidateRule::with_extensions("v1.0/Graphics/Pictures/pic", ["png", "rpgmvp"]);
+        assert_eq!(
+            rule_no_ext.expand_candidates(),
+            vec![
+                "v1.0/Graphics/Pictures/pic.png",
+                "v1.0/Graphics/Pictures/pic.rpgmvp"
+            ]
+        );
     }
 }
