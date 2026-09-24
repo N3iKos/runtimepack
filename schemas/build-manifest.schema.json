@@ -6,6 +6,7 @@
   "required": [
     "schema_version",
     "runtimepack_version",
+    "audit",
     "app",
     "engine",
     "runtime",
@@ -19,6 +20,7 @@
     "git_commit": { "type": ["string", "null"] },
     "build_timestamp": { "type": "string", "format": "date-time" },
     "flavor": { "type": ["string", "null"] },
+    "audit": { "$ref": "#/definitions/audit" },
     "app": {
       "type": "object",
       "required": ["name", "package", "version_name", "version_code"],
@@ -72,12 +74,13 @@
     },
     "provenance": {
       "type": "object",
-      "required": ["source_hash", "config_hash"],
+      "required": ["source_hash", "config_hash", "audit"],
       "properties": {
         "source_hash": { "type": "string" },
         "config_hash": { "type": "string" },
         "apk_hash": { "type": ["string", "null"] },
         "flavor": { "type": ["string", "null"] },
+        "audit": { "$ref": "#/definitions/audit" },
         "toolchain": {
           "type": "object",
           "properties": {
@@ -86,6 +89,33 @@
             "jdk_version": { "type": ["string", "null"] },
             "android_sdk_platform": { "type": ["string", "null"] },
             "ndk_version": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "audit": {
+      "type": ["object", "null"],
+      "required": ["report_path", "report_sha256", "mode", "outcome", "overrides"],
+      "additionalProperties": false,
+      "properties": {
+        "report_path": { "type": "string" },
+        "report_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mode": { "type": "string", "enum": ["STANDARD", "DEEP"] },
+        "outcome": { "type": "string", "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"] },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["flag", "original_outcome", "accepted_finding_ids", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "flag": { "type": "string", "enum": ["--accept-audit-fail", "--accept-audit-unknown"] },
+              "original_outcome": { "type": "string", "enum": ["FAIL", "INDETERMINATE"] },
+              "accepted_finding_ids": { "type": "array", "items": { "type": "string" } },
+              "rationale": { "type": "string" }
+            }
           }
         }
       }

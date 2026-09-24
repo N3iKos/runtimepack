@@ -1,7 +1,9 @@
+pub mod audit_policy;
 pub mod generator;
 pub mod icon;
 pub mod signing;
 
+pub use audit_policy::{evaluate_audit_policy, AuditOverrideRecord, AuditPolicyDecision};
 pub use generator::AndroidProjectGenerator;
 pub use signing::SigningManager;
 
@@ -169,12 +171,23 @@ pub struct BuildManifest {
     pub build_timestamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flavor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditManifestEntry>,
     pub app: AppConfig,
     pub engine: EngineManifestEntry,
     pub runtime: RuntimeManifestEntry,
     pub content: ContentManifestEntry,
     pub android: AndroidManifestEntry,
     pub provenance: ProvenanceManifestEntry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditManifestEntry {
+    pub report_path: String,
+    pub report_sha256: String,
+    pub mode: crate::asset_audit::AuditMode,
+    pub outcome: crate::asset_audit::AuditOutcome,
+    pub overrides: Vec<AuditOverrideRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,5 +239,7 @@ pub struct ProvenanceManifestEntry {
     pub apk_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flavor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditManifestEntry>,
     pub toolchain: ToolchainProvenance,
 }

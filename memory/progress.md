@@ -1,12 +1,15 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Pengujian end-to-end Redesigned Diagnostic Suite pada game *BLACK SOULS* (RPG Maker VX Ace) via emulator MuMu Player (`127.0.0.1:16384`) selesai 100% dan terverifikasi penuh.
-- **Next step:** Melanjutkan porting & validasi engine selanjutnya sesuai plan multi-engine.
-- **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Redesigned Diagnostic Suite (`diagnostic_suite.js`) mendukung tab navigation, draggable window, zero emojis (monochrome SVG), live streaming progress console, dan Android native share sheet (`Intent.createChooser`). Toolbar position 5 kini memuat SVG bug icon yang terhubung ke `DiagnosticSuite.toggle()`, dan `RgssActivity.kt` mendukung bridge evaluasi broadcast `io.runtimepack.EVAL`.
+- **Sedang kerjain apa:** Foundation Plan Task 5 selesai di worktree `deep-asset-audit-foundation`: pure audit policy matrix, dedicated fail/unknown overrides, pre-side-effect build gate, hard-blocker enforcement, dan audit metadata pada manifest/provenance.
+- **Next step:** Foundation Plan Task 6 (foundation documentation and verification).
+- **Blocker:** Rust integration test executables pada toolchain GNU LLVM-MinGW lokal link tetapi exit nonzero sebelum libtest output; juga ada 3 warning Clippy pre-existing di core yang memblokir `-D warnings`.
+- **Catatan fokus:** Placeholder audit tetap `INDETERMINATE` + `CMP-AUD-001`; ordinary build memerlukan `--accept-audit-unknown` sampai adapter plan selesai, dan Tyrano legal gate tidak dapat dioverride.
 
 ## Selesai
+- [2026-09-24] Foundation Plan Task 5: build menjalankan static audit sebelum output/content/project side effects; matrix PASS/WARNING/FAIL/INDETERMINATE, override terpisah, hard blockers, dan metadata audit manifest/provenance selesai.
+- [2026-09-24] Foundation Plan Task 4: CLI `runtimepack audit`, integration tests, placeholder auditor semua engine v1, dan atomic authoritative JSON report selesai; direct CLI acceptance lulus.
+
 - [2026-09-23] Verifikasi Live Redesigned Diagnostic Suite pada *BLACK SOULS* (MuMu Player `127.0.0.1:16384`):
   1. Build APK `dist/black_souls/BlackSouls.apk` (826.00 MB, flavor `beta`) sukses dikompilasi via Gradle.
   2. Fresh install (`pm clear`) dan booting ke Title Screen interaktif berjalan mulus dalam ~12 detik.

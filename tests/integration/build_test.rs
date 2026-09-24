@@ -1,11 +1,163 @@
+use runtimepack_core::asset_audit::{
+    AssetAuditReport, AuditCompleteness, AuditFinding, AuditMode, AuditOutcome, AuditStatistics,
+    DependencyGraph, FindingDisposition, FindingSeverity, ReferenceRequiredness,
+    RuntimeValidationState,
+};
 use runtimepack_core::build_plan::generator::AndroidProjectGenerator;
 use runtimepack_core::build_plan::{
-    AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry, EngineManifestEntry,
-    ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+    evaluate_audit_policy, AndroidManifestEntry, AppConfig, AuditPolicyDecision, BuildManifest,
+    ContentManifestEntry, EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry,
+    ToolchainProvenance,
 };
-use runtimepack_core::diagnostics::DiagnosticCode;
-use runtimepack_core::domain::ContentMode;
+use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode};
+use runtimepack_core::domain::{ContentMode, EngineId};
 use std::path::Path;
+
+fn audit_report(outcome: AuditOutcome) -> AssetAuditReport {
+    let finding = match outcome {
+        AuditOutcome::Fail => Some((
+            "missing-required",
+            FindingSeverity::Error,
+            FindingDisposition::Blocking,
+        )),
+        AuditOutcome::Indeterminate => Some((
+            "dynamic-reference",
+            FindingSeverity::Warning,
+            FindingDisposition::Indeterminate,
+        )),
+        AuditOutcome::Warning => Some((
+            "optional-reference",
+            FindingSeverity::Warning,
+            FindingDisposition::Warning,
+        )),
+        AuditOutcome::Pass => None,
+    };
+    AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerVxAce,
+        mode: AuditMode::Standard,
+        outcome,
+        completeness: AuditCompleteness {
+            required_scope_complete: outcome != AuditOutcome::Indeterminate,
+            covered_reference_classes: vec!["assets".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph: DependencyGraph::default(),
+        findings: finding
+            .map(|(id, severity, disposition)| AuditFinding {
+                id: id.into(),
+                code: "CMP-AUD-TEST".into(),
+                severity,
+                disposition,
+                requiredness: ReferenceRequiredness::Required,
+                message: id.into(),
+                source_node_ids: Vec::new(),
+                orphan: false,
+            })
+            .into_iter()
+            .collect(),
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    }
+}
+
+#[test]
+fn audit_policy_enforces_outcome_specific_override_matrix() {
+    let cases = [
+        (AuditOutcome::Pass, false, false, true),
+        (AuditOutcome::Pass, true, false, true),
+        (AuditOutcome::Pass, false, true, true),
+        (AuditOutcome::Warning, false, false, true),
+        (AuditOutcome::Warning, true, false, true),
+        (AuditOutcome::Warning, false, true, true),
+        (AuditOutcome::Fail, false, false, false),
+        (AuditOutcome::Fail, true, false, true),
+        (AuditOutcome::Fail, false, true, false),
+        (AuditOutcome::Indeterminate, false, false, false),
+        (AuditOutcome::Indeterminate, true, false, false),
+        (AuditOutcome::Indeterminate, false, true, true),
+    ];
+
+    for (outcome, accept_fail, accept_unknown, expected_allowed) in cases {
+        let decision =
+            evaluate_audit_policy(&audit_report(outcome), accept_fail, accept_unknown, &[]);
+        assert_eq!(
+            decision.is_allowed(),
+            expected_allowed,
+            "unexpected decision for {outcome:?}, fail={accept_fail}, unknown={accept_unknown}: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn audit_policy_records_only_the_override_that_accepts_the_outcome() {
+    let fail = evaluate_audit_policy(&audit_report(AuditOutcome::Fail), true, true, &[]);
+    let unknown =
+        evaluate_audit_policy(&audit_report(AuditOutcome::Indeterminate), true, true, &[]);
+
+    let AuditPolicyDecision::Allow {
+        overrides: fail_overrides,
+    } = fail
+    else {
+        panic!("FAIL override should allow");
+    };
+    assert_eq!(fail_overrides.len(), 1);
+    assert_eq!(fail_overrides[0].flag, "--accept-audit-fail");
+    assert_eq!(fail_overrides[0].original_outcome, AuditOutcome::Fail);
+    assert_eq!(
+        fail_overrides[0].accepted_finding_ids,
+        vec!["missing-required"]
+    );
+    assert_eq!(
+        fail_overrides[0].rationale,
+        "explicitly accepted static audit FAIL findings"
+    );
+
+    let AuditPolicyDecision::Allow {
+        overrides: unknown_overrides,
+    } = unknown
+    else {
+        panic!("INDETERMINATE override should allow");
+    };
+    assert_eq!(unknown_overrides.len(), 1);
+    assert_eq!(unknown_overrides[0].flag, "--accept-audit-unknown");
+    assert_eq!(
+        unknown_overrides[0].original_outcome,
+        AuditOutcome::Indeterminate
+    );
+    assert_eq!(
+        unknown_overrides[0].accepted_finding_ids,
+        vec!["dynamic-reference"]
+    );
+    assert_eq!(
+        unknown_overrides[0].rationale,
+        "explicitly accepted incomplete or unknown static audit coverage"
+    );
+}
+
+#[test]
+fn audit_policy_never_bypasses_hard_blockers() {
+    for code in [
+        "SEC-101",
+        DiagnosticCode::CNT_CORRUPTED_PACK,
+        DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
+        DiagnosticCode::DET_AMBIGUOUS,
+        DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED,
+        DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY,
+        DiagnosticCode::CMP_NODE_NATIVE_MODULE,
+        DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION,
+    ] {
+        let blocker = Diagnostic::error(code, "hard blocker");
+        let decision =
+            evaluate_audit_policy(&audit_report(AuditOutcome::Fail), true, true, &[blocker]);
+        let AuditPolicyDecision::Block { diagnostics } = decision else {
+            panic!("{code} must remain blocked");
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code.0, code);
+    }
+}
 
 #[test]
 fn test_forbidden_storage_permissions_rejected() {
@@ -41,7 +193,8 @@ fn test_generate_manifest_xml() {
         "sensorLandscape",
         &["android.permission.INTERNET".to_string()],
         "io.runtimepack.host.BootstrapActivity",
-    ).unwrap();
+    )
+    .unwrap();
 
     assert!(xml.contains("package=\"com.example.testgame\""));
     assert!(xml.contains("android:label=\"Test Game\""));
@@ -54,7 +207,8 @@ fn test_generate_manifest_xml() {
 fn test_rgss_extractor_patches_recursive_json_script() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
-    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let extractor_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
     let source = std::fs::read_to_string(extractor_path).unwrap();
 
     assert!(source.contains("patchJsonDecoderScript"));
@@ -86,7 +240,9 @@ fn test_rgss_source_bootstrap_contains_font_and_direction_glyph_compatibility() 
     assert!(source.contains("send(original, val ? true : false)"));
     assert!(source.contains("InputUtils.instance_variable_get(:@keySYM_in_UI)"));
     let eval_position = source.find("eval(script_source").unwrap();
-    let normalize_position = source.rfind("RuntimePackCompatibility.normalize_input_utils").unwrap();
+    let normalize_position = source
+        .rfind("RuntimePackCompatibility.normalize_input_utils")
+        .unwrap();
     assert!(normalize_position > eval_position);
     assert!(source.contains("Up"));
     assert!(source.contains("Down"));
@@ -206,7 +362,8 @@ fn test_rgss_bootstrap_loads_zlib_before_inflating_scripts() {
 fn test_rgss_bootstrap_runs_after_native_bindings() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
-    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let extractor_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
     let source = std::fs::read_to_string(extractor_path).unwrap();
 
     assert!(source.contains("\"customScript\": \"runtimepack_bootstrap.rb\""));
@@ -217,7 +374,8 @@ fn test_rgss_bootstrap_runs_after_native_bindings() {
 fn test_rgss_activity_starts_sdl_thread_from_on_start() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
-    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let activity_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
     let source = std::fs::read_to_string(activity_path).unwrap();
 
     assert!(source.contains("override fun onStart()"));
@@ -228,7 +386,8 @@ fn test_rgss_activity_starts_sdl_thread_from_on_start() {
 fn test_rgss_extractor_emits_font_substitutions() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
-    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let extractor_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
     let source = std::fs::read_to_string(extractor_path).unwrap();
 
     assert!(source.contains("\"fontSub\""));
@@ -252,7 +411,8 @@ fn test_rgss_extractor_emits_font_substitutions() {
 fn test_rgss_activity_overlay_preserves_hardware_keyboard_focus() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
-    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let activity_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
     let source = std::fs::read_to_string(activity_path).unwrap();
 
     // Hardware keys must be forwarded to SDL through a dispatchKeyEvent override.
@@ -311,7 +471,8 @@ fn test_signing_validation() {
     };
     let res = SigningManager::validate_signing_config(&bad_release);
     assert!(res.is_err());
-    if let runtimepack_core::diagnostics::DiagnosticError::Detailed { code, .. } = res.unwrap_err() {
+    if let runtimepack_core::diagnostics::DiagnosticError::Detailed { code, .. } = res.unwrap_err()
+    {
         assert_eq!(code.0, DiagnosticCode::SIG_KEYSTORE_NOT_FOUND);
     } else {
         panic!("Expected DiagnosticError::Detailed");
@@ -321,8 +482,8 @@ fn test_signing_validation() {
 #[test]
 fn test_build_manifest_supports_encrypted_streaming_mode() {
     use runtimepack_core::build_plan::{
-        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry,
-        EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry, EngineManifestEntry,
+        ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
     };
     use runtimepack_core::domain::ContentMode;
 
@@ -332,6 +493,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         flavor: None,
+        audit: None,
         app: AppConfig {
             name: "Test VFS".to_string(),
             package: "com.example.testvfs".to_string(),
@@ -368,6 +530,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: None,
+            audit: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -388,12 +551,14 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
 
-    let extractor_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
+    let extractor_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt");
     let extractor_source = std::fs::read_to_string(extractor_path).unwrap();
     assert!(extractor_source.contains("fun isEncryptedStreamingMode"));
     assert!(extractor_source.contains("fun prepareStreamingContainer"));
 
-    let activity_path = root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
+    let activity_path =
+        root.join("android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt");
     let activity_source = std::fs::read_to_string(activity_path).unwrap();
     assert!(activity_source.contains("GpackExtractor.extract"));
 }
@@ -401,8 +566,8 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
 #[test]
 fn test_generate_manifest_routes_web_family_to_web_activity() {
     use runtimepack_core::build_plan::{
-        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry,
-        EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+        AndroidManifestEntry, AppConfig, BuildManifest, ContentManifestEntry, EngineManifestEntry,
+        ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
     };
     use runtimepack_core::domain::ContentMode;
 
@@ -422,6 +587,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         flavor: None,
+        audit: None,
         app: AppConfig {
             name: "Test Web Game".to_string(),
             package: "com.example.testwebgame".to_string(),
@@ -458,6 +624,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: None,
+            audit: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -480,7 +647,8 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
 
 #[test]
 fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
-    let temp_dir = std::env::temp_dir().join(format!("build_test_icons_default_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_icons_default_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp_dir);
     std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -491,6 +659,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: None,
+        audit: None,
         app: AppConfig {
             name: "Neutral Game".to_string(),
             package: "com.example.neutral".to_string(),
@@ -527,6 +696,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: None,
+            audit: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -582,6 +752,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
             git_commit: None,
             build_timestamp: "2026-09-23T00:00:00Z".to_string(),
             flavor: None,
+            audit: None,
             app: AppConfig {
                 name: "Custom Game".to_string(),
                 package: "com.example.custom".to_string(),
@@ -618,6 +789,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
                 config_hash: "".to_string(),
                 apk_hash: None,
                 flavor: None,
+                audit: None,
                 toolchain: ToolchainProvenance {
                     agp_version: None,
                     gradle_version: None,
@@ -670,91 +842,91 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
 
 #[test]
 fn test_cheat_profile_registry_matching_and_fallback() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "rtp_cheat_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::create_dir_all(&temp_dir);
+    let temp_dir = std::env::temp_dir().join(format!(
+        "rtp_cheat_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::create_dir_all(&temp_dir);
 
-        // 1. Test Termina detection & injection
-        let termina_mock = temp_dir.join("termina_game");
-        std::fs::create_dir_all(termina_mock.join("www/data")).unwrap();
-        std::fs::write(
-            termina_mock.join("www/data/System.json"),
-            r#"{"gameTitle":"Fear & Hunger 2: TERMINA","switches":[""],"variables":[""]}"#,
-        )
-        .unwrap();
+    // 1. Test Termina detection & injection
+    let termina_mock = temp_dir.join("termina_game");
+    std::fs::create_dir_all(termina_mock.join("www/data")).unwrap();
+    std::fs::write(
+        termina_mock.join("www/data/System.json"),
+        r#"{"gameTitle":"Fear & Hunger 2: TERMINA","switches":[""],"variables":[""]}"#,
+    )
+    .unwrap();
 
-        let matched_id = AndroidProjectGenerator::detect_game_profile_id(&termina_mock);
-        assert_eq!(matched_id.as_deref(), Some("termina"));
+    let matched_id = AndroidProjectGenerator::detect_game_profile_id(&termina_mock);
+    assert_eq!(matched_id.as_deref(), Some("termina"));
 
-        let overlay_dir = temp_dir.join("overlay_termina");
-        AndroidProjectGenerator::inject_cheat_profile(Some(&termina_mock), &overlay_dir).unwrap();
-        let termina_cheat_content =
-            std::fs::read_to_string(overlay_dir.join("cheat_profile.js")).unwrap();
-        assert!(termina_cheat_content.contains("Fear & Hunger 2: Termina Cheats"));
-        assert!(termina_cheat_content.contains("save_anywhere"));
-        assert!(termina_cheat_content.contains("coin_flip_always_win"));
-        assert!(termina_cheat_content.contains("full_restore_body_mind"));
-        assert!(termina_cheat_content.contains("add_shillings"));
-        assert!(termina_cheat_content.contains("add_soul_stone"));
+    let overlay_dir = temp_dir.join("overlay_termina");
+    AndroidProjectGenerator::inject_cheat_profile(Some(&termina_mock), &overlay_dir).unwrap();
+    let termina_cheat_content =
+        std::fs::read_to_string(overlay_dir.join("cheat_profile.js")).unwrap();
+    assert!(termina_cheat_content.contains("Fear & Hunger 2: Termina Cheats"));
+    assert!(termina_cheat_content.contains("save_anywhere"));
+    assert!(termina_cheat_content.contains("coin_flip_always_win"));
+    assert!(termina_cheat_content.contains("full_restore_body_mind"));
+    assert!(termina_cheat_content.contains("add_shillings"));
+    assert!(termina_cheat_content.contains("add_soul_stone"));
 
-        // 2. Test Lona detection & injection
-        let lona_mock = temp_dir.join("lona_game");
-        std::fs::create_dir_all(&lona_mock).unwrap();
-        std::fs::write(
-            lona_mock.join("Game.ini"),
-            "[Game]\nRTP=\nLibrary=RGSS301.dll\nScripts=Data\\Scripts.rvdata2\nTitle=LonaRPG\n",
-        )
-        .unwrap();
+    // 2. Test Lona detection & injection
+    let lona_mock = temp_dir.join("lona_game");
+    std::fs::create_dir_all(&lona_mock).unwrap();
+    std::fs::write(
+        lona_mock.join("Game.ini"),
+        "[Game]\nRTP=\nLibrary=RGSS301.dll\nScripts=Data\\Scripts.rvdata2\nTitle=LonaRPG\n",
+    )
+    .unwrap();
 
-        let matched_lona = AndroidProjectGenerator::detect_game_profile_id(&lona_mock);
-        assert_eq!(matched_lona.as_deref(), Some("lona"));
+    let matched_lona = AndroidProjectGenerator::detect_game_profile_id(&lona_mock);
+    assert_eq!(matched_lona.as_deref(), Some("lona"));
 
-        let overlay_lona = temp_dir.join("overlay_lona");
-        AndroidProjectGenerator::inject_cheat_profile(Some(&lona_mock), &overlay_lona).unwrap();
-        let lona_cheat_content =
-            std::fs::read_to_string(overlay_lona.join("cheat_profile.js")).unwrap();
-        assert!(lona_cheat_content.contains("Lona RPG Quick Cheats"));
-        assert!(lona_cheat_content.contains("restore_vitals"));
+    let overlay_lona = temp_dir.join("overlay_lona");
+    AndroidProjectGenerator::inject_cheat_profile(Some(&lona_mock), &overlay_lona).unwrap();
+    let lona_cheat_content =
+        std::fs::read_to_string(overlay_lona.join("cheat_profile.js")).unwrap();
+    assert!(lona_cheat_content.contains("Lona RPG Quick Cheats"));
+    assert!(lona_cheat_content.contains("restore_vitals"));
 
-        // 3. Test Neutral Fallback when no match
-        let unknown_mock = temp_dir.join("generic_rpg");
-        std::fs::create_dir_all(&unknown_mock).unwrap();
-        std::fs::write(
-            unknown_mock.join("Game.ini"),
-            "[Game]\nTitle=GenericAdventure\n",
-        )
-        .unwrap();
+    // 3. Test Neutral Fallback when no match
+    let unknown_mock = temp_dir.join("generic_rpg");
+    std::fs::create_dir_all(&unknown_mock).unwrap();
+    std::fs::write(
+        unknown_mock.join("Game.ini"),
+        "[Game]\nTitle=GenericAdventure\n",
+    )
+    .unwrap();
 
-        let matched_unknown = AndroidProjectGenerator::detect_game_profile_id(&unknown_mock);
-        assert_eq!(matched_unknown, None);
+    let matched_unknown = AndroidProjectGenerator::detect_game_profile_id(&unknown_mock);
+    assert_eq!(matched_unknown, None);
 
-        let overlay_neutral = temp_dir.join("overlay_neutral");
-        AndroidProjectGenerator::inject_cheat_profile(Some(&unknown_mock), &overlay_neutral).unwrap();
-        let neutral_content =
-            std::fs::read_to_string(overlay_neutral.join("cheat_profile.js")).unwrap();
-        assert!(neutral_content.contains("Neutral Cheat Profile Template"));
-        assert!(neutral_content.contains("sections: []"));
-        assert!(!neutral_content.contains("Lona RPG"));
-        assert!(!neutral_content.contains("Termina"));
+    let overlay_neutral = temp_dir.join("overlay_neutral");
+    AndroidProjectGenerator::inject_cheat_profile(Some(&unknown_mock), &overlay_neutral).unwrap();
+    let neutral_content =
+        std::fs::read_to_string(overlay_neutral.join("cheat_profile.js")).unwrap();
+    assert!(neutral_content.contains("Neutral Cheat Profile Template"));
+    assert!(neutral_content.contains("sections: []"));
+    assert!(!neutral_content.contains("Lona RPG"));
+    assert!(!neutral_content.contains("Termina"));
 
-        // 4. Test inject with None source
-        let overlay_none = temp_dir.join("overlay_none");
-        AndroidProjectGenerator::inject_cheat_profile(None, &overlay_none).unwrap();
-        let none_content =
-            std::fs::read_to_string(overlay_none.join("cheat_profile.js")).unwrap();
-        assert!(none_content.contains("sections: []"));
+    // 4. Test inject with None source
+    let overlay_none = temp_dir.join("overlay_none");
+    AndroidProjectGenerator::inject_cheat_profile(None, &overlay_none).unwrap();
+    let none_content = std::fs::read_to_string(overlay_none.join("cheat_profile.js")).unwrap();
+    assert!(none_content.contains("sections: []"));
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
 
 #[test]
 fn test_build_flavor_beta_injects_watermark() {
-    let temp_dir = std::env::temp_dir().join(format!("build_test_flavor_beta_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_flavor_beta_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp_dir);
     std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -765,6 +937,7 @@ fn test_build_flavor_beta_injects_watermark() {
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
+        audit: None,
         app: AppConfig {
             name: "Beta Flavor Game".to_string(),
             package: "com.example.betaflavor".to_string(),
@@ -801,6 +974,7 @@ fn test_build_flavor_beta_injects_watermark() {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: Some("beta".to_string()),
+            audit: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -834,10 +1008,17 @@ fn test_build_flavor_beta_injects_watermark() {
         combined_content.push_str(&std::fs::read_to_string(&index_html_path).unwrap());
     }
 
-    assert!(combined_content.contains("Beta Test"), "Overlay must contain 'Beta Test'");
-    assert!(combined_content.contains("Veldra Community"), "Overlay must contain 'Veldra Community'");
     assert!(
-        combined_content.contains("#fnh-watermark") && combined_content.contains("display: block !important"),
+        combined_content.contains("Beta Test"),
+        "Overlay must contain 'Beta Test'"
+    );
+    assert!(
+        combined_content.contains("Veldra Community"),
+        "Overlay must contain 'Veldra Community'"
+    );
+    assert!(
+        combined_content.contains("#fnh-watermark")
+            && combined_content.contains("display: block !important"),
         "Watermark must have display: block !important"
     );
     assert!(
@@ -855,7 +1036,8 @@ fn test_build_flavor_beta_injects_watermark() {
 
 #[test]
 fn test_build_flavor_release_omits_watermark() {
-    let temp_dir = std::env::temp_dir().join(format!("build_test_flavor_release_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_flavor_release_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp_dir);
     std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -866,6 +1048,7 @@ fn test_build_flavor_release_omits_watermark() {
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: Some("release".to_string()),
+        audit: None,
         app: AppConfig {
             name: "Release Flavor Game".to_string(),
             package: "com.example.releaseflavor".to_string(),
@@ -902,6 +1085,7 @@ fn test_build_flavor_release_omits_watermark() {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: Some("release".to_string()),
+            audit: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -935,10 +1119,17 @@ fn test_build_flavor_release_omits_watermark() {
         combined_content.push_str(&std::fs::read_to_string(&index_html_path).unwrap());
     }
 
-    assert!(!combined_content.contains("Beta Test"), "Release build must NOT contain 'Beta Test'");
-    assert!(!combined_content.contains("Veldra Community"), "Release build must NOT contain 'Veldra Community'");
     assert!(
-        combined_content.contains("#fnh-watermark") && combined_content.contains("display: none !important"),
+        !combined_content.contains("Beta Test"),
+        "Release build must NOT contain 'Beta Test'"
+    );
+    assert!(
+        !combined_content.contains("Veldra Community"),
+        "Release build must NOT contain 'Veldra Community'"
+    );
+    assert!(
+        combined_content.contains("#fnh-watermark")
+            && combined_content.contains("display: none !important"),
         "Watermark must be disabled with display: none !important"
     );
     let index_html_content = std::fs::read_to_string(&index_html_path).unwrap();
@@ -949,4 +1140,3 @@ fn test_build_flavor_release_omits_watermark() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
-

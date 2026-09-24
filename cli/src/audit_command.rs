@@ -104,9 +104,9 @@ pub fn run(
     let report = create_asset_auditor_registry().audit(&source_index, &descriptor, &options);
     let json = serde_json::to_vec_pretty(&report)
         .map_err(|error| format!("[CMP-AUD-010] Failed to serialize audit report: {error}"))?;
-    context
-        .write_report(&output, &json)
-        .map_err(|error| format!("[CMP-AUD-010] Failed to write audit report atomically: {error}"))?;
+    context.write_report(&output, &json).map_err(|error| {
+        format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
+    })?;
 
     Ok(AuditSummary {
         engine: descriptor.id,
@@ -119,7 +119,9 @@ pub fn run(
 
 fn validate_detection(descriptor: &EngineDescriptor) -> Result<(), String> {
     if descriptor.confidence == DetectionConfidence::Ambiguous {
-        return Err("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.".into());
+        return Err(
+            "[DET-110] Detection ambiguous: Multiple contradictory engine markers found.".into(),
+        );
     }
     if descriptor.id == EngineId::Unknown {
         return Err("[DET-100] Detection failed: Engine could not be identified.".into());
@@ -195,7 +197,7 @@ impl AssetAuditor for UnavailableAssetAuditor {
     }
 }
 
-fn create_asset_auditor_registry() -> AssetAuditorRegistry {
+pub(crate) fn create_asset_auditor_registry() -> AssetAuditorRegistry {
     let mut registry = AssetAuditorRegistry::new();
     for (id, engine) in [
         ("rgss1-placeholder", EngineId::RpgMakerXp),
@@ -267,9 +269,7 @@ fn create_unique_sibling(path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let temporary = path.with_file_name(format!(
-            ".{file_name}.{timestamp}.{sequence}.tmp"
-        ));
+        let temporary = path.with_file_name(format!(".{file_name}.{timestamp}.{sequence}.tmp"));
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)

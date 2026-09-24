@@ -2,12 +2,14 @@ mod audit_command;
 
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use runtimepack_core::asset_audit::{AssetAuditOptions, AuditMode};
 use runtimepack_core::build_plan::{
-    AndroidManifestEntry, AndroidProjectGenerator, AppConfig, BuildManifest,
-    ContentManifestEntry, EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry,
-    ToolchainProvenance,
+    evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
+    AuditManifestEntry, AuditPolicyDecision, BuildManifest, ContentManifestEntry,
+    EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
 };
 use runtimepack_core::detection::DetectorRegistry;
+use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode};
 use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
@@ -93,6 +95,15 @@ pub struct BuildArgs {
     /// Build flavor: beta or release
     #[arg(long, default_value = "beta")]
     pub flavor: String,
+    /// Static asset audit mode: standard or deep
+    #[arg(long, default_value = "standard")]
+    pub audit_mode: String,
+    /// Accept a static audit FAIL outcome
+    #[arg(long)]
+    pub accept_audit_fail: bool,
+    /// Accept an INDETERMINATE static audit outcome
+    #[arg(long)]
+    pub accept_audit_unknown: bool,
     /// Output directory
     #[arg(short, long, default_value = "./dist")]
     pub output: PathBuf,
@@ -119,7 +130,9 @@ fn create_default_detector_registry() -> DetectorRegistry {
 fn create_default_analyzer_registry() -> runtimepack_core::compatibility::AnalyzerRegistry {
     let mut registry = runtimepack_core::compatibility::AnalyzerRegistry::new();
     registry.register(Box::new(runtimepack_engine_rgss::RgssAnalyzer));
-    registry.register(Box::new(runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer));
+    registry.register(Box::new(
+        runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer,
+    ));
     registry.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
     registry.register(Box::new(TyranoAnalyzer));
     registry
@@ -130,18 +143,27 @@ fn cmd_doctor() {
     println!("System & Toolchains:");
 
     // Rust
-    let rustc_res = Command::new("rustc").arg("--version").output().or_else(|_| {
-        if let Ok(profile) = std::env::var("USERPROFILE") {
-            let p = PathBuf::from(profile).join(".cargo/bin/rustc.exe");
-            Command::new(p).arg("--version").output()
-        } else {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not found"))
-        }
-    });
+    let rustc_res = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .or_else(|_| {
+            if let Ok(profile) = std::env::var("USERPROFILE") {
+                let p = PathBuf::from(profile).join(".cargo/bin/rustc.exe");
+                Command::new(p).arg("--version").output()
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "not found",
+                ))
+            }
+        });
 
     match rustc_res {
         Ok(out) if out.status.success() => {
-            println!("  [OK] Rust: {}", String::from_utf8_lossy(&out.stdout).trim());
+            println!(
+                "  [OK] Rust: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
         }
         _ => println!("  [WARN] Rust compiler (rustc) not found in active PATH"),
     }
@@ -150,7 +172,10 @@ fn cmd_doctor() {
     let git_ok = Command::new("git").arg("--version").output();
     match git_ok {
         Ok(out) if out.status.success() => {
-            println!("  [OK] Git: {}", String::from_utf8_lossy(&out.stdout).trim());
+            println!(
+                "  [OK] Git: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
         }
         _ => println!("  [WARN] Git not found"),
     }
@@ -159,7 +184,10 @@ fn cmd_doctor() {
     let node_ok = Command::new("node").arg("--version").output();
     match node_ok {
         Ok(out) if out.status.success() => {
-            println!("  [OK] Node.js: {}", String::from_utf8_lossy(&out.stdout).trim());
+            println!(
+                "  [OK] Node.js: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
         }
         _ => println!("  [INFO] Node.js not detected"),
     }
@@ -173,7 +201,10 @@ fn cmd_doctor() {
             let p = PathBuf::from(profile).join(".runtimepack/toolchains/jdk-17/bin/java.exe");
             Command::new(p).arg("-version").output()
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not found"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "not found",
+            ))
         }
     });
 
@@ -205,7 +236,9 @@ fn cmd_doctor() {
 
     match android_home {
         Some(path) => println!("  [OK] Android SDK: {}", path),
-        None => println!("  [WARN] ANDROID_HOME / ANDROID_SDK_ROOT not set; required for packaging APKs"),
+        None => println!(
+            "  [WARN] ANDROID_HOME / ANDROID_SDK_ROOT not set; required for packaging APKs"
+        ),
     }
 
     // Toolchain Lock
@@ -225,7 +258,10 @@ fn cmd_doctor() {
 fn cmd_runtime_list() {
     let registry = RuntimeRegistry::new();
     println!("Available Android Runtime Packages:\n");
-    println!("{:<20} {:<10} {:<12} {:<24} {:<8}", "ID", "VERSION", "FAMILY", "SUPPORTED ENGINES", "MIN SDK");
+    println!(
+        "{:<20} {:<10} {:<12} {:<24} {:<8}",
+        "ID", "VERSION", "FAMILY", "SUPPORTED ENGINES", "MIN SDK"
+    );
     println!("{:-<20} {:-<10} {:-<12} {:-<24} {:-<8}", "", "", "", "", "");
 
     for r in registry.all() {
@@ -257,7 +293,8 @@ fn cmd_inspect(path: &Path, _config_path: Option<&Path>) {
         }
     };
 
-    println!("Indexed {} files ({:.2} MB, sha256: {})",
+    println!(
+        "Indexed {} files ({:.2} MB, sha256: {})",
         source_index.file_count(),
         source_index.total_size_bytes as f64 / (1024.0 * 1024.0),
         &source_index.source_hash[..8]
@@ -292,7 +329,10 @@ fn cmd_inspect(path: &Path, _config_path: Option<&Path>) {
     }
 
     if !report.issues.is_empty() {
-        println!("\nCompatibility Issues & Diagnostics ({}):", report.issues.len());
+        println!(
+            "\nCompatibility Issues & Diagnostics ({}):",
+            report.issues.len()
+        );
         for issue in &report.issues {
             println!("  [{}] [{}] {}", issue.code, issue.severity, issue.message);
         }
@@ -329,9 +369,15 @@ fn cmd_explain(path: &Path) {
 
     println!("Evaluated Candidates:");
     for c in candidates {
-        println!("  - Engine: {} | Score: {} | Confidence: {}", c.engine, c.score, c.confidence);
+        println!(
+            "  - Engine: {} | Score: {} | Confidence: {}",
+            c.engine, c.score, c.confidence
+        );
         for ev in &c.evidence {
-            println!("      * {} -> {} (+{}): {}", ev.rule, ev.path, ev.weight, ev.description);
+            println!(
+                "      * {} -> {} (+{}): {}",
+                ev.rule, ev.path, ev.weight, ev.description
+            );
         }
         for conflict in &c.conflicts {
             println!("      ! Conflict: {}", conflict);
@@ -366,7 +412,11 @@ fn cmd_audit(args: AuditArgs) {
             println!("Audit mode: {:?}", summary.mode);
             println!(
                 "Network audit: {}",
-                if summary.allow_network { "enabled" } else { "disabled" }
+                if summary.allow_network {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
             );
             println!("Outcome: {:?}", summary.outcome);
             println!("Report: {}", summary.output.display());
@@ -381,9 +431,23 @@ fn cmd_audit(args: AuditArgs) {
 fn cmd_build(args: BuildArgs) {
     let normalized_flavor = args.flavor.to_lowercase();
     if normalized_flavor != "beta" && normalized_flavor != "release" {
-        eprintln!("[BLD-101] Invalid build flavor '{}'. Must be 'beta' or 'release'.", args.flavor);
+        eprintln!(
+            "[BLD-101] Invalid build flavor '{}'. Must be 'beta' or 'release'.",
+            args.flavor
+        );
         std::process::exit(1);
     }
+    let audit_mode = match args.audit_mode.to_ascii_lowercase().as_str() {
+        "standard" => AuditMode::Standard,
+        "deep" => AuditMode::Deep,
+        _ => {
+            eprintln!(
+                "[CMP-AUD-010] Invalid audit mode '{}'. Must be 'standard' or 'deep'.",
+                args.audit_mode
+            );
+            std::process::exit(1);
+        }
+    };
 
     let path = &args.path;
     let package = args.package;
@@ -404,7 +468,8 @@ fn cmd_build(args: BuildArgs) {
             std::process::exit(1);
         }
     };
-    println!("Indexed {} files ({:.2} MB, source_hash: {})",
+    println!(
+        "Indexed {} files ({:.2} MB, source_hash: {})",
         source_index.file_count(),
         source_index.total_size_bytes as f64 / (1024.0 * 1024.0),
         &source_index.source_hash[..8]
@@ -426,32 +491,104 @@ fn cmd_build(args: BuildArgs) {
         std::process::exit(1);
     }
 
-    println!("Detected:      {} (Confidence: {})", descriptor.id, descriptor.confidence);
+    println!(
+        "Detected:      {} (Confidence: {})",
+        descriptor.id, descriptor.confidence
+    );
 
     // 3. Compatibility & Legal Gate
     let analyzers = create_default_analyzer_registry();
     let report = analyzers.analyze(&source_index, &descriptor);
 
-    if report.status == CompatibilityStatus::UnsupportedDependency {
-        eprintln!("\n[CMP-100] Build rejected: Game contains unsupported native dependencies.");
-        for issue in &report.issues {
-            eprintln!("  [{}] [{}] {}", issue.code, issue.severity, issue.message);
-        }
-        std::process::exit(1);
+    let mut hard_blockers = report
+        .issues
+        .iter()
+        .filter(|issue| {
+            matches!(
+                issue.code.as_str(),
+                DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
+                    | DiagnosticCode::CMP_NODE_NATIVE_MODULE
+                    | DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
+                    | DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED
+            )
+        })
+        .map(|issue| Diagnostic::error(issue.code.clone(), issue.message.clone()))
+        .collect::<Vec<_>>();
+    if report.status == CompatibilityStatus::UnsupportedDependency && hard_blockers.is_empty() {
+        hard_blockers.push(Diagnostic::error(
+            DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY,
+            "game contains an unsupported native dependency",
+        ));
     }
     if descriptor.id == EngineId::Tyrano {
-        println!("\n[TYR-101] Notice: Building Tyrano package for internal validation/permitted testing under TYRANO-LEGAL gate.");
+        hard_blockers.push(Diagnostic::error(
+            DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
+            "Tyrano packaging remains blocked by the TYRANO-LEGAL gate",
+        ));
     }
 
-    // 4. Runtime Resolution
+    // 4. Static Asset Audit and Runtime Resolution
+    let audit_options = AssetAuditOptions {
+        mode: audit_mode,
+        allow_network: false,
+        ..AssetAuditOptions::default()
+    };
+    let mut audit_report = audit_command::create_asset_auditor_registry().audit(
+        &source_index,
+        &descriptor,
+        &audit_options,
+    );
     let registry = RuntimeRegistry::new();
     let runtimes = registry.find_for_engine(descriptor.id);
     if runtimes.is_empty() {
-        eprintln!("[RT-101] No compatible runtime package found for {}", descriptor.id);
-        std::process::exit(1);
+        hard_blockers.push(Diagnostic::error(
+            DiagnosticCode::RT_UNRESOLVED,
+            format!("no compatible runtime package found for {}", descriptor.id),
+        ));
     }
+    let decision = evaluate_audit_policy(
+        &audit_report,
+        args.accept_audit_fail,
+        args.accept_audit_unknown,
+        &hard_blockers,
+    );
+    let audit_overrides = match decision {
+        AuditPolicyDecision::Allow { overrides } => overrides,
+        AuditPolicyDecision::Block { diagnostics } => {
+            if diagnostics.is_empty() {
+                eprintln!(
+                    "[CMP-AUD-010] Build rejected by static asset audit outcome {:?}.",
+                    audit_report.outcome
+                );
+            } else {
+                for diagnostic in diagnostics {
+                    eprintln!("[{}] {}", diagnostic.code, diagnostic.message);
+                }
+            }
+            std::process::exit(1);
+        }
+    };
+    audit_report.overrides = audit_overrides
+        .iter()
+        .map(|record| runtimepack_core::asset_audit::AuditOverride {
+            flag: record.flag.clone(),
+            rationale: record.rationale.clone(),
+        })
+        .collect();
+    let audit_json = serde_json::to_vec_pretty(&audit_report).unwrap_or_else(|error| {
+        eprintln!("[CMP-AUD-010] Failed to serialize asset audit report: {error}");
+        std::process::exit(1);
+    });
+    let audit_hash = format!("{:x}", Sha256::digest(&audit_json));
     let runtime = runtimes[0];
-    println!("Resolved:      {} v{} ({})", runtime.name, runtime.version, runtime.id);
+    println!(
+        "Audit:         {:?} ({:?})",
+        audit_report.outcome, audit_mode
+    );
+    println!(
+        "Resolved:      {} v{} ({})",
+        runtime.name, runtime.version, runtime.id
+    );
 
     // 5. App details
     let app_name = name.unwrap_or_else(|| {
@@ -481,7 +618,9 @@ fn cmd_build(args: BuildArgs) {
     let pack_path = output.join("game.pack");
 
     let encryption_key = if content_mode == "encrypted-streaming" {
-        Some(runtimepack_pack::ContentCrypto::derive_package_key(&pkg_id, &app_name))
+        Some(runtimepack_pack::ContentCrypto::derive_package_key(
+            &pkg_id, &app_name,
+        ))
     } else {
         None
     };
@@ -490,7 +629,9 @@ fn cmd_build(args: BuildArgs) {
     let mut staging_dir_to_cleanup: Option<PathBuf> = None;
     if matches!(descriptor.id, EngineId::RpgMakerMv | EngineId::RpgMakerMz) {
         if path.join("www/index.html").exists() || path.join("www/js/rpg_core.js").exists() {
-            println!("Deployed NW.js structure detected. Normalizing content packaging root to 'www/'");
+            println!(
+                "Deployed NW.js structure detected. Normalizing content packaging root to 'www/'"
+            );
             content_source_dir = path.join("www");
         }
     } else if descriptor.id == EngineId::Tyrano {
@@ -519,13 +660,21 @@ fn cmd_build(args: BuildArgs) {
                     std::process::exit(1);
                 }
             };
-            println!("Extracted {} files from app.asar into {}", extracted_count, staging_dir.display());
+            println!(
+                "Extracted {} files from app.asar into {}",
+                extracted_count,
+                staging_dir.display()
+            );
             content_source_dir = staging_dir.clone();
             staging_dir_to_cleanup = Some(staging_dir);
         }
     }
 
-    let total_bytes = match GpackPacker::pack_directory_with_options(&content_source_dir, &pack_path, encryption_key.as_ref()) {
+    let total_bytes = match GpackPacker::pack_directory_with_options(
+        &content_source_dir,
+        &pack_path,
+        encryption_key.as_ref(),
+    ) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[CNT-102] Failed to pack content: {}", e);
@@ -543,24 +692,35 @@ fn cmd_build(args: BuildArgs) {
         use std::io::Read;
         let mut buf = [0u8; 8192];
         while let Ok(n) = pf.read(&mut buf) {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hasher.update(&buf[..n]);
         }
     }
     let pack_hash = format!("{:x}", hasher.finalize());
-    println!("GPACK created: {} ({:.2} MB, hash: {})",
+    println!(
+        "GPACK created: {} ({:.2} MB, hash: {})",
         pack_path.file_name().unwrap().to_string_lossy(),
         total_bytes as f64 / (1024.0 * 1024.0),
         &pack_hash[..8]
     );
 
     // 7. Assemble BuildManifest
+    let audit_manifest = AuditManifestEntry {
+        report_path: "asset-audit-report.json".into(),
+        report_sha256: audit_hash,
+        mode: audit_mode,
+        outcome: audit_report.outcome,
+        overrides: audit_overrides,
+    };
     let manifest = BuildManifest {
         schema_version: 1,
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: Utc::now().to_rfc3339(),
         flavor: Some(normalized_flavor.clone()),
+        audit: Some(audit_manifest.clone()),
         app: AppConfig {
             name: app_name.clone(),
             package: pkg_id.clone(),
@@ -597,6 +757,7 @@ fn cmd_build(args: BuildArgs) {
             config_hash: "".to_string(),
             apk_hash: None,
             flavor: Some(normalized_flavor.clone()),
+            audit: Some(audit_manifest),
             toolchain: ToolchainProvenance {
                 agp_version: Some("8.3.0".to_string()),
                 gradle_version: Some("8.7".to_string()),
@@ -636,7 +797,8 @@ fn cmd_build(args: BuildArgs) {
     }
 
     if let Ok(profile) = std::env::var("USERPROFILE") {
-        let gradle_bin = PathBuf::from(&profile).join(".runtimepack/toolchains/gradle-8.7/bin/gradle.bat");
+        let gradle_bin =
+            PathBuf::from(&profile).join(".runtimepack/toolchains/gradle-8.7/bin/gradle.bat");
         if gradle_bin.exists() {
             gradle_cmd = Command::new(gradle_bin);
         }
@@ -659,20 +821,28 @@ fn cmd_build(args: BuildArgs) {
                         apk_hasher.update(&bytes);
                         apk_hash = Some(format!("{:x}", apk_hasher.finalize()));
                     }
-                    println!("Generated APK:  {} ({:.2} MB)",
+                    println!(
+                        "Generated APK:  {} ({:.2} MB)",
                         dest_apk.display(),
-                        fs::metadata(&dest_apk).map(|m| m.len()).unwrap_or(0) as f64 / (1024.0 * 1024.0)
+                        fs::metadata(&dest_apk).map(|m| m.len()).unwrap_or(0) as f64
+                            / (1024.0 * 1024.0)
                     );
                 }
             }
         }
         Ok(res) => {
-            println!("Gradle notice: Non-zero exit code ({:?}). Android project is available in {}.",
-                res.status.code(), android_project_dir.display());
+            println!(
+                "Gradle notice: Non-zero exit code ({:?}). Android project is available in {}.",
+                res.status.code(),
+                android_project_dir.display()
+            );
         }
         Err(e) => {
-            println!("Gradle compiler notice: {}. Project structure generated at {}.",
-                e, android_project_dir.display());
+            println!(
+                "Gradle compiler notice: {}. Project structure generated at {}.",
+                e,
+                android_project_dir.display()
+            );
         }
     }
 
@@ -685,6 +855,7 @@ fn cmd_build(args: BuildArgs) {
 
     let report_json = serde_json::to_string_pretty(&report).unwrap();
     fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
+    fs::write(output.join("asset-audit-report.json"), &audit_json).unwrap();
 
     // Checksums
     let mut checksums = format!(
@@ -702,13 +873,25 @@ fn cmd_build(args: BuildArgs) {
     fs::create_dir_all(&notices_dir).unwrap();
     let mut notices_text = String::from("Third-Party Notices:\n\n");
     for item in EvidenceRegistry::get_canonical_evidence() {
-        notices_text.push_str(&format!("[{}] {}\nURL: {}\n\n", item.id, item.title, item.url));
+        notices_text.push_str(&format!(
+            "[{}] {}\nURL: {}\n\n",
+            item.id, item.title, item.url
+        ));
     }
     fs::write(notices_dir.join("NOTICES.txt"), notices_text).unwrap();
 
-    println!("Build report:   {}", output.join("build-manifest.json").display());
-    println!("Compatibility:  {}", output.join("compatibility-report.json").display());
-    println!("Notices:        {}", notices_dir.join("NOTICES.txt").display());
+    println!(
+        "Build report:   {}",
+        output.join("build-manifest.json").display()
+    );
+    println!(
+        "Compatibility:  {}",
+        output.join("compatibility-report.json").display()
+    );
+    println!(
+        "Notices:        {}",
+        notices_dir.join("NOTICES.txt").display()
+    );
     println!("\n[SUCCESS] Standalone Android packaging complete!");
 }
 
@@ -730,7 +913,9 @@ fn main() {
 
     match cli.command {
         Some(Commands::Doctor) => cmd_doctor(),
-        Some(Commands::Runtime { sub: RuntimeCommands::List }) => cmd_runtime_list(),
+        Some(Commands::Runtime {
+            sub: RuntimeCommands::List,
+        }) => cmd_runtime_list(),
         Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
         Some(Commands::Explain { path }) => cmd_explain(&path),
         Some(Commands::Audit(args)) => cmd_audit(args),
