@@ -2,7 +2,9 @@ mod audit_command;
 
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use runtimepack_core::asset_audit::{AssetAuditOptions, AuditMode, AuditOutcome};
+use runtimepack_core::asset_audit::{
+    AssetAuditOptions, AssetAuditorRegistry, AuditMode, AuditOutcome,
+};
 use runtimepack_core::build_plan::{
     evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
     AuditManifestEntry, AuditPolicyDecision, BuildManifest, ContentManifestEntry,
@@ -14,10 +16,14 @@ use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineI
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
 use runtimepack_core::runtime_registry::RuntimeRegistry;
-use runtimepack_engine_renpy::RenPyDetector;
-use runtimepack_engine_rgss::{RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector};
-use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector};
-use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoDetector};
+use runtimepack_engine_renpy::{RenPyAnalyzer, RenPyAssetAuditor, RenPyDetector};
+use runtimepack_engine_rgss::{
+    RgssAnalyzer, RgssAssetAuditor, RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector,
+};
+use runtimepack_engine_rpgmaker_web::{
+    RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer, RpgMakerWebAssetAuditor,
+};
+use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoAssetAuditor, TyranoDetector};
 use runtimepack_pack::GpackPacker;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -132,12 +138,27 @@ fn create_default_detector_registry() -> DetectorRegistry {
 
 fn create_default_analyzer_registry() -> runtimepack_core::compatibility::AnalyzerRegistry {
     let mut registry = runtimepack_core::compatibility::AnalyzerRegistry::new();
-    registry.register(Box::new(runtimepack_engine_rgss::RgssAnalyzer));
-    registry.register(Box::new(
-        runtimepack_engine_rpgmaker_web::RpgMakerWebAnalyzer,
-    ));
-    registry.register(Box::new(runtimepack_engine_renpy::RenPyAnalyzer));
+    registry.register(Box::new(RgssAnalyzer));
+    registry.register(Box::new(RpgMakerWebAnalyzer));
+    registry.register(Box::new(RenPyAnalyzer));
     registry.register(Box::new(TyranoAnalyzer));
+    registry
+}
+
+pub(crate) fn create_default_asset_auditor_registry() -> AssetAuditorRegistry {
+    let mut registry = AssetAuditorRegistry::new();
+    registry
+        .register(Box::new(RgssAssetAuditor))
+        .expect("RGSS asset auditor must register");
+    registry
+        .register(Box::new(RpgMakerWebAssetAuditor))
+        .expect("RPG Maker Web asset auditor must register");
+    registry
+        .register(Box::new(RenPyAssetAuditor))
+        .expect("Ren'Py asset auditor must register");
+    registry
+        .register(Box::new(TyranoAssetAuditor))
+        .expect("Tyrano asset auditor must register");
     registry
 }
 
@@ -536,11 +557,8 @@ fn cmd_build(args: BuildArgs) {
         allow_network: false,
         ..AssetAuditOptions::default()
     };
-    let mut audit_report = audit_command::create_asset_auditor_registry().audit(
-        &source_index,
-        &descriptor,
-        &audit_options,
-    );
+    let mut audit_report =
+        create_default_asset_auditor_registry().audit(&source_index, &descriptor, &audit_options);
     let registry = RuntimeRegistry::new();
     let runtimes = registry.find_for_engine(descriptor.id);
     if runtimes.is_empty() {

@@ -1,8 +1,4 @@
-use runtimepack_core::asset_audit::{
-    AssetAuditOptions, AssetAuditReport, AssetAuditor, AssetAuditorRegistry, AuditCompleteness,
-    AuditFinding, AuditMode, AuditOutcome, AuditOverride, AuditStatistics, DependencyGraph,
-    FindingDisposition, FindingSeverity, ReferenceRequiredness, RuntimeValidationState,
-};
+use runtimepack_core::asset_audit::{AssetAuditOptions, AuditMode, AuditOutcome};
 use runtimepack_core::detection::{DetectorRegistry, EngineDescriptor};
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
@@ -101,7 +97,8 @@ pub fn run(
         allow_network: request.allow_network,
         ..AssetAuditOptions::default()
     };
-    let report = create_asset_auditor_registry().audit(&source_index, &descriptor, &options);
+    let report =
+        crate::create_default_asset_auditor_registry().audit(&source_index, &descriptor, &options);
     let json = serde_json::to_vec_pretty(&report)
         .map_err(|error| format!("[CMP-AUD-010] Failed to serialize audit report: {error}"))?;
     context.write_report(&output, &json).map_err(|error| {
@@ -138,80 +135,6 @@ fn create_detector_registry() -> DetectorRegistry {
     registry.register(Box::new(RpgMakerMzDetector));
     registry.register(Box::new(RenPyDetector));
     registry.register(Box::new(TyranoDetector));
-    registry
-}
-
-struct UnavailableAssetAuditor {
-    id: &'static str,
-    engine: EngineId,
-}
-
-impl AssetAuditor for UnavailableAssetAuditor {
-    fn id(&self) -> &'static str {
-        self.id
-    }
-
-    fn version(&self) -> &'static str {
-        "0"
-    }
-
-    fn supports(&self, engine: EngineId) -> bool {
-        engine == self.engine
-    }
-
-    fn audit(
-        &self,
-        _source: &GameSourceIndex,
-        engine: &EngineDescriptor,
-        options: &AssetAuditOptions,
-    ) -> AssetAuditReport {
-        AssetAuditReport {
-            schema_version: 1,
-            engine: engine.id,
-            mode: options.mode,
-            outcome: AuditOutcome::Indeterminate,
-            completeness: AuditCompleteness {
-                required_scope_complete: false,
-                covered_reference_classes: Vec::new(),
-                uncovered_reference_classes: vec!["engine_asset_references".into()],
-            },
-            statistics: AuditStatistics {
-                nodes: 0,
-                references: 0,
-                findings: 1,
-            },
-            graph: DependencyGraph::default(),
-            findings: vec![AuditFinding {
-                id: format!("{}-unavailable", self.id),
-                code: "CMP-AUD-001".into(),
-                severity: FindingSeverity::Warning,
-                disposition: FindingDisposition::Indeterminate,
-                requiredness: ReferenceRequiredness::Required,
-                message: format!("asset auditor {} is not implemented", self.id),
-                source_node_ids: Vec::new(),
-                orphan: false,
-            }],
-            overrides: Vec::<AuditOverride>::new(),
-            runtime_validation: RuntimeValidationState::NotRun,
-        }
-    }
-}
-
-pub(crate) fn create_asset_auditor_registry() -> AssetAuditorRegistry {
-    let mut registry = AssetAuditorRegistry::new();
-    for (id, engine) in [
-        ("rgss1-placeholder", EngineId::RpgMakerXp),
-        ("rgss2-placeholder", EngineId::RpgMakerVx),
-        ("rgss3-placeholder", EngineId::RpgMakerVxAce),
-        ("rpgmaker-mv-placeholder", EngineId::RpgMakerMv),
-        ("rpgmaker-mz-placeholder", EngineId::RpgMakerMz),
-        ("renpy-placeholder", EngineId::RenPy),
-        ("tyrano-placeholder", EngineId::Tyrano),
-    ] {
-        registry
-            .register(Box::new(UnavailableAssetAuditor { id, engine }))
-            .expect("default asset auditor IDs must be unique");
-    }
     registry
 }
 

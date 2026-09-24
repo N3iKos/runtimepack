@@ -347,12 +347,12 @@ fn test_build_gating_unoverridden_audit_fails_without_side_effects() {
         "stderr must contain dedicated BLD-104 policy code, got: {stderr}"
     );
     assert!(
-        stderr.contains("CMP-AUD-001"),
+        stderr.contains("CMP-AUD-002") || stderr.contains("CMP-AUD-001"),
         "stderr must surface actionable audit finding code, got: {stderr}"
     );
     assert!(
-        stderr.contains("--accept-audit-unknown"),
-        "stderr must suggest the --accept-audit-unknown flag, got: {stderr}"
+        stderr.contains("--accept-audit-fail"),
+        "stderr must suggest the --accept-audit-fail flag, got: {stderr}"
     );
     assert!(
         !stderr.contains("CMP-AUD-010"),
@@ -363,7 +363,7 @@ fn test_build_gating_unoverridden_audit_fails_without_side_effects() {
 #[test]
 fn test_build_gating_accept_audit_unknown_succeeds_with_provenance_and_reports() {
     let out_dir = test_temp_dir("accepted-unknown");
-    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+    let fixture = test_workspace_root().join("tests/fixtures/web_asset_audit/mv_external_url");
 
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
         .arg("build")
@@ -421,6 +421,73 @@ fn test_build_gating_accept_audit_unknown_succeeds_with_provenance_and_reports()
         .expect("provenance.audit must be present");
     assert_eq!(prov_audit.report_path, "asset-audit-report.json");
     assert_eq!(prov_audit.outcome, AuditOutcome::Indeterminate);
+    let expected_hash = format!("{:x}", Sha256::digest(&audit_bytes));
+    assert_eq!(prov_audit.report_sha256, expected_hash);
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_build_gating_accept_audit_fail_succeeds_with_provenance_and_reports() {
+    let out_dir = test_temp_dir("accepted-fail");
+    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "build with --accept-audit-fail must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    assert!(out_dir.exists(), "output directory must exist");
+    assert!(out_dir.join("game.pack").exists(), "game.pack must exist");
+
+    let audit_report_path = out_dir.join("asset-audit-report.json");
+    assert!(
+        audit_report_path.exists(),
+        "asset-audit-report.json must be emitted"
+    );
+    let audit_bytes = std::fs::read(&audit_report_path).unwrap();
+    let audit_json: serde_json::Value = serde_json::from_slice(&audit_bytes).unwrap();
+    assert_eq!(audit_json["outcome"], "FAIL");
+    assert_eq!(audit_json["overrides"][0]["flag"], "--accept-audit-fail");
+
+    let manifest_path = out_dir.join("build-manifest.json");
+    assert!(
+        manifest_path.exists(),
+        "build-manifest.json must be emitted"
+    );
+    let manifest_text = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest: BuildManifest = serde_json::from_str(&manifest_text).unwrap();
+
+    let manifest_audit = manifest
+        .audit
+        .as_ref()
+        .expect("manifest.audit must be present");
+    assert_eq!(manifest_audit.report_path, "asset-audit-report.json");
+    assert_eq!(manifest_audit.outcome, AuditOutcome::Fail);
+    assert_eq!(manifest_audit.overrides.len(), 1);
+    assert_eq!(manifest_audit.overrides[0].flag, "--accept-audit-fail");
+
+    let prov_audit = manifest
+        .provenance
+        .audit
+        .as_ref()
+        .expect("provenance.audit must be present");
+    assert_eq!(prov_audit.report_path, "asset-audit-report.json");
+    assert_eq!(prov_audit.outcome, AuditOutcome::Fail);
     let expected_hash = format!("{:x}", Sha256::digest(&audit_bytes));
     assert_eq!(prov_audit.report_sha256, expected_hash);
 

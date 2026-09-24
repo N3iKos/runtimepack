@@ -114,9 +114,13 @@ fn audit_defaults_to_standard_without_network_and_does_not_mutate_source() {
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["engine"], "rpg-maker-vx-ace");
     assert_eq!(report["mode"], "STANDARD");
-    assert_eq!(report["outcome"], "INDETERMINATE");
-    assert_eq!(report["findings"][0]["code"], "CMP-AUD-001");
+    assert_eq!(report["outcome"], "FAIL");
     assert_eq!(report["runtime_validation"], "NOT_RUN");
+    assert!(report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|finding| finding["code"] != "CMP-AUD-001"));
     assert!(!working_dir.join(".asset-audit-report.json.tmp").exists());
 
     fs::remove_dir_all(working_dir).unwrap();
@@ -153,6 +157,11 @@ fn audit_deep_mode_and_network_flag_are_reflected_by_execution() {
 
 #[test]
 fn every_v1_engine_uses_an_unavailable_placeholder_until_adapters_land() {
+    every_v1_engine_uses_real_adapter_and_produces_real_audit_report();
+}
+
+#[test]
+fn every_v1_engine_uses_real_adapter_and_produces_real_audit_report() {
     for (fixture_name, expected_engine) in [
         ("xp_min", "rpg-maker-xp"),
         ("vx_min", "rpg-maker-vx"),
@@ -181,11 +190,17 @@ fn every_v1_engine_uses_an_unavailable_placeholder_until_adapters_land() {
         );
         let report = read_report(&report_path);
         assert_eq!(report["engine"], expected_engine, "{fixture_name}");
-        assert_eq!(report["outcome"], "INDETERMINATE", "{fixture_name}");
-        assert_eq!(
-            report["findings"][0]["code"], "CMP-AUD-001",
-            "{fixture_name}"
-        );
+        assert_eq!(report["schema_version"], 1, "{fixture_name}");
+        assert_eq!(report["runtime_validation"], "NOT_RUN", "{fixture_name}");
+        // Real adapters must not emit placeholder CMP-AUD-001
+        let findings = report["findings"].as_array().unwrap();
+        for finding in findings {
+            assert_ne!(
+                finding["code"].as_str(),
+                Some("CMP-AUD-001"),
+                "{fixture_name} findings should not contain unavailable adapter CMP-AUD-001"
+            );
+        }
         fs::remove_dir_all(working_dir).unwrap();
     }
 }
@@ -274,7 +289,12 @@ fn concurrent_audits_leave_one_complete_report_and_no_temp_files() {
         report["engine"].as_str(),
         Some("rpg-maker-vx-ace" | "rpg-maker-mv")
     ));
-    assert_eq!(report["outcome"], "INDETERMINATE");
+    assert_eq!(report["outcome"], "FAIL");
+    assert!(report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|finding| finding["code"] != "CMP-AUD-001"));
     assert!(temp_artifacts(&report_path).is_empty());
     fs::remove_dir_all(working_dir).unwrap();
 }
