@@ -2,8 +2,13 @@ mod graph;
 
 pub use graph::*;
 
+use crate::detection::EngineDescriptor;
+use crate::diagnostics::{Diagnostic, RemediationCategory};
+use crate::ingest::GameSourceIndex;
 use crate::EngineId;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -232,7 +237,7 @@ pub struct AuditOverride {
     pub rationale: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RuntimeValidationState {
     NotRun,
@@ -365,10 +370,152 @@ impl AssetAuditReport {
     }
 }
 
+pub trait AssetAuditor: Send + Sync {
+    fn id(&self) -> &'static str;
+    fn version(&self) -> &'static str;
+    fn supports(&self, engine: EngineId) -> bool;
+    fn audit(
+        &self,
+        source: &GameSourceIndex,
+        engine: &EngineDescriptor,
+        options: &AssetAuditOptions,
+    ) -> AssetAuditReport;
+}
+
+#[derive(Default)]
+pub struct AssetAuditorRegistry {
+    auditors: Vec<Box<dyn AssetAuditor>>,
+    registered_ids: BTreeSet<&'static str>,
+}
+
+impl AssetAuditorRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn register(&mut self, auditor: Box<dyn AssetAuditor>) -> Result<(), Diagnostic> {
+        let id = auditor.id();
+        if !self.registered_ids.insert(id) {
+            return Err(Diagnostic::error(
+                "CMP-AUD-001",
+                format!("asset auditor ID is already registered: {id}"),
+            )
+            .with_remediation(RemediationCategory::Configuration));
+        }
+        self.auditors.push(auditor);
+        Ok(())
+    }
+
+    pub fn audit(
+        &self,
+        source: &GameSourceIndex,
+        engine: &EngineDescriptor,
+        options: &AssetAuditOptions,
+    ) -> AssetAuditReport {
+        let applicable: Vec<_> = self
+            .auditors
+            .iter()
+            .filter(|auditor| auditor.supports(engine.id))
+            .collect();
+        if applicable.is_empty() {
+            return indeterminate_report(
+                engine.id,
+                options.mode,
+                "no asset auditor is registered for the selected engine".into(),
+            );
+        }
+
+        let mut combined = empty_audit_report(engine.id, options.mode);
+        for auditor in applicable {
+            match catch_unwind(AssertUnwindSafe(|| auditor.audit(source, engine, options))) {
+                Ok(report) => merge_report(&mut combined, report),
+                Err(_) => combined.findings.push(indeterminate_finding(format!(
+                    "asset auditor {} version {} failed",
+                    auditor.id(),
+                    auditor.version()
+                ))),
+            }
+        }
+        combined.completeness.required_scope_complete &= !combined
+            .findings
+            .iter()
+            .any(|finding| finding.disposition == FindingDisposition::Indeterminate);
+        combined.recompute_outcome();
+        combined.canonicalize();
+        combined
+    }
+}
+
+fn empty_audit_report(engine: EngineId, mode: AuditMode) -> AssetAuditReport {
+    AssetAuditReport {
+        schema_version: 1,
+        engine,
+        mode,
+        outcome: AuditOutcome::Pass,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: Vec::new(),
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph: DependencyGraph::default(),
+        findings: Vec::new(),
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    }
+}
+
+fn indeterminate_report(engine: EngineId, mode: AuditMode, message: String) -> AssetAuditReport {
+    let mut report = empty_audit_report(engine, mode);
+    report.completeness.required_scope_complete = false;
+    report.findings.push(indeterminate_finding(message));
+    report.recompute_outcome();
+    report.canonicalize();
+    report
+}
+
+fn indeterminate_finding(message: String) -> AuditFinding {
+    AuditFinding {
+        id: "asset-auditor-unavailable".into(),
+        code: "CMP-AUD-001".into(),
+        severity: FindingSeverity::Warning,
+        disposition: FindingDisposition::Indeterminate,
+        requiredness: ReferenceRequiredness::Required,
+        message,
+        source_node_ids: Vec::new(),
+        orphan: false,
+    }
+}
+
+fn merge_report(combined: &mut AssetAuditReport, mut report: AssetAuditReport) {
+    combined.completeness.required_scope_complete &= report.completeness.required_scope_complete;
+    combined
+        .completeness
+        .covered_reference_classes
+        .append(&mut report.completeness.covered_reference_classes);
+    combined
+        .completeness
+        .uncovered_reference_classes
+        .append(&mut report.completeness.uncovered_reference_classes);
+    combined.graph.nodes.append(&mut report.graph.nodes);
+    combined.graph.edges.append(&mut report.graph.edges);
+    combined.findings.append(&mut report.findings);
+    combined.overrides.append(&mut report.overrides);
+    if report.runtime_validation > combined.runtime_validation {
+        combined.runtime_validation = report.runtime_validation;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EngineId;
+    use crate::detection::EngineDescriptor;
+    use crate::ingest::GameSourceIndex;
+    use crate::{DetectionConfidence, EngineId};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     fn report(reverse: bool) -> AssetAuditReport {
         let mut nodes = vec![
@@ -670,5 +817,189 @@ mod tests {
         report.recompute_outcome();
 
         assert_eq!(report.outcome, AuditOutcome::Pass);
+    }
+
+    struct RecordingAuditor {
+        id: &'static str,
+        supported_engine: EngineId,
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl AssetAuditor for RecordingAuditor {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+
+        fn version(&self) -> &'static str {
+            "1"
+        }
+
+        fn supports(&self, engine: EngineId) -> bool {
+            engine == self.supported_engine
+        }
+
+        fn audit(
+            &self,
+            _source: &GameSourceIndex,
+            engine: &EngineDescriptor,
+            options: &AssetAuditOptions,
+        ) -> AssetAuditReport {
+            self.calls.lock().unwrap().push(self.id);
+            empty_report(engine.id, options.mode)
+        }
+    }
+
+    struct PanickingAuditor;
+
+    impl AssetAuditor for PanickingAuditor {
+        fn id(&self) -> &'static str {
+            "panicking"
+        }
+
+        fn version(&self) -> &'static str {
+            "1"
+        }
+
+        fn supports(&self, _engine: EngineId) -> bool {
+            true
+        }
+
+        fn audit(
+            &self,
+            _source: &GameSourceIndex,
+            _engine: &EngineDescriptor,
+            _options: &AssetAuditOptions,
+        ) -> AssetAuditReport {
+            panic!("adapter failed")
+        }
+    }
+
+    fn source() -> GameSourceIndex {
+        GameSourceIndex {
+            root_path: PathBuf::new(),
+            files: HashMap::new(),
+            total_size_bytes: 0,
+            source_hash: String::new(),
+        }
+    }
+
+    fn descriptor(id: EngineId) -> EngineDescriptor {
+        EngineDescriptor {
+            id,
+            confidence: DetectionConfidence::Exact,
+            score: 200,
+            evidence: Vec::new(),
+            conflicts: Vec::new(),
+            detected_version: None,
+            overridden: false,
+        }
+    }
+
+    fn empty_report(engine: EngineId, mode: AuditMode) -> AssetAuditReport {
+        AssetAuditReport {
+            schema_version: 1,
+            engine,
+            mode,
+            outcome: AuditOutcome::Pass,
+            completeness: AuditCompleteness {
+                required_scope_complete: true,
+                covered_reference_classes: Vec::new(),
+                uncovered_reference_classes: Vec::new(),
+            },
+            statistics: AuditStatistics::default(),
+            graph: DependencyGraph::default(),
+            findings: Vec::new(),
+            overrides: Vec::new(),
+            runtime_validation: RuntimeValidationState::NotRun,
+        }
+    }
+
+    #[test]
+    fn registry_runs_every_supporting_auditor_and_skips_other_engines() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = AssetAuditorRegistry::new();
+        for (id, supported_engine) in [
+            ("vxace-first", EngineId::RpgMakerVxAce),
+            ("mv", EngineId::RpgMakerMv),
+            ("vxace-second", EngineId::RpgMakerVxAce),
+        ] {
+            registry
+                .register(Box::new(RecordingAuditor {
+                    id,
+                    supported_engine,
+                    calls: Arc::clone(&calls),
+                }))
+                .unwrap();
+        }
+
+        let report = registry.audit(
+            &source(),
+            &descriptor(EngineId::RpgMakerVxAce),
+            &AssetAuditOptions::default(),
+        );
+
+        assert_eq!(*calls.lock().unwrap(), ["vxace-first", "vxace-second"]);
+        assert_eq!(report.outcome, AuditOutcome::Pass);
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_auditor_ids() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = AssetAuditorRegistry::new();
+        registry
+            .register(Box::new(RecordingAuditor {
+                id: "duplicate",
+                supported_engine: EngineId::RpgMakerVxAce,
+                calls: Arc::clone(&calls),
+            }))
+            .unwrap();
+
+        let diagnostic = registry
+            .register(Box::new(RecordingAuditor {
+                id: "duplicate",
+                supported_engine: EngineId::RpgMakerVxAce,
+                calls,
+            }))
+            .unwrap_err();
+
+        assert_eq!(diagnostic.code.0, "CMP-AUD-001");
+    }
+
+    #[test]
+    fn registry_returns_indeterminate_when_no_adapter_supports_engine() {
+        let report = AssetAuditorRegistry::new().audit(
+            &source(),
+            &descriptor(EngineId::RenPy),
+            &AssetAuditOptions::default(),
+        );
+
+        assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+        assert!(!report.completeness.required_scope_complete);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].code, "CMP-AUD-001");
+        assert_eq!(
+            report.findings[0].disposition,
+            FindingDisposition::Indeterminate
+        );
+    }
+
+    #[test]
+    fn registry_converts_adapter_panics_to_indeterminate_findings() {
+        let mut registry = AssetAuditorRegistry::new();
+        registry.register(Box::new(PanickingAuditor)).unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.audit(
+                &source(),
+                &descriptor(EngineId::RpgMakerMv),
+                &AssetAuditOptions::default(),
+            )
+        }));
+
+        let report = result.expect("registry must contain adapter panics");
+        assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].code, "CMP-AUD-001");
+        assert!(report.findings[0].message.contains("panicking"));
     }
 }
