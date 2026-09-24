@@ -217,6 +217,22 @@ Supports:
 - Event command codes: 201 (Player Transfer), 212 (Show Animation), 231 (Show Picture), 241 (Play BGM), 245 (Play BGS), 249 (Play ME), 250 (Play SE), 322 (Change Actor Graphic).
 - Move route command codes: 41 (Change Graphic), 44 (Play SE).
 
+### S28 — Ren'Py Script Language Syntax and Archive Specifications
+URL: https://www.renpy.org/doc/html/quickstart.html
+URL: https://www.renpy.org/doc/html/audio.html
+URL: https://www.renpy.org/doc/html/displayables.html
+URL: https://www.renpy.org/doc/html/python.html
+
+Supports:
+- Ren'Py script file extension: `.rpy` and compiled bytecode `.rpyc`.
+- Ren'Py archive format extension: `.rpa` (RPAv3 / RPAv2 / RPAv1 archive packages).
+- Declarative image statement syntax: `image <tag> = "<path>"`, `image <tag> = Movie(...)`.
+- Audio statement syntax: `play music "<path>"`, `play sound "<path>"`, `play voice "<path>"`, `define audio.<name> = "<path>"`, dynamic channel expressions (`play music <var>`).
+- Scene and show statement syntax: `scene "<path>"`, `show "<path>"`, `scene <tag>`, `show <tag>`.
+- Video playback statement syntax: `movie "<path>"`, `renpy.movie_cutscene("<path>")`.
+- Python code execution blocks: `init python:`, `python:`, `$ <stmt>`.
+- Python import restrictions for standalone mobile runtimes: native C extensions (`.pyd`, `.so`, Windows `.dll`) and unsupported native imports (e.g. `ctypes`, `win32api`) cannot run on Android ARM64 pure-Python runtimes.
+
 ## Source hygiene
 
 Implementation agents must not introduce new external claims without adding an Sxx entry.

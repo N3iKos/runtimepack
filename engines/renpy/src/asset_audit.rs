@@ -1,0 +1,1202 @@
+use runtimepack_core::asset_audit::{
+    audit_finding_classification, AssetAuditOptions, AssetAuditReport, AssetAuditor, AssetKind,
+    AssetNode, AssetResolver, AuditCoverage, AuditFinding, AuditOutcome, AuditStatistics,
+    CandidateRule, DependencyGraph, EvidenceStage, EvidenceTrail, FindingDisposition,
+    FindingSeverity, ReferenceEdge, ReferenceRequiredness, ReferenceResolution, ResolutionResult,
+    RuntimeValidationState,
+};
+use runtimepack_core::detection::EngineDescriptor;
+use runtimepack_core::diagnostics::DiagnosticCode;
+use runtimepack_core::domain::EngineId;
+use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
+static IMAGE_STMT_RE: OnceLock<regex::Regex> = OnceLock::new();
+static DEFINE_AUDIO_RE: OnceLock<regex::Regex> = OnceLock::new();
+static PLAY_STMT_RE: OnceLock<regex::Regex> = OnceLock::new();
+static SCENE_SHOW_RE: OnceLock<regex::Regex> = OnceLock::new();
+static MOVIE_STMT_RE: OnceLock<regex::Regex> = OnceLock::new();
+static MOVIE_CUTSCENE_RE: OnceLock<regex::Regex> = OnceLock::new();
+static QUOTED_STR_RE: OnceLock<regex::Regex> = OnceLock::new();
+static FROM_IMPORT_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+fn image_stmt_regex() -> &'static regex::Regex {
+    IMAGE_STMT_RE
+        .get_or_init(|| regex::Regex::new(r#"^\s*image\s+([A-Za-z0-9_\s]+?)\s*=\s*(.*)"#).unwrap())
+}
+
+fn define_audio_regex() -> &'static regex::Regex {
+    DEFINE_AUDIO_RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*define\s+audio\.([A-Za-z0-9_]+)\s*=\s*["']([^"']+)["']"#).unwrap()
+    })
+}
+
+fn play_stmt_regex() -> &'static regex::Regex {
+    PLAY_STMT_RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*(?:play|queue)\s+(music|sound|voice)\s+(.*)"#).unwrap()
+    })
+}
+
+fn scene_show_regex() -> &'static regex::Regex {
+    SCENE_SHOW_RE.get_or_init(|| regex::Regex::new(r#"^\s*(scene|show)\s+(.*)"#).unwrap())
+}
+
+fn movie_stmt_regex() -> &'static regex::Regex {
+    MOVIE_STMT_RE.get_or_init(|| regex::Regex::new(r#"^\s*movie\s+["']([^"']+)["']"#).unwrap())
+}
+
+fn movie_cutscene_regex() -> &'static regex::Regex {
+    MOVIE_CUTSCENE_RE.get_or_init(|| {
+        regex::Regex::new(r#"renpy\.movie_cutscene\s*\(\s*["']([^"']+)["']\s*\)"#).unwrap()
+    })
+}
+
+fn quoted_str_regex() -> &'static regex::Regex {
+    QUOTED_STR_RE.get_or_init(|| regex::Regex::new(r#"["']([^"']+)["']"#).unwrap())
+}
+
+fn from_import_regex() -> &'static regex::Regex {
+    FROM_IMPORT_RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+(.*)"#).unwrap()
+    })
+}
+
+fn make_finding(
+    code: &'static str,
+    requiredness: ReferenceRequiredness,
+    message: String,
+    source_node_ids: Vec<String>,
+    finding_counter: &mut usize,
+) -> AuditFinding {
+    *finding_counter += 1;
+    let (severity, disposition) = match code {
+        DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
+        | DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
+        | DiagnosticCode::CMP_UNSUPPORTED_WIN32
+        | DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED => {
+            (FindingSeverity::Error, FindingDisposition::Blocking)
+        }
+        _ => audit_finding_classification(code, requiredness, false)
+            .unwrap_or((FindingSeverity::Warning, FindingDisposition::Warning)),
+    };
+    AuditFinding {
+        id: format!("{code}-{finding_counter}"),
+        code: code.to_string(),
+        severity,
+        disposition,
+        requiredness,
+        message,
+        source_node_ids,
+        orphan: false,
+    }
+}
+
+fn ensure_node(
+    graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
+    id: &str,
+    kind: AssetKind,
+    logical_path: Option<String>,
+) {
+    if node_ids.insert(id.to_string()) {
+        graph.nodes.push(AssetNode {
+            id: id.to_string(),
+            kind,
+            logical_path,
+        });
+    }
+}
+
+fn get_candidates(raw_path: &str, kind: AssetKind) -> Vec<String> {
+    let clean = raw_path.trim().replace('\\', "/");
+    let clean = clean.trim_start_matches('/');
+
+    let has_ext = clean.rfind('.').is_some_and(|pos| {
+        let ext = &clean[pos..];
+        matches!(
+            ext,
+            ".png"
+                | ".jpg"
+                | ".jpeg"
+                | ".webp"
+                | ".avif"
+                | ".ogg"
+                | ".opus"
+                | ".mp3"
+                | ".wav"
+                | ".webm"
+                | ".mkv"
+                | ".mp4"
+                | ".ogv"
+        )
+    });
+
+    let mut bases = Vec::new();
+    if clean.starts_with("game/") {
+        bases.push(clean.to_string());
+    } else {
+        bases.push(format!("game/{clean}"));
+        bases.push(clean.to_string());
+    }
+
+    if has_ext {
+        bases
+    } else {
+        let exts: &[&str] = match kind {
+            AssetKind::Image => &[".png", ".jpg", ".jpeg", ".webp", ".avif"],
+            AssetKind::Audio => &[".ogg", ".opus", ".mp3", ".wav"],
+            AssetKind::Video => &[".webm", ".mkv", ".mp4", ".ogv"],
+            _ => &[],
+        };
+        if exts.is_empty() {
+            bases
+        } else {
+            let mut candidates = Vec::new();
+            for base in bases {
+                for ext in exts {
+                    candidates.push(format!("{base}{ext}"));
+                }
+            }
+            candidates
+        }
+    }
+}
+
+struct AuditContext<'a> {
+    source: &'a GameSourceIndex,
+    options: &'a AssetAuditOptions,
+    resolver: &'a AssetResolver<'a>,
+    graph: &'a mut DependencyGraph,
+    node_ids: &'a mut HashSet<String>,
+    coverage: &'a mut AuditCoverage,
+    findings: &'a mut Vec<AuditFinding>,
+    finding_counter: &'a mut usize,
+    audio_defs: HashMap<String, String>,
+    image_defs: HashMap<String, String>,
+}
+
+impl<'a> AuditContext<'a> {
+    fn push_finding(
+        &mut self,
+        code: &'static str,
+        requiredness: ReferenceRequiredness,
+        message: String,
+        source_node_ids: Vec<String>,
+    ) {
+        let finding = make_finding(
+            code,
+            requiredness,
+            message,
+            source_node_ids,
+            self.finding_counter,
+        );
+        self.findings.push(finding);
+    }
+
+    fn ensure_node(&mut self, id: &str, kind: AssetKind, logical_path: Option<String>) {
+        ensure_node(self.graph, self.node_ids, id, kind, logical_path);
+    }
+
+    fn resolve_and_record(
+        &mut self,
+        source_node_id: &str,
+        raw_path: &str,
+        kind: AssetKind,
+        relation: &str,
+        requiredness: ReferenceRequiredness,
+    ) {
+        if raw_path.is_empty() {
+            return;
+        }
+
+        // Check for External URL
+        if raw_path.starts_with("http://") || raw_path.starts_with("https://") {
+            let target_id = format!("external:{raw_path}");
+            self.ensure_node(&target_id, AssetKind::ExternalResource, None);
+            if self.options.allow_network {
+                self.coverage.add_covered("external-network");
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: target_id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                    resolution: ReferenceResolution::External,
+                });
+            } else {
+                self.coverage
+                    .add_unsupported("external-network", ReferenceRequiredness::Required);
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
+                    requiredness,
+                    format!(
+                        "External resource URL '{raw_path}' is unverified in offline audit mode"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: target_id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::External,
+                });
+            }
+            return;
+        }
+
+        let candidates = get_candidates(raw_path, kind);
+        let rule = CandidateRule::Candidates(candidates);
+        let res = self.resolver.resolve(&rule, kind);
+
+        match res {
+            ResolutionResult::Exact(node) => {
+                self.ensure_node(&node.id, kind, node.logical_path.clone());
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: node.id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                    resolution: ReferenceResolution::Resolved,
+                });
+            }
+            ResolutionResult::CaseMismatch {
+                expected,
+                actual,
+                node,
+            } => {
+                self.ensure_node(&node.id, kind, node.logical_path.clone());
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                    requiredness,
+                    format!(
+                        "Case mismatch for reference '{expected}': actual file on disk is '{actual}'"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: node.id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                    resolution: ReferenceResolution::Resolved,
+                });
+            }
+            ResolutionResult::CaseCollision(colliding) => {
+                let target_id = format!("{}:{raw_path}", kind.as_str());
+                self.ensure_node(&target_id, kind, None);
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                    ReferenceRequiredness::Required,
+                    format!("Case-insensitive collision for reference: {:?}", colliding),
+                    vec![source_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: target_id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Unresolved,
+                });
+            }
+            ResolutionResult::Missing(_) => {
+                let target_id = format!("{}:{raw_path}", kind.as_str());
+                self.ensure_node(&target_id, kind, None);
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                    ReferenceRequiredness::Required,
+                    format!("Referenced asset '{raw_path}' not found on disk"),
+                    vec![source_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: target_id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Unresolved,
+                });
+            }
+            ResolutionResult::Unsafe(unsafe_path) => {
+                let target_id = format!("{}:{raw_path}", kind.as_str());
+                self.ensure_node(&target_id, kind, None);
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                    ReferenceRequiredness::Required,
+                    format!("Unsafe path detected in Ren'Py reference: '{unsafe_path}'"),
+                    vec![source_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: source_node_id.to_string(),
+                    target: target_id,
+                    relation: relation.to_string(),
+                    requiredness,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Unresolved,
+                });
+            }
+        }
+    }
+
+    fn record_dynamic(&mut self, source_node_id: &str, expr: &str, _kind: AssetKind) {
+        let target_id = format!("dynamic:{expr}");
+        self.ensure_node(&target_id, AssetKind::UnresolvedDynamicReference, None);
+        self.coverage
+            .add_dynamic("audio", ReferenceRequiredness::Required);
+        self.push_finding(
+            DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+            ReferenceRequiredness::Required,
+            format!("Unresolved dynamic audio expression: '{expr}'"),
+            vec![source_node_id.to_string()],
+        );
+        self.graph.edges.push(ReferenceEdge {
+            source: source_node_id.to_string(),
+            target: target_id,
+            relation: "dynamic".to_string(),
+            requiredness: ReferenceRequiredness::Required,
+            evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+            resolution: ReferenceResolution::Unresolved,
+        });
+    }
+
+    fn check_python_module(&mut self, stmt_node_id: &str, module: &str) {
+        let top_module = module.split('.').next().unwrap_or(module).trim();
+        if top_module.is_empty() {
+            return;
+        }
+
+        let is_unsupported_native = matches!(
+            top_module,
+            "ctypes"
+                | "win32api"
+                | "win32gui"
+                | "win32con"
+                | "winreg"
+                | "msvcrt"
+                | "_winapi"
+                | "numpy"
+                | "scipy"
+                | "cv2"
+                | "torch"
+                | "cffi"
+                | "posix"
+                | "fcntl"
+        );
+
+        if is_unsupported_native {
+            let code = if top_module.starts_with("win32")
+                || top_module == "winreg"
+                || top_module == "msvcrt"
+                || top_module == "_winapi"
+            {
+                DiagnosticCode::CMP_UNSUPPORTED_WIN32
+            } else {
+                DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
+            };
+            self.push_finding(
+                code,
+                ReferenceRequiredness::Required,
+                format!("Unsupported native Python import '{module}' found in Ren'Py script"),
+                vec![stmt_node_id.to_string()],
+            );
+            let node_id = format!("native:{module}");
+            self.ensure_node(&node_id, AssetKind::Plugin, None);
+            self.graph.edges.push(ReferenceEdge {
+                source: stmt_node_id.to_string(),
+                target: node_id,
+                relation: "import".to_string(),
+                requiredness: ReferenceRequiredness::Required,
+                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                resolution: ReferenceResolution::Unresolved,
+            });
+            return;
+        }
+
+        let is_stdlib_or_renpy = matches!(
+            top_module,
+            "math"
+                | "random"
+                | "json"
+                | "os"
+                | "sys"
+                | "time"
+                | "re"
+                | "datetime"
+                | "collections"
+                | "itertools"
+                | "functools"
+                | "urllib"
+                | "copy"
+                | "string"
+                | "hashlib"
+                | "base64"
+                | "struct"
+                | "io"
+                | "bisect"
+                | "heapq"
+                | "types"
+                | "uuid"
+                | "enum"
+                | "weakref"
+                | "abc"
+                | "contextlib"
+                | "operator"
+                | "traceback"
+                | "warnings"
+                | "typing"
+                | "logging"
+                | "platform"
+                | "calendar"
+                | "difflib"
+                | "pprint"
+                | "textwrap"
+                | "binascii"
+                | "zlib"
+                | "gzip"
+                | "shutil"
+                | "tempfile"
+                | "glob"
+                | "fnmatch"
+                | "pickle"
+                | "shelve"
+                | "sqlite3"
+                | "csv"
+                | "xml"
+                | "html"
+                | "email"
+                | "http"
+                | "socket"
+                | "ssl"
+                | "threading"
+                | "queue"
+                | "decimal"
+                | "fractions"
+                | "cmath"
+                | "renpy"
+                | "pygame_sdl2"
+                | "store"
+                | "gui"
+        );
+
+        if is_stdlib_or_renpy {
+            let node_id = format!("runtime:{module}");
+            self.ensure_node(&node_id, AssetKind::RuntimeProvidedResource, None);
+            self.graph.edges.push(ReferenceEdge {
+                source: stmt_node_id.to_string(),
+                target: node_id,
+                relation: "import".to_string(),
+                requiredness: ReferenceRequiredness::Required,
+                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                resolution: ReferenceResolution::RuntimeProvided,
+            });
+        } else {
+            let local_path = format!("game/{top_module}.py");
+            let alt_local_path = format!("{top_module}.py");
+            if self.source.has_file(&local_path) || self.source.has_file(&alt_local_path) {
+                let actual = if self.source.has_file(&local_path) {
+                    local_path
+                } else {
+                    alt_local_path
+                };
+                let node_id = format!("script:{actual}");
+                self.ensure_node(&node_id, AssetKind::Script, Some(actual));
+                self.graph.edges.push(ReferenceEdge {
+                    source: stmt_node_id.to_string(),
+                    target: node_id,
+                    relation: "import".to_string(),
+                    requiredness: ReferenceRequiredness::Required,
+                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                    resolution: ReferenceResolution::Resolved,
+                });
+            } else {
+                let node_id = format!("external:{module}");
+                self.ensure_node(&node_id, AssetKind::ExternalResource, None);
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                    ReferenceRequiredness::Required,
+                    format!("Non-standard Python import '{module}' not found in game scripts"),
+                    vec![stmt_node_id.to_string()],
+                );
+                self.graph.edges.push(ReferenceEdge {
+                    source: stmt_node_id.to_string(),
+                    target: node_id,
+                    relation: "import".to_string(),
+                    requiredness: ReferenceRequiredness::Required,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Unresolved,
+                });
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RenPyAssetAuditor;
+
+impl RenPyAssetAuditor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl AssetAuditor for RenPyAssetAuditor {
+    fn id(&self) -> &'static str {
+        "renpy-static-auditor"
+    }
+
+    fn version(&self) -> &'static str {
+        "0.1.0"
+    }
+
+    fn supports(&self, engine: EngineId) -> bool {
+        engine == EngineId::RenPy
+    }
+
+    fn audit(
+        &self,
+        source: &GameSourceIndex,
+        engine: &EngineDescriptor,
+        options: &AssetAuditOptions,
+    ) -> AssetAuditReport {
+        let resolver = AssetResolver::new(source);
+        let mut graph = DependencyGraph::default();
+        let mut node_ids = HashSet::new();
+        let mut coverage = AuditCoverage::new();
+        let mut findings = Vec::new();
+        let mut finding_counter = 0;
+
+        coverage.add_covered("rpy-scripts");
+        coverage.add_covered("image-declarations");
+        coverage.add_covered("audio-declarations");
+        coverage.add_covered("video-declarations");
+        coverage.add_covered("python-imports");
+
+        // 1. Scan source index for native binary extensions and archives
+        let mut rpa_files = Vec::new();
+        let mut rpyc_files = Vec::new();
+        let mut rpy_files: Vec<&IndexedFile> = Vec::new();
+
+        for (path, file) in &source.files {
+            if path.ends_with(".pyd") {
+                let node_id = format!("script:{path}");
+                ensure_node(
+                    &mut graph,
+                    &mut node_ids,
+                    &node_id,
+                    AssetKind::Script,
+                    Some(path.clone()),
+                );
+                finding_counter += 1;
+                findings.push(AuditFinding {
+                    id: format!("{}-{finding_counter}", DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION),
+                    code: DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION.to_string(),
+                    severity: FindingSeverity::Error,
+                    disposition: FindingDisposition::Blocking,
+                    requiredness: ReferenceRequiredness::Required,
+                    message: format!(
+                        "Unsupported compiled Windows Python C-extension found: '{}'. Precompiled .pyd extensions cannot run on Android ARM64.",
+                        file.logical_path
+                    ),
+                    source_node_ids: vec![node_id],
+                    orphan: false,
+                });
+            } else if path.ends_with(".dll") {
+                let node_id = format!("script:{path}");
+                ensure_node(
+                    &mut graph,
+                    &mut node_ids,
+                    &node_id,
+                    AssetKind::Script,
+                    Some(path.clone()),
+                );
+                finding_counter += 1;
+                findings.push(AuditFinding {
+                    id: format!(
+                        "{}-{finding_counter}",
+                        DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
+                    ),
+                    code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
+                    severity: FindingSeverity::Error,
+                    disposition: FindingDisposition::Blocking,
+                    requiredness: ReferenceRequiredness::Required,
+                    message: format!(
+                        "Native Windows PE DLL found in Ren'Py distribution: '{}'.",
+                        file.logical_path
+                    ),
+                    source_node_ids: vec![node_id],
+                    orphan: false,
+                });
+            } else if (path.starts_with("game/") || !path.contains('/')) && path.ends_with(".so") {
+                let node_id = format!("script:{path}");
+                ensure_node(
+                    &mut graph,
+                    &mut node_ids,
+                    &node_id,
+                    AssetKind::Script,
+                    Some(path.clone()),
+                );
+                finding_counter += 1;
+                findings.push(AuditFinding {
+                    id: format!(
+                        "{}-{finding_counter}",
+                        DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
+                    ),
+                    code: DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION.to_string(),
+                    severity: FindingSeverity::Error,
+                    disposition: FindingDisposition::Blocking,
+                    requiredness: ReferenceRequiredness::Required,
+                    message: format!(
+                        "Unsupported native shared library found in Ren'Py distribution: '{}'.",
+                        file.logical_path
+                    ),
+                    source_node_ids: vec![node_id],
+                    orphan: false,
+                });
+            } else if path.ends_with(".rpa") {
+                rpa_files.push(path.clone());
+            } else if path.ends_with(".rpyc") {
+                rpyc_files.push(path.clone());
+            } else if path.ends_with(".rpy") {
+                rpy_files.push(file);
+            }
+        }
+
+        rpy_files.sort_by(|a, b| a.logical_path.cmp(&b.logical_path));
+        rpa_files.sort();
+        rpyc_files.sort();
+
+        // Check for RPA archives
+        if !rpa_files.is_empty() {
+            coverage.add_unsupported("renpy-rpa-archive", ReferenceRequiredness::Required);
+            for rpa in &rpa_files {
+                let node_id = format!("archive:{rpa}");
+                ensure_node(
+                    &mut graph,
+                    &mut node_ids,
+                    &node_id,
+                    AssetKind::ArchiveEntry,
+                    Some(rpa.clone()),
+                );
+                finding_counter += 1;
+                findings.push(AuditFinding {
+                    id: format!("{}-{finding_counter}", DiagnosticCode::CMP_AUD_LIMIT_REACHED),
+                    code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
+                    severity: FindingSeverity::Warning,
+                    disposition: FindingDisposition::Indeterminate,
+                    requiredness: ReferenceRequiredness::Required,
+                    message: format!(
+                        "Archive '{rpa}' detected; RPA archive static asset auditing requires archive extraction or evidenced parser"
+                    ),
+                    source_node_ids: vec![node_id],
+                    orphan: false,
+                });
+            }
+        }
+
+        // Check for orphan compiled .rpyc files
+        for rpyc in &rpyc_files {
+            let base_rpy = rpyc.strip_suffix('c').unwrap_or(rpyc);
+            if !source.has_file(base_rpy) {
+                coverage.add_unsupported("renpy-rpyc-bytecode", ReferenceRequiredness::Required);
+                let node_id = format!("script:{rpyc}");
+                ensure_node(
+                    &mut graph,
+                    &mut node_ids,
+                    &node_id,
+                    AssetKind::Script,
+                    Some(rpyc.clone()),
+                );
+                finding_counter += 1;
+                findings.push(AuditFinding {
+                    id: format!(
+                        "{}-{finding_counter}",
+                        DiagnosticCode::CMP_AUD_LIMIT_REACHED
+                    ),
+                    code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
+                    severity: FindingSeverity::Warning,
+                    disposition: FindingDisposition::Indeterminate,
+                    requiredness: ReferenceRequiredness::Required,
+                    message: format!("Compiled bytecode '{rpyc}' has no corresponding .rpy source"),
+                    source_node_ids: vec![node_id],
+                    orphan: false,
+                });
+            }
+        }
+
+        // 2. Ren'Py version resolution check
+        let mut detected_generation = None;
+        if let Some(ref v) = engine.detected_version {
+            if v.contains('8') {
+                detected_generation = Some("8");
+            } else if v.contains('7') {
+                detected_generation = Some("7");
+            }
+        }
+
+        if detected_generation.is_none() {
+            for (path, file) in &source.files {
+                if path.ends_with(".rpy") || path.ends_with(".txt") || path.ends_with(".json") {
+                    if let Some(text) = source.read_small_text(&file.logical_path, 8192) {
+                        if text.contains("renpy 8.")
+                            || text.contains("Ren'Py 8.")
+                            || text.contains("version = \"8.")
+                            || text.contains("version = '8.")
+                            || text.contains("(8,")
+                        {
+                            detected_generation = Some("8");
+                            break;
+                        }
+                        if text.contains("renpy 7.")
+                            || text.contains("Ren'Py 7.")
+                            || text.contains("version = \"7.")
+                            || text.contains("version = '7.")
+                            || text.contains("(7,")
+                        {
+                            detected_generation = Some("7");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if detected_generation.is_none() {
+            finding_counter += 1;
+            findings.push(AuditFinding {
+                id: format!(
+                    "{}-{finding_counter}",
+                    DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED
+                ),
+                code: DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED.to_string(),
+                severity: FindingSeverity::Error,
+                disposition: FindingDisposition::Blocking,
+                requiredness: ReferenceRequiredness::Required,
+                message: "Ren'Py runtime generation could not be resolved from static metadata."
+                    .to_string(),
+                source_node_ids: Vec::new(),
+                orphan: false,
+            });
+        }
+
+        let mut ctx = AuditContext {
+            source,
+            options,
+            resolver: &resolver,
+            graph: &mut graph,
+            node_ids: &mut node_ids,
+            coverage: &mut coverage,
+            findings: &mut findings,
+            finding_counter: &mut finding_counter,
+            audio_defs: HashMap::new(),
+            image_defs: HashMap::new(),
+        };
+
+        // 3. First pass over .rpy files: collect image and audio definitions
+        for file in &rpy_files {
+            if file.size_bytes > options.limits.max_single_file_bytes {
+                let file_node_id = format!("script:{}", file.logical_path);
+                ctx.ensure_node(
+                    &file_node_id,
+                    AssetKind::Script,
+                    Some(file.logical_path.clone()),
+                );
+                ctx.push_finding(
+                    DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+                    ReferenceRequiredness::Required,
+                    format!(
+                        "Single file size limit exceeded: '{}' ({} bytes > {} bytes)",
+                        file.logical_path, file.size_bytes, options.limits.max_single_file_bytes
+                    ),
+                    vec![file_node_id],
+                );
+                ctx.coverage
+                    .add_unsupported("file-limit", ReferenceRequiredness::Required);
+                continue;
+            }
+
+            let full_path = source.root_path.join(&file.relative_path);
+            let content = match std::fs::read_to_string(&full_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+
+                if let Some(caps) = image_stmt_regex().captures(line) {
+                    let tag = caps[1].trim().to_string();
+                    let val = caps[2].trim();
+                    if let Some(str_cap) = quoted_str_regex().captures(val) {
+                        ctx.image_defs.insert(tag, str_cap[1].to_string());
+                    }
+                } else if let Some(caps) = define_audio_regex().captures(line) {
+                    let name = caps[1].trim().to_string();
+                    let path = caps[2].to_string();
+                    ctx.audio_defs.insert(format!("audio.{name}"), path.clone());
+                    ctx.audio_defs.insert(name, path);
+                }
+            }
+        }
+
+        // 4. Second pass: tokenize and audit references
+        for file in &rpy_files {
+            if file.size_bytes > options.limits.max_single_file_bytes {
+                continue;
+            }
+
+            let file_logical = &file.logical_path;
+            let file_node_id = format!("script:{file_logical}");
+            ctx.ensure_node(&file_node_id, AssetKind::Script, Some(file_logical.clone()));
+
+            let full_path = source.root_path.join(&file.relative_path);
+            let content = match std::fs::read_to_string(&full_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let mut in_python_block = false;
+            let mut python_block_indent = 0;
+
+            for (line_idx_0, line) in content.lines().enumerate() {
+                let line_num = line_idx_0 + 1;
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+
+                let indent = line.len() - line.trim_start().len();
+
+                if in_python_block
+                    && indent <= python_block_indent
+                    && !trimmed.starts_with("init ")
+                    && !trimmed.starts_with("python")
+                {
+                    in_python_block = false;
+                }
+
+                if (trimmed.starts_with("init ") && trimmed.contains("python:"))
+                    || trimmed == "python:"
+                    || trimmed == "init python:"
+                {
+                    in_python_block = true;
+                    python_block_indent = indent;
+                    continue;
+                }
+
+                let is_python_line = in_python_block || trimmed.starts_with('$');
+
+                if is_python_line {
+                    let py_code = if trimmed.starts_with('$') {
+                        trimmed.trim_start_matches('$').trim()
+                    } else {
+                        trimmed
+                    };
+
+                    let col = line.find(py_code).unwrap_or(0) + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+
+                    if let Some(caps) = from_import_regex().captures(py_code) {
+                        ctx.ensure_node(
+                            &stmt_node_id,
+                            AssetKind::Command,
+                            Some(file_logical.clone()),
+                        );
+                        ctx.graph.edges.push(ReferenceEdge {
+                            source: file_node_id.clone(),
+                            target: stmt_node_id.clone(),
+                            relation: "statement".to_string(),
+                            requiredness: ReferenceRequiredness::Required,
+                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                            resolution: ReferenceResolution::Resolved,
+                        });
+                        let module = caps[1].trim();
+                        ctx.check_python_module(&stmt_node_id, module);
+                    } else if let Some(rest) = py_code.strip_prefix("import ") {
+                        ctx.ensure_node(
+                            &stmt_node_id,
+                            AssetKind::Command,
+                            Some(file_logical.clone()),
+                        );
+                        ctx.graph.edges.push(ReferenceEdge {
+                            source: file_node_id.clone(),
+                            target: stmt_node_id.clone(),
+                            relation: "statement".to_string(),
+                            requiredness: ReferenceRequiredness::Required,
+                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                            resolution: ReferenceResolution::Resolved,
+                        });
+                        for item in rest.split(',') {
+                            let item_trimmed = item.trim();
+                            let module = item_trimmed.split_whitespace().next().unwrap_or("");
+                            if !module.is_empty() {
+                                ctx.check_python_module(&stmt_node_id, module);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Check declarative statements
+                if let Some(caps) = image_stmt_regex().captures(line) {
+                    let col = line.find("image").unwrap_or(0) + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let val = caps[2].trim();
+                    if val.contains("Movie(") {
+                        let movie_path = quoted_str_regex()
+                            .captures(val)
+                            .map(|c| c[1].to_string())
+                            .unwrap_or_default();
+                        if !movie_path.is_empty() {
+                            ctx.resolve_and_record(
+                                &stmt_node_id,
+                                &movie_path,
+                                AssetKind::Video,
+                                "video",
+                                ReferenceRequiredness::Required,
+                            );
+                        } else {
+                            ctx.record_dynamic(&stmt_node_id, val, AssetKind::Video);
+                        }
+                    } else if let Some(str_cap) = quoted_str_regex().captures(val) {
+                        let path = str_cap[1].to_string();
+                        ctx.resolve_and_record(
+                            &stmt_node_id,
+                            &path,
+                            AssetKind::Image,
+                            "image",
+                            ReferenceRequiredness::Required,
+                        );
+                    } else {
+                        ctx.record_dynamic(&stmt_node_id, val, AssetKind::Image);
+                    }
+                } else if let Some(caps) = define_audio_regex().captures(line) {
+                    let col = line.find("define").unwrap_or(0) + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let path = caps[2].to_string();
+                    ctx.resolve_and_record(
+                        &stmt_node_id,
+                        &path,
+                        AssetKind::Audio,
+                        "audio",
+                        ReferenceRequiredness::Required,
+                    );
+                } else if let Some(caps) = play_stmt_regex().captures(line) {
+                    let col = line
+                        .find("play")
+                        .or_else(|| line.find("queue"))
+                        .unwrap_or(0)
+                        + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let channel = caps[1].to_string();
+                    let rest = caps[2].trim();
+
+                    if let Some(str_cap) = quoted_str_regex().captures(rest) {
+                        let path = str_cap[1].to_string();
+                        ctx.resolve_and_record(
+                            &stmt_node_id,
+                            &path,
+                            AssetKind::Audio,
+                            &channel,
+                            ReferenceRequiredness::Required,
+                        );
+                    } else {
+                        let token = rest.split_whitespace().next().unwrap_or("");
+                        if !token.is_empty() && token != "None" {
+                            if let Some(path) = ctx.audio_defs.get(token).cloned() {
+                                ctx.resolve_and_record(
+                                    &stmt_node_id,
+                                    &path,
+                                    AssetKind::Audio,
+                                    &channel,
+                                    ReferenceRequiredness::Required,
+                                );
+                            } else {
+                                ctx.record_dynamic(&stmt_node_id, token, AssetKind::Audio);
+                            }
+                        }
+                    }
+                } else if let Some(caps) = movie_stmt_regex().captures(line) {
+                    let col = line.find("movie").unwrap_or(0) + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let path = caps[1].to_string();
+                    ctx.resolve_and_record(
+                        &stmt_node_id,
+                        &path,
+                        AssetKind::Video,
+                        "video",
+                        ReferenceRequiredness::Required,
+                    );
+                } else if let Some(caps) = movie_cutscene_regex().captures(line) {
+                    let col = line.find("renpy.movie_cutscene").unwrap_or(0) + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let path = caps[1].to_string();
+                    ctx.resolve_and_record(
+                        &stmt_node_id,
+                        &path,
+                        AssetKind::Video,
+                        "video",
+                        ReferenceRequiredness::Required,
+                    );
+                } else if let Some(caps) = scene_show_regex().captures(line) {
+                    let col = line
+                        .find("scene")
+                        .or_else(|| line.find("show"))
+                        .unwrap_or(0)
+                        + 1;
+                    let stmt_node_id = format!("script:{file_logical}:{line_num}:{col}");
+                    ctx.ensure_node(
+                        &stmt_node_id,
+                        AssetKind::Command,
+                        Some(file_logical.clone()),
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: file_node_id.clone(),
+                        target: stmt_node_id.clone(),
+                        relation: "statement".to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+
+                    let rest = caps[2].trim();
+                    if rest.starts_with("expression ") {
+                        let expr = rest.trim_start_matches("expression ").trim();
+                        ctx.record_dynamic(&stmt_node_id, expr, AssetKind::Image);
+                    } else if let Some(str_cap) = quoted_str_regex().captures(rest) {
+                        let path = str_cap[1].to_string();
+                        let kind = if rest.contains("movie")
+                            || path.ends_with(".webm")
+                            || path.ends_with(".mp4")
+                            || path.ends_with(".mkv")
+                            || path.ends_with(".ogv")
+                        {
+                            AssetKind::Video
+                        } else {
+                            AssetKind::Image
+                        };
+                        ctx.resolve_and_record(
+                            &stmt_node_id,
+                            &path,
+                            kind,
+                            "image",
+                            ReferenceRequiredness::Required,
+                        );
+                    } else if rest == "black" || rest == "white" {
+                        let target_id = format!("runtime:{rest}");
+                        ctx.ensure_node(&target_id, AssetKind::RuntimeProvidedResource, None);
+                        ctx.graph.edges.push(ReferenceEdge {
+                            source: stmt_node_id.clone(),
+                            target: target_id,
+                            relation: "image".to_string(),
+                            requiredness: ReferenceRequiredness::Required,
+                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                            resolution: ReferenceResolution::RuntimeProvided,
+                        });
+                    } else if let Some(path) = ctx.image_defs.get(rest).cloned() {
+                        ctx.resolve_and_record(
+                            &stmt_node_id,
+                            &path,
+                            AssetKind::Image,
+                            "image",
+                            ReferenceRequiredness::Required,
+                        );
+                    }
+                }
+            }
+        }
+
+        let mut report = AssetAuditReport {
+            schema_version: 1,
+            engine: EngineId::RenPy,
+            mode: options.mode,
+            outcome: AuditOutcome::Pass,
+            completeness: coverage.to_completeness(),
+            statistics: AuditStatistics::default(),
+            graph,
+            findings,
+            overrides: Vec::new(),
+            runtime_validation: RuntimeValidationState::NotRun,
+        };
+        report.canonicalize();
+        report.recompute_outcome();
+        report
+    }
+}

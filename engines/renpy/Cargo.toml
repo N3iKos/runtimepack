@@ -8,3 +8,9 @@ authors.workspace = true
 [dependencies]
 runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
+regex = { workspace = true }
+
+[[test]]
+name = "renpy_asset_audit_test"
+path = "../../tests/integration/renpy_asset_audit_test.rs"
+

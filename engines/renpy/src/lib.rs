@@ -1,4 +1,6 @@
+pub mod asset_audit;
 pub mod scanner;
+pub use asset_audit::RenPyAssetAuditor;
 pub use scanner::RenPyAnalyzer;
 
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};
@@ -28,7 +30,7 @@ impl Detector for RenPyDetector {
         let mut rpa_count = 0;
         let mut has_renpy_dir = false;
 
-        for (path, _) in &source.files {
+        for path in source.files.keys() {
             if path.starts_with("renpy/") {
                 has_renpy_dir = true;
             }
@@ -52,7 +54,7 @@ impl Detector for RenPyDetector {
         }
 
         if rpy_count > 0 {
-            let pts = (rpy_count * 10).min(50) as i32;
+            let pts = (rpy_count * 10).min(50);
             score += pts;
             evidence.push(Evidence {
                 rule: "DET-RNP-002".to_string(),
@@ -63,7 +65,7 @@ impl Detector for RenPyDetector {
         }
 
         if rpyc_count > 0 {
-            let pts = (rpyc_count * 5).min(50) as i32;
+            let pts = (rpyc_count * 5).min(50);
             score += pts;
             evidence.push(Evidence {
                 rule: "DET-RNP-003".to_string(),
@@ -74,7 +76,7 @@ impl Detector for RenPyDetector {
         }
 
         if rpa_count > 0 {
-            let pts = (rpa_count * 20).min(60) as i32;
+            let pts = (rpa_count * 20).min(60);
             score += pts;
             evidence.push(Evidence {
                 rule: "DET-RNP-004".to_string(),

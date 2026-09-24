@@ -673,6 +673,7 @@ dependencies = [
 name = "runtimepack-engine-renpy"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "runtimepack-core",
  "serde",
 ]
