@@ -105,7 +105,7 @@ impl<'a> TyranoReader<'a> {
             }
             let mut total_size_bytes = archive.total_size_bytes();
             for (path, file) in &self.source.files {
-                if path != "resources/app.asar" {
+                if path != "resources/app.asar" && !archive.has_file(path) {
                     total_size_bytes += file.size_bytes;
                 }
             }
@@ -437,11 +437,33 @@ impl AssetAuditor for TyranoAssetAuditor {
             ));
         }
 
+        let mut exceeded_single_file = false;
+        let mut sorted_files: Vec<&IndexedFile> = effective_source.files.values().collect();
+        sorted_files.sort_by(|a, b| a.logical_path.cmp(&b.logical_path));
+        for file in sorted_files {
+            if file.size_bytes > options.limits.max_single_file_bytes {
+                exceeded_single_file = true;
+                findings.push(make_finding(
+                    DiagnosticCode::CMP_AUD_LIMIT_REACHED,
+                    ReferenceRequiredness::Required,
+                    format!(
+                        "File '{}' size {} bytes exceeds max_single_file_bytes limit {}",
+                        file.logical_path, file.size_bytes, options.limits.max_single_file_bytes
+                    ),
+                    vec![file.logical_path.clone()],
+                    &mut finding_counter,
+                ));
+            }
+        }
+        if exceeded_single_file {
+            coverage.add_unsupported("single-file-size-limit", ReferenceRequiredness::Required);
+        }
+
         // 2. Check for unsupported native .node modules
         let mut native_modules: Vec<String> = effective_source
             .files
             .keys()
-            .filter(|p| p.ends_with(".node"))
+            .filter(|p| p.to_ascii_lowercase().ends_with(".node"))
             .cloned()
             .collect();
         native_modules.sort();
@@ -507,7 +529,7 @@ impl AssetAuditor for TyranoAssetAuditor {
         let mut scenario_paths: Vec<String> = effective_source
             .files
             .keys()
-            .filter(|p| p.ends_with(".ks"))
+            .filter(|p| p.to_ascii_lowercase().ends_with(".ks"))
             .cloned()
             .collect();
         scenario_paths.sort();
@@ -801,7 +823,7 @@ fn audit_tyrano_tag(
                 }
             }
         }
-        "playbgm" => {
+        "playbgm" | "fadeinbgm" => {
             if let Some(storage) = attrs.get("storage") {
                 ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
                 ctx.graph.edges.push(ReferenceEdge {
@@ -839,7 +861,7 @@ fn audit_tyrano_tag(
                 }
             }
         }
-        "playse" => {
+        "playse" | "playbgv" => {
             if let Some(storage) = attrs.get("storage") {
                 ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
                 ctx.graph.edges.push(ReferenceEdge {
@@ -1001,16 +1023,26 @@ fn audit_tyrano_tag(
 
                 if name.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, name, AssetKind::Plugin);
-                } else {
-                    let rule = if let Some(st) = attrs.get("storage") {
-                        CandidateRule::exact(format!("data/others/plugin/{name}/{st}"))
+                } else if let Some(st) = attrs.get("storage") {
+                    if st.starts_with('&') {
+                        ctx.record_dynamic(&cmd_node_id, st, AssetKind::Plugin);
                     } else {
-                        CandidateRule::candidates([
-                            format!("data/others/plugin/{name}/{name}.js"),
-                            format!("data/others/plugin/{name}/init.ks"),
-                            format!("data/others/plugin/{name}"),
-                        ])
-                    };
+                        let rule = CandidateRule::exact(format!("data/others/plugin/{name}/{st}"));
+                        ctx.resolve_and_record(
+                            &cmd_node_id,
+                            st,
+                            &rule,
+                            AssetKind::Plugin,
+                            "plugin",
+                            ReferenceRequiredness::Required,
+                        );
+                    }
+                } else {
+                    let rule = CandidateRule::candidates([
+                        format!("data/others/plugin/{name}/{name}.js"),
+                        format!("data/others/plugin/{name}/init.ks"),
+                        format!("data/others/plugin/{name}"),
+                    ]);
                     ctx.resolve_and_record(
                         &cmd_node_id,
                         name,
@@ -1096,11 +1128,9 @@ fn audit_tyrano_tag(
                 "endmacro",
                 "return",
                 "clearfix",
-                "fadeinbgm",
                 "fadeoutbgm",
                 "stopbgm",
                 "stopse",
-                "playbgv",
                 "stopbgv",
                 "dialog",
                 "close",
@@ -1132,129 +1162,125 @@ fn audit_jump_or_call(
         return;
     }
 
-    if let Some(storage) = storage_opt {
-        if storage.starts_with('&') {
-            ctx.record_dynamic(cmd_node_id, storage, AssetKind::Script);
-            return;
-        }
-    }
-
-    if let Some(target) = target_opt {
-        if target.starts_with('&') {
-            ctx.record_dynamic(cmd_node_id, target, AssetKind::Command);
-            return;
-        }
-    }
-
     // Step A: Storage resolution
     let target_sc_path: Option<String> = if let Some(storage) = storage_opt {
-        let rule = if storage.starts_with("data/") {
-            if storage.ends_with(".ks") {
-                CandidateRule::exact(storage)
-            } else {
-                CandidateRule::candidates([storage.clone(), format!("{storage}.ks")])
-            }
-        } else if storage.ends_with(".ks") {
-            CandidateRule::exact(format!("data/scenario/{storage}"))
+        if storage.starts_with('&') {
+            ctx.record_dynamic(cmd_node_id, storage, AssetKind::Script);
+            None
         } else {
-            CandidateRule::candidates([
-                format!("data/scenario/{storage}"),
-                format!("data/scenario/{storage}.ks"),
-            ])
-        };
+            let lower_storage = storage.to_ascii_lowercase();
+            let rule = if storage.starts_with("data/") {
+                if lower_storage.ends_with(".ks") {
+                    CandidateRule::exact(storage)
+                } else {
+                    CandidateRule::candidates([storage.clone(), format!("{storage}.ks")])
+                }
+            } else if lower_storage.ends_with(".ks") {
+                CandidateRule::exact(format!("data/scenario/{storage}"))
+            } else {
+                CandidateRule::candidates([
+                    format!("data/scenario/{storage}"),
+                    format!("data/scenario/{storage}.ks"),
+                ])
+            };
 
-        let res = ctx.resolver.resolve(&rule, AssetKind::Script);
-        match res {
-            ResolutionResult::Exact(node) => {
-                ctx.ensure_node(&node.id, node.kind, node.logical_path.clone());
-                ctx.graph.edges.push(ReferenceEdge {
-                    source: cmd_node_id.to_string(),
-                    target: node.id,
-                    relation: tag_name.to_string(),
-                    requiredness: ReferenceRequiredness::Required,
-                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                    resolution: ReferenceResolution::Resolved,
-                });
-                node.logical_path
-            }
-            ResolutionResult::CaseMismatch {
-                expected,
-                actual,
-                node,
-            } => {
-                ctx.ensure_node(&node.id, node.kind, node.logical_path.clone());
-                ctx.push_finding(
+            let res = ctx.resolver.resolve(&rule, AssetKind::Script);
+            match res {
+                ResolutionResult::Exact(node) => {
+                    ctx.ensure_node(&node.id, node.kind, node.logical_path.clone());
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: node.id,
+                        relation: tag_name.to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+                    node.logical_path
+                }
+                ResolutionResult::CaseMismatch {
+                    expected,
+                    actual,
+                    node,
+                } => {
+                    ctx.ensure_node(&node.id, node.kind, node.logical_path.clone());
+                    ctx.push_finding(
                     DiagnosticCode::CMP_AUD_CASE_MISMATCH,
                     ReferenceRequiredness::Required,
                     format!("Case mismatch for referenced scenario: expected '{expected}', found on disk as '{actual}'"),
                     vec![cmd_node_id.to_string()],
                 );
-                ctx.graph.edges.push(ReferenceEdge {
-                    source: cmd_node_id.to_string(),
-                    target: node.id,
-                    relation: tag_name.to_string(),
-                    requiredness: ReferenceRequiredness::Required,
-                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                    resolution: ReferenceResolution::Resolved,
-                });
-                node.logical_path
-            }
-            ResolutionResult::CaseCollision(colliding) => {
-                let target_id = format!("script:{storage}");
-                ctx.ensure_node(&target_id, AssetKind::Script, None);
-                ctx.push_finding(
-                    DiagnosticCode::CMP_AUD_CASE_COLLISION,
-                    ReferenceRequiredness::Required,
-                    format!("Case collision detected for scenario '{storage}': {colliding:?}"),
-                    vec![cmd_node_id.to_string()],
-                );
-                ctx.graph.edges.push(ReferenceEdge {
-                    source: cmd_node_id.to_string(),
-                    target: target_id,
-                    relation: tag_name.to_string(),
-                    requiredness: ReferenceRequiredness::Required,
-                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                    resolution: ReferenceResolution::Unresolved,
-                });
-                None
-            }
-            ResolutionResult::Missing(attempted) => {
-                let target_id = format!("script:{storage}");
-                ctx.ensure_node(&target_id, AssetKind::Script, None);
-                ctx.push_finding(
-                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                    ReferenceRequiredness::Required,
-                    format!("Referenced scenario '{storage}' not found (attempted: {attempted:?})"),
-                    vec![cmd_node_id.to_string()],
-                );
-                ctx.graph.edges.push(ReferenceEdge {
-                    source: cmd_node_id.to_string(),
-                    target: target_id,
-                    relation: tag_name.to_string(),
-                    requiredness: ReferenceRequiredness::Required,
-                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                    resolution: ReferenceResolution::Unresolved,
-                });
-                None
-            }
-            ResolutionResult::Unsafe(unsafe_path) => {
-                let target_id = format!("script:{storage}");
-                ctx.ensure_node(&target_id, AssetKind::Script, None);
-                ctx.push_finding(
-                    DiagnosticCode::CMP_AUD_UNSAFE_PATH,
-                    ReferenceRequiredness::Required,
-                    format!("Unsafe path detected in Tyrano scenario reference: '{unsafe_path}'"),
-                    vec![cmd_node_id.to_string()],
-                );
-                ctx.graph.edges.push(ReferenceEdge {
-                    source: cmd_node_id.to_string(),
-                    target: target_id,
-                    relation: tag_name.to_string(),
-                    requiredness: ReferenceRequiredness::Required,
-                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                    resolution: ReferenceResolution::Unresolved,
-                });
-                None
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: node.id,
+                        relation: tag_name.to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+                    node.logical_path
+                }
+                ResolutionResult::CaseCollision(colliding) => {
+                    let target_id = format!("script:{storage}");
+                    ctx.ensure_node(&target_id, AssetKind::Script, None);
+                    ctx.push_finding(
+                        DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                        ReferenceRequiredness::Required,
+                        format!("Case collision detected for scenario '{storage}': {colliding:?}"),
+                        vec![cmd_node_id.to_string()],
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: target_id,
+                        relation: tag_name.to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                        resolution: ReferenceResolution::Unresolved,
+                    });
+                    None
+                }
+                ResolutionResult::Missing(attempted) => {
+                    let target_id = format!("script:{storage}");
+                    ctx.ensure_node(&target_id, AssetKind::Script, None);
+                    ctx.push_finding(
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                        ReferenceRequiredness::Required,
+                        format!(
+                            "Referenced scenario '{storage}' not found (attempted: {attempted:?})"
+                        ),
+                        vec![cmd_node_id.to_string()],
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: target_id,
+                        relation: tag_name.to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                        resolution: ReferenceResolution::Unresolved,
+                    });
+                    None
+                }
+                ResolutionResult::Unsafe(unsafe_path) => {
+                    let target_id = format!("script:{storage}");
+                    ctx.ensure_node(&target_id, AssetKind::Script, None);
+                    ctx.push_finding(
+                        DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                        ReferenceRequiredness::Required,
+                        format!(
+                            "Unsafe path detected in Tyrano scenario reference: '{unsafe_path}'"
+                        ),
+                        vec![cmd_node_id.to_string()],
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: target_id,
+                        relation: tag_name.to_string(),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                        resolution: ReferenceResolution::Unresolved,
+                    });
+                    None
+                }
             }
         }
     } else {
@@ -1262,49 +1288,52 @@ fn audit_jump_or_call(
     };
 
     // Step B: Target label resolution
-    if let (Some(target_scenario), Some(target_label_raw)) = (target_sc_path, target_opt) {
-        let clean_label = target_label_raw
-            .strip_prefix('*')
-            .unwrap_or(target_label_raw)
-            .trim();
-        let label_node_id = format!("label:{target_scenario}#{clean_label}");
+    if let Some(target) = target_opt {
+        if target.starts_with('&') {
+            ctx.record_dynamic(cmd_node_id, target, AssetKind::Command);
+        } else if let Some(target_scenario) = target_sc_path {
+            let clean_label = target.strip_prefix('*').unwrap_or(target).trim();
+            if !clean_label.is_empty() {
+                let label_node_id = format!("label:{target_scenario}#{clean_label}");
 
-        let label_found = scenario_data
-            .get(&target_scenario)
-            .is_some_and(|(_, labels)| labels.contains(clean_label));
+                let label_found = scenario_data
+                    .get(&target_scenario)
+                    .is_some_and(|(_, labels)| labels.contains(clean_label));
 
-        ctx.ensure_node(
-            &label_node_id,
-            AssetKind::Command,
-            Some(target_scenario.clone()),
-        );
+                ctx.ensure_node(
+                    &label_node_id,
+                    AssetKind::Command,
+                    Some(target_scenario.clone()),
+                );
 
-        if label_found {
-            ctx.graph.edges.push(ReferenceEdge {
-                source: cmd_node_id.to_string(),
-                target: label_node_id,
-                relation: format!("{tag_name}_target"),
-                requiredness: ReferenceRequiredness::Required,
-                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                resolution: ReferenceResolution::Resolved,
-            });
-        } else {
-            ctx.push_finding(
-                DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                ReferenceRequiredness::Required,
-                format!(
-                    "Target label '{target_label_raw}' not found in scenario '{target_scenario}'"
-                ),
-                vec![cmd_node_id.to_string()],
-            );
-            ctx.graph.edges.push(ReferenceEdge {
-                source: cmd_node_id.to_string(),
-                target: label_node_id,
-                relation: format!("{tag_name}_target"),
-                requiredness: ReferenceRequiredness::Required,
-                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                resolution: ReferenceResolution::Unresolved,
-            });
+                if label_found {
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: label_node_id,
+                        relation: format!("{tag_name}_target"),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+                } else {
+                    ctx.push_finding(
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                        ReferenceRequiredness::Required,
+                        format!(
+                            "Target label '{target}' not found in scenario '{target_scenario}'"
+                        ),
+                        vec![cmd_node_id.to_string()],
+                    );
+                    ctx.graph.edges.push(ReferenceEdge {
+                        source: cmd_node_id.to_string(),
+                        target: label_node_id,
+                        relation: format!("{tag_name}_target"),
+                        requiredness: ReferenceRequiredness::Required,
+                        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                        resolution: ReferenceResolution::Unresolved,
+                    });
+                }
+            }
         }
     }
 }

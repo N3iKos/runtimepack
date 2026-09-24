@@ -297,6 +297,254 @@ fn test_tyrano_case_collision_fails() {
 }
 
 #[test]
+fn test_tyrano_jump_with_valid_storage_and_dynamic_target() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("tyrano_jump_dyn_target_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<!DOCTYPE html><html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[jump storage=\"second.ks\" target=\"&f.scene_target\"]\n[s]\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("second.ks"),
+        "*scene1\n[s]\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    // Target scenario second.ks should be resolved in the graph
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "script:data/scenario/second.ks"),
+        "Expected script:data/scenario/second.ks in graph nodes: {:#?}",
+        report.graph.nodes
+    );
+
+    // Dynamic target should be recorded and outcome should be Indeterminate
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_jump_with_missing_storage_and_dynamic_target() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("tyrano_jump_missing_dyn_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<!DOCTYPE html><html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[jump storage=\"missing_scenario.ks\" target=\"&f.scene_target\"]\n[s]\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    // Missing storage is a blocking error, so outcome is Fail
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING));
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_project_wide_single_file_limit_exceeded_on_image() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_limit_img_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("image")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[image storage=\"big.png\"]\n[s]\n",
+    )
+    .unwrap();
+    // 500 bytes image file
+    fs::write(
+        temp_dir.join("data").join("image").join("big.png"),
+        vec![0u8; 500],
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions {
+        limits: AuditLimits {
+            max_single_file_bytes: 100, // 100 bytes limit, big.png is 500 bytes
+            ..AuditLimits::default()
+        },
+        ..AssetAuditOptions::default()
+    };
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(!report.completeness.required_scope_complete);
+    assert!(report.findings.iter().any(|f| {
+        f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED && f.message.contains("big.png")
+    }));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_plugin_dynamic_storage() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_plug_dyn_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[plugin name=\"theme\" storage=\"&f.plugin_file\"]\n[s]\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Indeterminate);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_fadeinbgm_and_playbgv() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_fade_bgv_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("bgm")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("sound")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[fadeinbgm storage=\"theme.ogg\" time=2000]\n[playbgv storage=\"voice.ogg\"]\n[s]\n",
+    )
+    .unwrap();
+    fs::write(temp_dir.join("data").join("bgm").join("theme.ogg"), b"BGM").unwrap();
+    fs::write(
+        temp_dir.join("data").join("sound").join("voice.ogg"),
+        b"VOICE",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Pass);
+    assert!(report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.id == "audio:data/bgm/theme.ogg"));
+    assert!(report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.id == "audio:data/sound/voice.ogg"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_case_insensitive_ks_and_node_extensions() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_case_ext_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("others")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("FIRST.KS"),
+        "*start\n[s]\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("data").join("others").join("addon.NODE"),
+        b"NATIVE_BYTES",
+    )
+    .unwrap();
+
+    let mut index = make_index(&temp_dir);
+    // Explicitly add uppercase keys to index.files to test case-insensitive matching
+    let ks_entry = runtimepack_core::ingest::IndexedFile {
+        logical_path: "data/scenario/FIRST.KS".to_string(),
+        relative_path: std::path::PathBuf::from("data/scenario/FIRST.KS"),
+        size_bytes: 15,
+    };
+    let node_entry = runtimepack_core::ingest::IndexedFile {
+        logical_path: "data/others/addon.NODE".to_string(),
+        relative_path: std::path::PathBuf::from("data/others/addon.NODE"),
+        size_bytes: 12,
+    };
+    index
+        .files
+        .insert("data/scenario/FIRST.KS".to_string(), ks_entry);
+    index
+        .files
+        .insert("data/others/addon.NODE".to_string(), node_entry);
+
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.code == DiagnosticCode::CMP_NODE_NATIVE_MODULE));
+    assert!(report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.id == "script:data/scenario/FIRST.KS"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_tyrano_unsafe_path_fails() {
     let root = fixture_dir("tyrano_unsafe_path");
     let index = make_index(&root);
@@ -536,4 +784,40 @@ fn test_tyrano_limits_single_file_bytes_exceeded() {
         .findings
         .iter()
         .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED));
+}
+
+#[test]
+fn test_tyrano_asar_shadowed_file_size_not_double_counted() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_asar_shadow_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("resources")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    let asar_file = temp_dir.join("resources").join("app.asar");
+    let ks_content = b"*start\n[s]\n";
+
+    build_synthetic_asar(
+        &asar_file,
+        &[
+            ("index.html", b"<html></html>"),
+            ("data/scenario/first.ks", ks_content),
+        ],
+    );
+
+    // Write an unpacked file that shadows the ASAR file
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        ks_content,
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Pass);
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
