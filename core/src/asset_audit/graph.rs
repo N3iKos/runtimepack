@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AssetKind {
     Map,
@@ -18,6 +18,28 @@ pub enum AssetKind {
     ExternalResource,
     RuntimeProvidedResource,
     UnresolvedDynamicReference,
+}
+
+impl AssetKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Map => "map",
+            Self::Event => "event",
+            Self::EventPage => "event_page",
+            Self::Command => "command",
+            Self::DatabaseEntity => "database_entity",
+            Self::Script => "script",
+            Self::Plugin => "plugin",
+            Self::Image => "image",
+            Self::Audio => "audio",
+            Self::Font => "font",
+            Self::Video => "video",
+            Self::ArchiveEntry => "archive_entry",
+            Self::ExternalResource => "external_resource",
+            Self::RuntimeProvidedResource => "runtime_provided_resource",
+            Self::UnresolvedDynamicReference => "unresolved_dynamic_reference",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,6 +1,8 @@
 mod graph;
+mod resolver;
 
 pub use graph::*;
+pub use resolver::*;
 
 use crate::detection::EngineDescriptor;
 use crate::diagnostics::{
