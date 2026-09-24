@@ -2,7 +2,7 @@ mod audit_command;
 
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use runtimepack_core::asset_audit::{AssetAuditOptions, AuditMode};
+use runtimepack_core::asset_audit::{AssetAuditOptions, AuditMode, AuditOutcome};
 use runtimepack_core::build_plan::{
     evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
     AuditManifestEntry, AuditPolicyDecision, BuildManifest, ContentManifestEntry,
@@ -104,6 +104,9 @@ pub struct BuildArgs {
     /// Accept an INDETERMINATE static audit outcome
     #[arg(long)]
     pub accept_audit_unknown: bool,
+    /// Skip Gradle APK compilation (generates Android project and assets only)
+    #[arg(long)]
+    pub no_compile: bool,
     /// Output directory
     #[arg(short, long, default_value = "./dist")]
     pub output: PathBuf,
@@ -555,15 +558,34 @@ fn cmd_build(args: BuildArgs) {
     let audit_overrides = match decision {
         AuditPolicyDecision::Allow { overrides } => overrides,
         AuditPolicyDecision::Block { diagnostics } => {
-            if diagnostics.is_empty() {
-                eprintln!(
-                    "[CMP-AUD-010] Build rejected by static asset audit outcome {:?}.",
-                    audit_report.outcome
-                );
-            } else {
-                for diagnostic in diagnostics {
-                    eprintln!("[{}] {}", diagnostic.code, diagnostic.message);
+            for diagnostic in &diagnostics {
+                eprintln!("[{}] {}", diagnostic.code, diagnostic.message);
+            }
+            if !audit_report.findings.is_empty() {
+                eprintln!("\nAsset Audit Findings ({}):", audit_report.findings.len());
+                for finding in &audit_report.findings {
+                    eprintln!(
+                        "  [{}] [{:?}] {}",
+                        finding.code, finding.severity, finding.message
+                    );
                 }
+            }
+            if hard_blockers.is_empty() {
+                match audit_report.outcome {
+                    AuditOutcome::Fail => {
+                        eprintln!(
+                            "\nSuggested remediation: Address missing or corrupted assets, or pass --accept-audit-fail to override."
+                        );
+                    }
+                    AuditOutcome::Indeterminate => {
+                        eprintln!(
+                            "\nSuggested remediation: Pass --accept-audit-unknown to accept incomplete or unknown static asset audit coverage."
+                        );
+                    }
+                    _ => {}
+                }
+            } else {
+                eprintln!("\nHard blockers cannot be bypassed with audit override flags.");
             }
             std::process::exit(1);
         }
@@ -785,64 +807,72 @@ fn cmd_build(args: BuildArgs) {
 
     // 9. Invoke Gradle compiler if toolchains are present
     let mut apk_hash = None;
-    let mut gradle_cmd = Command::new("gradle");
+    if args.no_compile || std::env::var("RUNTIMEPACK_SKIP_GRADLE").is_ok() {
+        println!(
+            "\nSkipping Gradle compilation (--no-compile). Project structure generated at {}.",
+            android_project_dir.display()
+        );
+    } else {
+        let mut gradle_cmd = Command::new("gradle");
 
-    if let Ok(jh) = std::env::var("JAVA_HOME") {
-        gradle_cmd.env("JAVA_HOME", jh);
-    } else if let Ok(profile) = std::env::var("USERPROFILE") {
-        let p = PathBuf::from(&profile).join(".runtimepack/toolchains/jdk-17");
-        if p.exists() {
-            gradle_cmd.env("JAVA_HOME", p);
-        }
-    }
-
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        let gradle_bin =
-            PathBuf::from(&profile).join(".runtimepack/toolchains/gradle-8.7/bin/gradle.bat");
-        if gradle_bin.exists() {
-            gradle_cmd = Command::new(gradle_bin);
-        }
-    }
-
-    println!("\nCompiling standalone Android package with Gradle...");
-    gradle_cmd.arg("assembleDebug");
-    gradle_cmd.arg("--console=plain");
-    gradle_cmd.current_dir(&android_project_dir);
-
-    match gradle_cmd.output() {
-        Ok(res) if res.status.success() => {
-            let apk_source = android_project_dir.join("app/build/outputs/apk/debug/app-debug.apk");
-            if apk_source.exists() {
-                let sanitized_apk_name = format!("{}.apk", app_name.replace(' ', ""));
-                let dest_apk = output.join(&sanitized_apk_name);
-                if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
-                    let mut apk_hasher = Sha256::new();
-                    if let Ok(bytes) = fs::read(&dest_apk) {
-                        apk_hasher.update(&bytes);
-                        apk_hash = Some(format!("{:x}", apk_hasher.finalize()));
-                    }
-                    println!(
-                        "Generated APK:  {} ({:.2} MB)",
-                        dest_apk.display(),
-                        fs::metadata(&dest_apk).map(|m| m.len()).unwrap_or(0) as f64
-                            / (1024.0 * 1024.0)
-                    );
-                }
+        if let Ok(jh) = std::env::var("JAVA_HOME") {
+            gradle_cmd.env("JAVA_HOME", jh);
+        } else if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = PathBuf::from(&profile).join(".runtimepack/toolchains/jdk-17");
+            if p.exists() {
+                gradle_cmd.env("JAVA_HOME", p);
             }
         }
-        Ok(res) => {
-            println!(
-                "Gradle notice: Non-zero exit code ({:?}). Android project is available in {}.",
-                res.status.code(),
-                android_project_dir.display()
-            );
+
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let gradle_bin =
+                PathBuf::from(&profile).join(".runtimepack/toolchains/gradle-8.7/bin/gradle.bat");
+            if gradle_bin.exists() {
+                gradle_cmd = Command::new(gradle_bin);
+            }
         }
-        Err(e) => {
-            println!(
-                "Gradle compiler notice: {}. Project structure generated at {}.",
-                e,
-                android_project_dir.display()
-            );
+
+        println!("\nCompiling standalone Android package with Gradle...");
+        gradle_cmd.arg("assembleDebug");
+        gradle_cmd.arg("--console=plain");
+        gradle_cmd.current_dir(&android_project_dir);
+
+        match gradle_cmd.output() {
+            Ok(res) if res.status.success() => {
+                let apk_source =
+                    android_project_dir.join("app/build/outputs/apk/debug/app-debug.apk");
+                if apk_source.exists() {
+                    let sanitized_apk_name = format!("{}.apk", app_name.replace(' ', ""));
+                    let dest_apk = output.join(&sanitized_apk_name);
+                    if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
+                        let mut apk_hasher = Sha256::new();
+                        if let Ok(bytes) = fs::read(&dest_apk) {
+                            apk_hasher.update(&bytes);
+                            apk_hash = Some(format!("{:x}", apk_hasher.finalize()));
+                        }
+                        println!(
+                            "Generated APK:  {} ({:.2} MB)",
+                            dest_apk.display(),
+                            fs::metadata(&dest_apk).map(|m| m.len()).unwrap_or(0) as f64
+                                / (1024.0 * 1024.0)
+                        );
+                    }
+                }
+            }
+            Ok(res) => {
+                println!(
+                    "Gradle notice: Non-zero exit code ({:?}). Android project is available in {}.",
+                    res.status.code(),
+                    android_project_dir.display()
+                );
+            }
+            Err(e) => {
+                println!(
+                    "Gradle compiler notice: {}. Project structure generated at {}.",
+                    e,
+                    android_project_dir.display()
+                );
+            }
         }
     }
 

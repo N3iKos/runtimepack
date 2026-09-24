@@ -11,7 +11,9 @@ use runtimepack_core::build_plan::{
 };
 use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode};
 use runtimepack_core::domain::{ContentMode, EngineId};
-use std::path::Path;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn audit_report(outcome: AuditOutcome) -> AssetAuditReport {
     let finding = match outcome {
@@ -157,6 +159,309 @@ fn audit_policy_never_bypasses_hard_blockers() {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code.0, code);
     }
+}
+
+fn test_workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn test_temp_dir(label: &str) -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "runtimepack-build-test-{label}-{}-{nonce}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&path);
+    path
+}
+
+#[test]
+fn test_build_manifest_schema_aligns_with_optional_audit() {
+    let schema_path = test_workspace_root().join("schemas/build-manifest.schema.json");
+    let schema_text = std::fs::read_to_string(&schema_path).unwrap();
+    let schema_json: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
+
+    let top_required = schema_json["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        !top_required.contains(&"audit"),
+        "audit must not be required in top-level build manifest schema"
+    );
+
+    let prov_required = schema_json["properties"]["provenance"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        !prov_required.contains(&"audit"),
+        "audit must not be required in provenance schema"
+    );
+
+    assert!(schema_json["definitions"]["audit"].is_object());
+
+    // Test serialization without audit: "audit" property is omitted
+    let manifest_without_audit = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-24T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        app: AppConfig {
+            name: "No Audit Game".to_string(),
+            package: "com.example.noaudit".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_vxace".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "hash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    let serialized_no_audit = serde_json::to_string(&manifest_without_audit).unwrap();
+    let parsed_no_audit: serde_json::Value = serde_json::from_str(&serialized_no_audit).unwrap();
+    assert!(
+        parsed_no_audit.get("audit").is_none(),
+        "audit must be omitted when None"
+    );
+    assert!(
+        parsed_no_audit["provenance"].get("audit").is_none(),
+        "provenance.audit must be omitted when None"
+    );
+
+    let deserialized_no_audit: BuildManifest = serde_json::from_str(&serialized_no_audit).unwrap();
+    assert!(deserialized_no_audit.audit.is_none());
+    assert!(deserialized_no_audit.provenance.audit.is_none());
+
+    // Test serialization with audit: "audit" property is present
+    use runtimepack_core::build_plan::AuditManifestEntry;
+    let mut manifest_with_audit = manifest_without_audit;
+    let audit_entry = AuditManifestEntry {
+        report_path: "asset-audit-report.json".into(),
+        report_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+        mode: AuditMode::Standard,
+        outcome: AuditOutcome::Indeterminate,
+        overrides: vec![],
+    };
+    manifest_with_audit.audit = Some(audit_entry.clone());
+    manifest_with_audit.provenance.audit = Some(audit_entry);
+
+    let serialized_with_audit = serde_json::to_string(&manifest_with_audit).unwrap();
+    let parsed_with_audit: serde_json::Value =
+        serde_json::from_str(&serialized_with_audit).unwrap();
+    assert!(parsed_with_audit.get("audit").is_some());
+    assert_eq!(parsed_with_audit["audit"]["mode"], "STANDARD");
+    assert_eq!(parsed_with_audit["audit"]["outcome"], "INDETERMINATE");
+    assert!(parsed_with_audit["provenance"].get("audit").is_some());
+
+    let deserialized_with_audit: BuildManifest =
+        serde_json::from_str(&serialized_with_audit).unwrap();
+    assert!(deserialized_with_audit.audit.is_some());
+    assert_eq!(
+        deserialized_with_audit.audit.unwrap().outcome,
+        AuditOutcome::Indeterminate
+    );
+}
+
+#[test]
+fn test_build_gating_unoverridden_audit_fails_without_side_effects() {
+    let out_dir = test_temp_dir("unoverridden-blocked");
+    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+
+    assert!(!out_dir.exists(), "output dir must not exist before build");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "build without overrides must exit with failure"
+    );
+    assert!(
+        !out_dir.exists(),
+        "output dir must NOT be created on audit policy rejection"
+    );
+    assert!(
+        !out_dir.join("game.pack").exists(),
+        "game.pack must NOT be created on audit policy rejection"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("[BLD-104]"),
+        "stderr must contain dedicated BLD-104 policy code, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("CMP-AUD-001"),
+        "stderr must surface actionable audit finding code, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("--accept-audit-unknown"),
+        "stderr must suggest the --accept-audit-unknown flag, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("CMP-AUD-010"),
+        "stderr must NOT reuse CMP-AUD-010 on policy rejection, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_build_gating_accept_audit_unknown_succeeds_with_provenance_and_reports() {
+    let out_dir = test_temp_dir("accepted-unknown");
+    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "build with --accept-audit-unknown must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    assert!(out_dir.exists(), "output directory must exist");
+    assert!(out_dir.join("game.pack").exists(), "game.pack must exist");
+
+    let audit_report_path = out_dir.join("asset-audit-report.json");
+    assert!(
+        audit_report_path.exists(),
+        "asset-audit-report.json must be emitted"
+    );
+    let audit_bytes = std::fs::read(&audit_report_path).unwrap();
+    let audit_json: serde_json::Value = serde_json::from_slice(&audit_bytes).unwrap();
+    assert_eq!(audit_json["outcome"], "INDETERMINATE");
+    assert_eq!(audit_json["overrides"][0]["flag"], "--accept-audit-unknown");
+
+    let manifest_path = out_dir.join("build-manifest.json");
+    assert!(
+        manifest_path.exists(),
+        "build-manifest.json must be emitted"
+    );
+    let manifest_text = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest: BuildManifest = serde_json::from_str(&manifest_text).unwrap();
+
+    let manifest_audit = manifest
+        .audit
+        .as_ref()
+        .expect("manifest.audit must be present");
+    assert_eq!(manifest_audit.report_path, "asset-audit-report.json");
+    assert_eq!(manifest_audit.outcome, AuditOutcome::Indeterminate);
+    assert_eq!(manifest_audit.overrides.len(), 1);
+    assert_eq!(manifest_audit.overrides[0].flag, "--accept-audit-unknown");
+
+    let prov_audit = manifest
+        .provenance
+        .audit
+        .as_ref()
+        .expect("provenance.audit must be present");
+    assert_eq!(prov_audit.report_path, "asset-audit-report.json");
+    assert_eq!(prov_audit.outcome, AuditOutcome::Indeterminate);
+    let expected_hash = format!("{:x}", Sha256::digest(&audit_bytes));
+    assert_eq!(prov_audit.report_sha256, expected_hash);
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_build_gating_hard_blocker_cannot_be_bypassed_by_audit_override() {
+    let out_dir = test_temp_dir("hard-blocker-cannot-bypass");
+    let fixture = test_workspace_root().join("tests/fixtures/rgss_unsupported_dll");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "build with hard blocker must fail even with --accept-audit-unknown"
+    );
+    assert!(
+        !out_dir.exists(),
+        "output dir must NOT be created when hard blocker is present"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("CMP-102") || stderr.contains("CMP-100"),
+        "stderr must contain unsupported native dependency diagnostic, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("Hard blockers cannot be bypassed"),
+        "stderr must state hard blockers cannot be bypassed, got: {stderr}"
+    );
 }
 
 #[test]

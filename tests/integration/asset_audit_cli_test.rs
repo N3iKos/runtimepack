@@ -16,13 +16,7 @@ fn workspace_root() -> PathBuf {
 #[test]
 fn audit_module_has_no_process_launch_capability() {
     let source = fs::read_to_string(workspace_root().join("cli/src/audit_command.rs")).unwrap();
-    for forbidden in [
-        "std::process",
-        "Command",
-        ".spawn(",
-        ".status(",
-        ".output(",
-    ] {
+    for forbidden in ["std::process", "Command", ".spawn(", ".status(", ".output("] {
         assert!(
             !source.contains(forbidden),
             "audit module must not contain process API token {forbidden}"
@@ -165,7 +159,7 @@ fn every_v1_engine_uses_an_unavailable_placeholder_until_adapters_land() {
         ("vxace_min", "rpg-maker-vx-ace"),
         ("mv_min", "rpg-maker-mv"),
         ("mz_min", "rpg-maker-mz"),
-        ("renpy_supported_version_A", "renpy"),
+        ("renpy_supported_version_A", "ren-py"),
         ("tyrano_min", "tyrano"),
     ] {
         let working_dir = temp_dir(fixture_name);
@@ -212,7 +206,11 @@ fn audit_replaces_an_existing_report() {
         ],
     );
 
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(read_report(&report_path)["engine"], "rpg-maker-vx-ace");
     assert!(temp_artifacts(&report_path).is_empty());
     fs::remove_dir_all(working_dir).unwrap();
@@ -236,7 +234,10 @@ fn failed_replacement_preserves_the_old_destination_and_cleans_temp_files() {
     );
 
     assert!(!output.status.success());
-    assert_eq!(fs::read(report_path.join("old-report")).unwrap(), b"preserve me");
+    assert_eq!(
+        fs::read(report_path.join("old-report")).unwrap(),
+        b"preserve me"
+    );
     assert!(temp_artifacts(&report_path).is_empty());
     fs::remove_dir_all(working_dir).unwrap();
 }
@@ -262,7 +263,11 @@ fn concurrent_audits_leave_one_complete_report_and_no_temp_files() {
     });
 
     for output in handles.into_iter().map(|handle| handle.join().unwrap()) {
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     let report = read_report(&report_path);
     assert!(matches!(

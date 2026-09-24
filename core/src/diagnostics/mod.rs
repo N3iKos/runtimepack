@@ -67,6 +67,7 @@ impl DiagnosticCode {
     pub const CMP_AUD_UNSAFE_PATH: &'static str = "CMP-AUD-009";
     pub const CMP_AUD_REPORT_INVALID: &'static str = "CMP-AUD-010";
     pub const CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED: &'static str = "CMP-AUD-011";
+    pub const CMP_AUD_POLICY_BLOCKED: &'static str = "CMP-AUD-012";
 
     pub const RT_UNRESOLVED: &'static str = "RT-101";
     pub const RT_UNSUPPORTED_CAPABILITY: &'static str = "RT-102";
@@ -87,6 +88,7 @@ impl DiagnosticCode {
     pub const BLD_TOOLCHAIN_MISSING: &'static str = "BLD-101";
     pub const BLD_GRADLE_FAILED: &'static str = "BLD-102";
     pub const BLD_SIGNING_FAILED: &'static str = "BLD-103";
+    pub const BLD_AUDIT_POLICY_BLOCKED: &'static str = "BLD-104";
 
     pub const SIG_KEYSTORE_NOT_FOUND: &'static str = "SIG-101";
     pub const LIC_REDISTRIBUTION_BLOCKED: &'static str = "LIC-101";

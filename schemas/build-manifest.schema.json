@@ -6,7 +6,6 @@
   "required": [
     "schema_version",
     "runtimepack_version",
-    "audit",
     "app",
     "engine",
     "runtime",
@@ -74,7 +73,7 @@
     },
     "provenance": {
       "type": "object",
-      "required": ["source_hash", "config_hash", "audit"],
+      "required": ["source_hash", "config_hash"],
       "properties": {
         "source_hash": { "type": "string" },
         "config_hash": { "type": "string" },

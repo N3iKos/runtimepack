@@ -1,5 +1,5 @@
 use crate::asset_audit::{AssetAuditReport, AuditOutcome};
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,8 +66,17 @@ pub fn evaluate_audit_policy(
                 rationale: "explicitly accepted incomplete or unknown static audit coverage".into(),
             }],
         },
-        _ => AuditPolicyDecision::Block {
-            diagnostics: Vec::new(),
+        AuditOutcome::Fail => AuditPolicyDecision::Block {
+            diagnostics: vec![Diagnostic::error(
+                DiagnosticCode::BLD_AUDIT_POLICY_BLOCKED,
+                "build rejected by static asset audit policy (outcome: FAIL)",
+            )],
+        },
+        AuditOutcome::Indeterminate => AuditPolicyDecision::Block {
+            diagnostics: vec![Diagnostic::error(
+                DiagnosticCode::BLD_AUDIT_POLICY_BLOCKED,
+                "build rejected by static asset audit policy (outcome: INDETERMINATE)",
+            )],
         },
     }
 }

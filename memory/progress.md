@@ -1,12 +1,13 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Foundation Plan Task 5 selesai di worktree `deep-asset-audit-foundation`: pure audit policy matrix, dedicated fail/unknown overrides, pre-side-effect build gate, hard-blocker enforcement, dan audit metadata pada manifest/provenance.
+- **Sedang kerjain apa:** Foundation Plan Task 5 fix round 1 selesai di worktree `deep-asset-audit-foundation`: schema alignment untuk optional audit, stable diagnostic code `BLD-104`, actionable finding messages + remediation flags di stderr, `--no-compile` test option, serta integration tests end-to-end untuk build gating.
 - **Next step:** Foundation Plan Task 6 (foundation documentation and verification).
-- **Blocker:** Rust integration test executables pada toolchain GNU LLVM-MinGW lokal link tetapi exit nonzero sebelum libtest output; juga ada 3 warning Clippy pre-existing di core yang memblokir `-D warnings`.
+- **Blocker:** Ada 3 warning Clippy pre-existing di core yang memblokir `-D warnings`.
 - **Catatan fokus:** Placeholder audit tetap `INDETERMINATE` + `CMP-AUD-001`; ordinary build memerlukan `--accept-audit-unknown` sampai adapter plan selesai, dan Tyrano legal gate tidak dapat dioverride.
 
 ## Selesai
+- [2026-09-24] Foundation Plan Task 5 Fix Round 1: Build-manifest schema aligned with optional audit metadata (schema evolution rules); dedicated diagnostic code BLD-104 (BLD_AUDIT_POLICY_BLOCKED) replaces improper CMP-AUD-010; actionable findings and suggestion flags surfaced to stderr; added --no-compile build flag; end-to-end build gating tests pass.
 - [2026-09-24] Foundation Plan Task 5: build menjalankan static audit sebelum output/content/project side effects; matrix PASS/WARNING/FAIL/INDETERMINATE, override terpisah, hard blockers, dan metadata audit manifest/provenance selesai.
 - [2026-09-24] Foundation Plan Task 4: CLI `runtimepack audit`, integration tests, placeholder auditor semua engine v1, dan atomic authoritative JSON report selesai; direct CLI acceptance lulus.
 
