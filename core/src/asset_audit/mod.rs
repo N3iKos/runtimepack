@@ -556,14 +556,17 @@ impl AssetAuditorRegistry {
     }
 }
 
-fn audit_external_network_resources(report: &mut AssetAuditReport, options: &AssetAuditOptions) {
+pub fn audit_external_network_resources(
+    report: &mut AssetAuditReport,
+    options: &AssetAuditOptions,
+) {
     let mut external_refs: Vec<(String, Option<String>)> = Vec::new();
 
     for node in &report.graph.nodes {
         if node.kind == AssetKind::ExternalResource || node.id.starts_with("external:") {
             let url = if let Some(ref lp) = node.logical_path {
                 lp.clone()
-            } else if let Some((_, u)) = node.id.split_once(':') {
+            } else if let Some(u) = node.id.strip_prefix("external:") {
                 u.to_string()
             } else {
                 node.id.clone()
@@ -574,7 +577,7 @@ fn audit_external_network_resources(report: &mut AssetAuditReport, options: &Ass
 
     for edge in &report.graph.edges {
         if edge.resolution == ReferenceResolution::External {
-            let url = if let Some((_, u)) = edge.target.split_once(':') {
+            let url = if let Some(u) = edge.target.strip_prefix("external:") {
                 u.to_string()
             } else {
                 edge.target.clone()

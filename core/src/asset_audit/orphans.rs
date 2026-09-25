@@ -46,16 +46,20 @@ pub fn classify_possible_orphans(
 
     for edge in &graph.edges {
         referenced_paths.insert(normalize_logical_path(&edge.target));
-        if let Some((_, path_part)) = edge.target.split_once(':') {
-            referenced_paths.insert(normalize_logical_path(path_part));
+        if let Some((prefix, path_part)) = edge.target.split_once(':') {
+            if prefix != "http" && prefix != "https" {
+                referenced_paths.insert(normalize_logical_path(path_part));
+            }
         }
     }
 
     for node in &graph.nodes {
         if referenced_target_ids.contains(node.id.as_str()) {
             referenced_paths.insert(normalize_logical_path(&node.id));
-            if let Some((_, path_part)) = node.id.split_once(':') {
-                referenced_paths.insert(normalize_logical_path(path_part));
+            if let Some((prefix, path_part)) = node.id.split_once(':') {
+                if prefix != "http" && prefix != "https" {
+                    referenced_paths.insert(normalize_logical_path(path_part));
+                }
             }
             if let Some(ref lp) = node.logical_path {
                 referenced_paths.insert(normalize_logical_path(lp));

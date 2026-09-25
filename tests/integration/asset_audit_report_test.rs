@@ -1,11 +1,12 @@
 use runtimepack_core::asset_audit::{
-    audit_network_reference, classify_possible_orphans, render_audit_html,
-    render_canonical_artifacts, write_audit_artifacts, write_audit_artifacts_with_options,
-    AssetAuditOptions, AssetAuditReport, AssetKind, AssetNode, AuditCache, AuditCacheKey,
-    AuditCompleteness, AuditCoverage, AuditFinding, AuditLimits, AuditMode, AuditOutcome,
-    AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage, EvidenceTrail,
-    FindingDisposition, FindingSeverity, NetworkAuditResult, ReferenceEdge, ReferenceRequiredness,
-    ReferenceResolution, RuntimeValidationState, CURRENT_AUDIT_RULESET_VERSION,
+    audit_external_network_resources, audit_network_reference, classify_possible_orphans,
+    render_audit_html, render_canonical_artifacts, write_audit_artifacts,
+    write_audit_artifacts_with_options, AssetAuditOptions, AssetAuditReport, AssetKind, AssetNode,
+    AuditCache, AuditCacheKey, AuditCompleteness, AuditCoverage, AuditFinding, AuditLimits,
+    AuditMode, AuditOutcome, AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage,
+    EvidenceTrail, FindingDisposition, FindingSeverity, NetworkAuditResult, ReferenceEdge,
+    ReferenceRequiredness, ReferenceResolution, RuntimeValidationState,
+    CURRENT_AUDIT_RULESET_VERSION,
 };
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
@@ -1193,6 +1194,267 @@ fn test_bounded_network_audit_with_mock_http_server() {
     assert!(
         matches!(invalid_res, NetworkAuditResult::InvalidUrl { .. }),
         "Invalid scheme must return InvalidUrl"
+    );
+
+    running.store(false, Ordering::SeqCst);
+    let _ = server_handle.join();
+}
+
+#[test]
+fn test_regression_network_audit_https_remains_indeterminate_without_fail() {
+    let online_options = AssetAuditOptions {
+        allow_network: true,
+        ..Default::default()
+    };
+    let https_url = "https://example.com/asset.png";
+    let res = audit_network_reference(https_url, &online_options);
+
+    // Finding 2: When allow_network is true but TLS transport is unavailable,
+    // do NOT return NotFound (which causes blocking FAIL). Return UnverifiedOffline / Indeterminate.
+    assert!(
+        matches!(res, NetworkAuditResult::UnverifiedOffline { .. }),
+        "HTTPS without TLS must yield UnverifiedOffline, not NotFound: {:?}",
+        res
+    );
+
+    let finding = res.to_finding(Some("source_node")).expect("finding");
+    assert_eq!(
+        finding.code,
+        DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+    );
+    assert_eq!(
+        finding.disposition,
+        FindingDisposition::Indeterminate,
+        "Disposition must be Indeterminate, not Blocking"
+    );
+
+    let mut report = AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerMv,
+        mode: AuditMode::Standard,
+        outcome: AuditOutcome::Pass,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: vec!["network".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph: DependencyGraph::default(),
+        findings: vec![finding],
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    };
+    report.recompute_outcome();
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Indeterminate,
+        "HTTPS unverified finding must cause Indeterminate outcome, not Fail"
+    );
+}
+
+#[test]
+fn test_regression_network_audit_http_304_not_treated_as_redirect() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock server");
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).expect("set nonblocking");
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    let server_handle = std::thread::spawn(move || {
+        while r.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf);
+                    let resp = "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(resp.as_bytes());
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let url_304 = format!("http://127.0.0.1:{port}/assets/cached.png");
+    let online_options = AssetAuditOptions {
+        allow_network: true,
+        ..Default::default()
+    };
+
+    let res = audit_network_reference(&url_304, &online_options);
+    // Finding 3: HTTP 304 is NOT treated as a redirect (no Location header needed)
+    assert!(
+        matches!(
+            res,
+            NetworkAuditResult::NotFound {
+                status_code: Some(304),
+                ..
+            }
+        ),
+        "HTTP 304 must not be treated as a redirect: {:?}",
+        res
+    );
+
+    running.store(false, Ordering::SeqCst);
+    let _ = server_handle.join();
+}
+
+#[test]
+fn test_regression_network_audit_url_with_query_and_no_path() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock server");
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).expect("set nonblocking");
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    let server_handle = std::thread::spawn(move || {
+        while r.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    if req.contains("GET /?token=xyz") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nConnection: close\r\n\r\nOK";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else {
+                        let resp = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let url_query_only = format!("http://127.0.0.1:{port}?token=xyz");
+    let online_options = AssetAuditOptions {
+        allow_network: true,
+        ..Default::default()
+    };
+
+    // Finding 4: Handle query strings on URLs without paths (e.g. http://example.com?q=1)
+    let res = audit_network_reference(&url_query_only, &online_options);
+    assert!(
+        matches!(
+            res,
+            NetworkAuditResult::Verified {
+                status_code: 200,
+                ..
+            }
+        ),
+        "URL with query and no path must parse and verify correctly: {:?}",
+        res
+    );
+
+    running.store(false, Ordering::SeqCst);
+    let _ = server_handle.join();
+}
+
+#[test]
+fn test_regression_audit_external_network_resources_does_not_mangle_raw_http_urls() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock server");
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).expect("set nonblocking");
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    let server_handle = std::thread::spawn(move || {
+        while r.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf);
+                    let resp =
+                        "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nConnection: close\r\n\r\nOK";
+                    let _ = stream.write_all(resp.as_bytes());
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let raw_url = format!("http://127.0.0.1:{port}/assets/raw_url.png");
+
+    let mut graph = DependencyGraph::default();
+    // Raw URL in node and edge target WITHOUT "external:" prefix
+    graph.nodes.push(AssetNode {
+        id: raw_url.clone(),
+        kind: AssetKind::ExternalResource,
+        logical_path: None,
+    });
+    graph.edges.push(ReferenceEdge {
+        source: "script:main".into(),
+        target: raw_url.clone(),
+        relation: "downloads".into(),
+        requiredness: ReferenceRequiredness::Required,
+        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+        resolution: ReferenceResolution::External,
+    });
+
+    let mut report = AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerMv,
+        mode: AuditMode::Standard,
+        outcome: AuditOutcome::Pass,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: vec!["network".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph,
+        findings: Vec::new(),
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    };
+
+    let online_options = AssetAuditOptions {
+        allow_network: true,
+        ..Default::default()
+    };
+
+    // Finding 1: Ensure strip_prefix("external:") is used so raw http:// is not mangled to //...
+    audit_external_network_resources(&mut report, &online_options);
+
+    assert!(
+        report.findings.is_empty(),
+        "Raw URL must be requested as http://... and verified, not mangled: {:?}",
+        report.findings
+    );
+    assert_eq!(
+        report.graph.edges[0].evidence,
+        EvidenceTrail::through(EvidenceStage::IntegrityVerified),
+        "Edge evidence must be upgraded to IntegrityVerified on 200 OK"
     );
 
     running.store(false, Ordering::SeqCst);

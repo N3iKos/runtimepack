@@ -36,13 +36,23 @@ impl NetworkAuditResult {
     pub fn to_finding(&self, source_node_id: Option<&str>) -> Option<AuditFinding> {
         match self {
             Self::Verified { .. } => None,
-            Self::UnverifiedOffline { url, .. } => {
+            Self::UnverifiedOffline { url, reason } => {
                 let (severity, disposition) = audit_finding_classification(
                     DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
                     ReferenceRequiredness::Required,
                     false,
                 )
                 .unwrap_or((FindingSeverity::Warning, FindingDisposition::Indeterminate));
+
+                let message = if reason.is_empty()
+                    || reason == "Network audit is disabled (--allow-network-audit not specified)"
+                {
+                    format!(
+                        "External resource URL '{url}' is unverified in offline audit mode (pass --allow-network-audit to verify)"
+                    )
+                } else {
+                    format!("External resource URL '{url}' is unverified: {reason}")
+                };
 
                 Some(AuditFinding {
                     id: format!(
@@ -54,9 +64,7 @@ impl NetworkAuditResult {
                     severity,
                     disposition,
                     requiredness: ReferenceRequiredness::Required,
-                    message: format!(
-                        "External resource URL '{url}' is unverified in offline audit mode (pass --allow-network-audit to verify)"
-                    ),
+                    message,
                     source_node_ids: source_node_id
                         .map(|s| vec![s.to_string()])
                         .unwrap_or_default(),
@@ -144,9 +152,16 @@ fn parse_url(url_str: &str) -> Result<ParsedUrl, String> {
         ));
     };
 
-    let (host_port, path_part) = match rest.find('/') {
-        Some(pos) => (&rest[..pos], &rest[pos..]),
-        None => (rest, "/"),
+    let (host_port, path_part) = match rest.find(|c| c == '/' || c == '?') {
+        Some(pos) => {
+            let hp = &rest[..pos];
+            if rest.as_bytes()[pos] == b'?' {
+                (hp, format!("/{}", &rest[pos..]))
+            } else {
+                (hp, rest[pos..].to_string())
+            }
+        }
+        None => (rest, "/".to_string()),
     };
 
     let (host, port) = if let Some((h, p)) = host_port.split_once(':') {
@@ -211,10 +226,9 @@ fn execute_bounded_request(
     }
 
     if parsed.scheme == "https" {
-        return NetworkAuditResult::NotFound {
+        return NetworkAuditResult::UnverifiedOffline {
             url: url_str.to_string(),
-            status_code: None,
-            error:
+            reason:
                 "HTTPS verification requires TLS support (transport unavailable in static sandbox)"
                     .to_string(),
         };
@@ -345,7 +359,7 @@ fn execute_bounded_request(
         }
     }
 
-    if (301..=308).contains(&status_code) {
+    if matches!(status_code, 301..=303 | 307..=308) {
         if let Some(loc) = location {
             let target_redirect = if loc.starts_with("http://") || loc.starts_with("https://") {
                 loc.clone()
