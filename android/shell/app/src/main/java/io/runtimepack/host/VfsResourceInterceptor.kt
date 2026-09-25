@@ -130,6 +130,19 @@ class VfsResourceInterceptor(
 
     fun urlToLogicalPath(url: String): String? = Companion.urlToLogicalPath(url)
 
+    private fun recordResourceServed(path: String) {
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_EXISTS,
+            assetPath = path,
+            outcome = RuntimeAuditOutcome.PASS
+        )
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_READABLE,
+            assetPath = path,
+            outcome = RuntimeAuditOutcome.PASS
+        )
+    }
+
     fun intercept(url: String): WebResourceResponse? {
         val logicalPath = urlToLogicalPath(url) ?: return null
         var stream = streamProvider(logicalPath)
@@ -158,6 +171,7 @@ class VfsResourceInterceptor(
                     val encBytes = encStream.readBytes()
                     val decrypted = decryptRpgMakerAsset(encBytes, rpgMakerKey)
                     if (decrypted != null) {
+                        recordResourceServed(logicalPath)
                         val mime = getMimeType(logicalPath)
                         return WebResourceResponse(mime, getEncoding(mime), ByteArrayInputStream(decrypted))
                     }
@@ -168,6 +182,7 @@ class VfsResourceInterceptor(
             val oggEnc = logicalPath.removeSuffix(".rpgmvm") + ".rpgmvo"
             val s = streamProvider(oggEnc)
             if (s != null) {
+                recordResourceServed(logicalPath)
                 return WebResourceResponse("audio/ogg", null, s)
             }
         }
@@ -176,6 +191,7 @@ class VfsResourceInterceptor(
             val oggEnc = base + ".ogg_"
             val sEnc = streamProvider(oggEnc)
             if (sEnc != null) {
+                recordResourceServed(logicalPath)
                 return WebResourceResponse("audio/ogg", null, sEnc)
             }
             val oggMvEnc = base + ".rpgmvo"
@@ -184,14 +200,17 @@ class VfsResourceInterceptor(
                 if (rpgMakerKey != null) {
                     val decrypted = decryptRpgMakerAsset(sMvEnc.readBytes(), rpgMakerKey)
                     if (decrypted != null) {
+                        recordResourceServed(logicalPath)
                         return WebResourceResponse("audio/ogg", null, ByteArrayInputStream(decrypted))
                     }
                 }
+                recordResourceServed(logicalPath)
                 return WebResourceResponse("audio/ogg", null, sMvEnc)
             }
             val oggPlain = base + ".ogg"
             val sPlain = streamProvider(oggPlain)
             if (sPlain != null) {
+                recordResourceServed(logicalPath)
                 return WebResourceResponse("audio/ogg", null, sPlain)
             }
         }
@@ -199,6 +218,7 @@ class VfsResourceInterceptor(
             val encPath = logicalPath + "_"
             val s = streamProvider(encPath)
             if (s != null) {
+                recordResourceServed(logicalPath)
                 val mime = getMimeType(logicalPath)
                 return WebResourceResponse(mime, getEncoding(mime), s)
             }
@@ -206,14 +226,29 @@ class VfsResourceInterceptor(
         if (stream == null) {
             val cleanExt = logicalPath.substringAfterLast('.', "").lowercase().removeSuffix("_")
             if (cleanExt in IMAGE_EXTENSIONS) {
+                AssetAuditService.recordEvent(
+                    stage = RuntimeAuditStage.FILE_EXISTS,
+                    assetPath = logicalPath,
+                    outcome = RuntimeAuditOutcome.FAIL,
+                    fallbackAction = "PLACEHOLDER_SUBSTITUTED",
+                    errorMessage = "Resource missing in VFS, transparent placeholder substituted"
+                )
                 return WebResourceResponse("image/png", null, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
             }
             if (cleanExt in AUDIO_EXTENSIONS) {
                 val mime = getMimeType(logicalPath)
+                AssetAuditService.recordEvent(
+                    stage = RuntimeAuditStage.FILE_EXISTS,
+                    assetPath = logicalPath,
+                    outcome = RuntimeAuditOutcome.FAIL,
+                    fallbackAction = "PLACEHOLDER_SUBSTITUTED",
+                    errorMessage = "Resource missing in VFS, transparent placeholder substituted"
+                )
                 return WebResourceResponse(mime, null, ByteArrayInputStream(EMPTY_AUDIO))
             }
             return null
         }
+        recordResourceServed(logicalPath)
         val mime = getMimeType(logicalPath)
         return WebResourceResponse(mime, getEncoding(mime), stream)
     }

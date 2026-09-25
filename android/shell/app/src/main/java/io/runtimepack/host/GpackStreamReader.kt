@@ -266,6 +266,17 @@ class GpackStreamReader private constructor(
             stored
         }
 
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_EXISTS,
+            assetPath = entry.logicalPath,
+            outcome = RuntimeAuditOutcome.PASS
+        )
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_READABLE,
+            assetPath = entry.logicalPath,
+            outcome = RuntimeAuditOutcome.PASS
+        )
+
         return plaintext.inputStream()
     }
 

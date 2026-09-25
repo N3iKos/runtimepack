@@ -22,12 +22,36 @@ function createDOMContext() {
     }
 
     function createMockElement(id, tagName = "div") {
+        let _innerHTML = "";
         const el = {
             id: id || "",
             tagName: tagName.toUpperCase(),
             className: "",
+            classList: {
+                classes: new Set(),
+                add: function (...cls) { cls.forEach(c => this.classes.add(c)); },
+                remove: function (...cls) { cls.forEach(c => this.classes.delete(c)); },
+                contains: function (c) { return this.classes.has(c); },
+                toggle: function (c) {
+                    if (this.classes.has(c)) { this.classes.delete(c); return false; }
+                    else { this.classes.add(c); return true; }
+                }
+            },
             textContent: "",
-            innerHTML: "",
+            get innerHTML() {
+                return _innerHTML;
+            },
+            set innerHTML(val) {
+                _innerHTML = String(val);
+                const idMatches = _innerHTML.matchAll(/id="([^"]+)"/g);
+                for (const match of idMatches) {
+                    const childId = match[1];
+                    if (!elementsById[childId]) {
+                        const childEl = createMockElement(childId);
+                        registerEl(childEl);
+                    }
+                }
+            },
             style: {},
             children: [],
             attributes: {},
@@ -235,6 +259,124 @@ function createDOMContext() {
     assert.strictEqual(dispatchedCmds[2].action, "export_bug_report", "exportBugReport should dispatch export_bug_report");
     assert(sharedPayload, "shareBugReport must be called with JSON report payload");
     assert(Array.isArray(sharedPayload.logs), "Report payload must contain logs array");
+}
+
+// Test 5: Empty Progress Never Triggers Fake Success
+{
+    console.log("Test 5: Empty Progress Never Triggers Fake Success");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 123;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditProgress: function () { return ""; } // Always empty
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    assert(intervalCallback, "Interval callback should have been registered");
+
+    // Advance 8 ticks (where old fake progress used to claim SUCCESS)
+    for (let i = 0; i < 8; i++) {
+        if (intervalCallback) intervalCallback();
+    }
+
+    const badge = sandbox.document.getElementById("diag-step-badge");
+    assert(badge, "Badge element must exist");
+    assert.notStrictEqual(badge.textContent, "COMPLETED", "Empty progress must NEVER set status to COMPLETED at poll count 8!");
+
+    // Advance to timeout (past 60 ticks)
+    for (let i = 8; i < 65; i++) {
+        if (intervalCallback) intervalCallback();
+    }
+
+    assert.notStrictEqual(badge.textContent, "COMPLETED", "Timed out audit must NEVER set status to COMPLETED!");
+    assert(badge.textContent === "TIMEOUT" || badge.textContent === "INDETERMINATE", `Badge should be TIMEOUT or INDETERMINATE on timeout, got: ${badge.textContent}`);
+}
+
+// Test 6: Structured JSON Events Parsing & Error Handling
+{
+    console.log("Test 6: Structured JSON Events Parsing & Error Handling");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 456;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    let mockProgress = "";
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditProgress: function () { return mockProgress; }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    const pbar = sandbox.document.getElementById("diag-pbar-fill");
+    const badge = sandbox.document.getElementById("diag-step-badge");
+
+    // Step 1: START event
+    mockProgress = JSON.stringify([{ type: "START", message: "Audit started", pct: 15 }]);
+    intervalCallback();
+    assert.strictEqual(pbar.style.width, "15%");
+
+    // Step 2: FAIL event
+    mockProgress = JSON.stringify([{ type: "FAIL", message: "Corrupted audio chunk", outcome: "FAIL" }]);
+    intervalCallback();
+    assert.strictEqual(badge.textContent, "FAILED", "Badge must be FAILED on error event");
+}
+
+// Test 7: Structured Line Events (START, STAGE, DONE)
+{
+    console.log("Test 7: Structured Line Events (START, STAGE, DONE)");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 789;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    let mockProgress = "";
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditProgress: function () { return mockProgress; }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    const pbar = sandbox.document.getElementById("diag-pbar-fill");
+    const badge = sandbox.document.getElementById("diag-step-badge");
+
+    mockProgress = "START: Initiating scan\nSTAGE: Checking maps\n";
+    intervalCallback();
+
+    mockProgress = "DONE: Verified all items\n";
+    intervalCallback();
+
+    assert.strictEqual(badge.textContent, "COMPLETED", "Badge must be COMPLETED on DONE");
+    assert.strictEqual(pbar.style.width, "100%", "Progress bar should reach 100% on DONE");
 }
 
 console.log("All Diagnostic Suite JS unit tests passed successfully!");

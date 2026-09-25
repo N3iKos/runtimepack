@@ -89,10 +89,19 @@ class VfsResourceInterceptorTest {
 
     @Test
     fun test404ImageReturnsTransparentPng() {
+        AssetAuditService.reset()
         val interceptor = VfsResourceInterceptor { null }
 
         val pngResp = interceptor.intercept("https://game.local/img/characters/Missing.png")
         assertNotNull(pngResp)
+
+        val events = AssetAuditService.getEvents(0L)
+        org.junit.Assert.assertTrue("Events should record placeholder substitution", events.isNotEmpty())
+        val fallbackEvent = events.first()
+        assertEquals(RuntimeAuditStage.FILE_EXISTS, fallbackEvent.stage)
+        assertEquals(RuntimeAuditOutcome.FAIL, fallbackEvent.outcome)
+        assertEquals("PLACEHOLDER_SUBSTITUTED", fallbackEvent.fallback_action)
+        assertEquals("Resource missing in VFS, transparent placeholder substituted", fallbackEvent.error_message)
 
         val jpgResp = interceptor.intercept("https://game.local/img/pictures/Missing.jpg")
         assertNotNull(jpgResp)
