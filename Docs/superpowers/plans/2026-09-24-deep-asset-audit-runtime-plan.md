@@ -1,209 +1,157 @@
-# Deep Asset Audit Runtime Instrumentation Implementation Plan
+# Deep Asset Audit Runtime Instrumentation Implementation Plan (Condensed)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Capture actual content resolution/read/decode/load/fallback evidence and run optional bounded sampled or exhaustive runtime probes.
+**Goal:** Implement runtime asset load interception (detecting hidden dummy bitmap/audio fallbacks), native VFS evidence capture, sampled/exhaustive runtime probes, and in-game diagnostic bridge cleanup (removing fake progress/success).
 
-**Architecture:** A versioned runtime event protocol is shared across backends. RGSS Ruby and Web/Kotlin loaders emit events into `AssetAuditService`; optional probes consume the static graph and produce a separate runtime report. Ren'Py remains unavailable until its real backend exposes this contract.
+**Architecture:** Shared `AssetAuditService` in Android host receives structured events from native loaders and engine hooks (RGSS Ruby, MV/MZ/Tyrano Web). Fallbacks (`PLACEHOLDER_SUBSTITUTED`, `AUDIO_LOAD_SUPPRESSED`) are captured before recovery. The in-game Diagnostic Suite overlay reads authentic structured events through native bridges without synthesizing fake progress.
 
-**Tech Stack:** Kotlin, Android app-private storage, Ruby, JavaScript, existing VFS/GPACK APIs, JUnit/Node/Ruby tests.
+**Tech Stack:** Kotlin (Android Shell, VFS), Ruby (RGSS bootstrap), JavaScript (web shims, diagnostic overlay), JUnit, Node test harness.
 
 **Spec:** `Docs/superpowers/specs/2026-09-24-multi-engine-deep-asset-audit-design.md`
 
 ## Global Constraints
 
-- Requires Foundation and Reporting plans.
-- Runtime evidence never erases static findings.
-- Runtime probe is optional after build and defaults to `sampled`.
-- Required fallback/suppression is FAIL; optional fallback/suppression is WARNING.
-- Do not claim Ren'Py runtime validation before a real pinned backend exists.
+- Never mutate game content or write inside immutable game directories (use app-private `Context.filesDir/runtime-state/`).
+- Runtime evidence never erases static audit findings.
+- Required asset fallback/suppression yields `FAIL`; optional fallback yields `WARNING`.
+- Overlay diagnostic suite must never simulate completion or synthesize progress.
+- Runtime probe is optional after build; missing probe yields `runtime_validation: "NOT_RUN"`.
 
 ---
 
-### Task 1: Runtime Audit Event Protocol
+### Task 1: Runtime Audit Protocol, Native VFS Evidence & In-Game Overlay Cleanup
 
 **Files:**
 - Create: `android/shell/app/src/main/java/io/runtimepack/host/AssetAuditModels.kt`
 - Create: `android/shell/app/src/main/java/io/runtimepack/host/AssetAuditService.kt`
-- Create: `android/shell/app/src/test/java/io/runtimepack/host/AssetAuditServiceTest.kt`
-- Modify: `Docs/RUNTIME_CONTRACT.md`
-
-**Interfaces:**
-- Produces: `RuntimeAuditEvent`, `RuntimeAuditStage`, `RuntimeAuditOutcome`, `AssetAuditService`.
-
-- [ ] **Step 1: Write Kotlin tests** for ordered sequence IDs, bounded storage, malformed event rejection, atomic report persistence, cancellation, process restart recovery, and required/optional fallback outcome reduction.
-- [ ] **Step 2: Run and verify failure.**
-
-```powershell
-.\gradlew.bat testDebugUnitTest --tests io.runtimepack.host.AssetAuditServiceTest
-```
-
-Run from `android/shell`.
-
-- [ ] **Step 3: Implement models and service** with app-private `runtime-state/audit/` storage. Use logical paths only and sanitize payloads.
-- [ ] **Step 4: Define optional capability `diagnostics.asset_audit.v1`** without breaking `RuntimeBackend` API v1.
-- [ ] **Step 5: Run tests and commit.**
-
-```powershell
-git add android/shell/app/src/main/java/io/runtimepack/host/AssetAudit* android/shell/app/src/test/java/io/runtimepack/host/AssetAuditServiceTest.kt Docs/RUNTIME_CONTRACT.md
-git commit -m "feat: add runtime asset audit event service"
-```
-
----
-
-### Task 2: Native Content/VFS Evidence
-
-**Files:**
-- Modify: `android/shell/app/src/main/java/io/runtimepack/host/GpackStreamReader.kt`
 - Modify: `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt`
-- Modify: `android/shell/app/src/test/java/io/runtimepack/host/GpackStreamReaderTest.kt`
-- Modify: `android/shell/app/src/test/java/io/runtimepack/host/VfsResourceInterceptorTest.kt`
+- Modify: `android/shell/app/src/main/java/io/runtimepack/host/GpackStreamReader.kt`
+- Modify: `android/shell/app/src/main/assets/overlay/diagnostic_suite.js`
+- Modify: `preview/diagnostic_suite.js`
+- Create: `android/shell/app/src/test/java/io/runtimepack/host/AssetAuditServiceTest.kt`
+- Modify: `android/shell/app/src/test/js/diagnostic_suite.test.js`
 
 **Interfaces:**
-- Produces metadata lookup and structured read/decrypt/MIME outcomes.
+- Produces:
+  - `RuntimeAuditEvent`, `RuntimeAuditStage`, `RuntimeAuditOutcome`, `AssetAuditService`.
+  - VFS event logging on file open, decryption, MIME check, and 404 fallback.
+  - Overlay `diagnostic_suite.js` reads structured JSON progress and removes synthetic success loop.
 
-- [ ] **Step 1: Write tests** for exact lookup, folded lookup, collision, absent entry, corrupt bounds, unreadable bytes, encrypted header/key failure, binary charset, and fallback event emission.
-- [ ] **Step 2: Verify failure with focused Gradle tests.**
-- [ ] **Step 3: Add bounded metadata query APIs** that do not allocate full entries merely for existence checks.
-- [ ] **Step 4: Emit runtime events** for selected target, read, integrity/decryption, response delivery, and fallback. Never call transparent PNG/empty audio a successful original load.
-- [ ] **Step 5: Run tests and commit.**
+- [ ] **Step 1: Write failing Kotlin & JS unit tests**:
+  - `AssetAuditServiceTest.kt`: verify event ordering, atomic report persistence in `filesDir/runtime-state/audit/`, sequence monotonic IDs, and fallback outcome reduction.
+  - `diagnostic_suite.test.js`: verify polling parses structured JSON events (`START`, `PROGRESS`, `STAGE`, `DONE`), sets `FAILED` on error, and never simulates completion on empty progress.
+- [ ] **Step 2: Run tests to verify failure:**
+  - `.\gradlew.bat testDebugUnitTest --tests io.runtimepack.host.AssetAuditServiceTest` (in `android/shell`)
+  - `node android/shell/app/src/test/js/diagnostic_suite.test.js`
+- [ ] **Step 3: Implement `AssetAuditModels.kt` & `AssetAuditService.kt`**:
+  - Bounded memory event queue, atomic JSON report write on completion.
+  - Expose bridge methods: `startAudit(requestJson)`, `getAuditEvents(afterSeq)`, `getAuditReport()`, `cancelAudit()`.
+- [ ] **Step 4: Instrument `VfsResourceInterceptor.kt` & `GpackStreamReader.kt`**:
+  - Emit structured events when assets are resolved, decrypted, or when 404 transparent fallback is triggered.
+  - Ensure fallback emits `PLACEHOLDER_SUBSTITUTED` with original requested path.
+- [ ] **Step 5: Clean up `diagnostic_suite.js`**:
+  - Remove lines 1019-1041 (simulated progress and unconditional "Audit Complete: All map events and database references verified").
+  - Connect to `getAuditEvents` / `getAuditReport` native bridge.
+  - Sync `android/shell/.../diagnostic_suite.js` and `preview/diagnostic_suite.js` byte-for-byte.
+- [ ] **Step 6: Run tests to verify pass:** Kotlin unit tests and Node overlay tests pass cleanly.
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-git add android/shell/app/src/main/java/io/runtimepack/host/GpackStreamReader.kt android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt android/shell/app/src/test/java/io/runtimepack/host
-git commit -m "feat: instrument content resolution and reads"
+git add android/shell/app/src/main/java/io/runtimepack/host/AssetAudit* android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt android/shell/app/src/main/java/io/runtimepack/host/GpackStreamReader.kt android/shell/app/src/main/assets/overlay/diagnostic_suite.js preview/diagnostic_suite.js android/shell/app/src/test
+git commit -m "feat: add runtime audit service, VFS instrumentation, and remove fake overlay progress"
 ```
 
 ---
 
-### Task 3: RGSS Loader Instrumentation
+### Task 2: Multi-Engine Loader Instrumentation (RGSS, Web, Tyrano) & Android Activity Bridges
 
 **Files:**
 - Create: `android/shell/app/src/main/assets/runtimepack_asset_audit.rb`
 - Modify: `android/shell/app/src/main/assets/runtimepack_bootstrap.rb`
-- Create: `android/shell/app/src/test/ruby/asset_audit_test.rb`
-- Modify: `android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt`
-- Modify: `core/src/build_plan/generator.rs`
-
-**Interfaces:**
-- Produces structured events from `Bitmap`, `Cache`, `Audio`, and case/path resolution.
-
-- [ ] **Step 1: Write Ruby tests** for exact bitmap load, missing bitmap fallback, corrupt/decode exception fallback, cached placeholder, BGM/BGS/ME/SE suppression, case correction, and preservation of original exception/stage/source.
-- [ ] **Step 2: Run `ruby android/shell/app/src/test/ruby/asset_audit_test.rb` and verify failure.**
-- [ ] **Step 3: Extract audit code into the new Ruby module** and retain a compatibility alias for `run_stress_test` that delegates to structured audit without synthetic claims.
-- [ ] **Step 4: Instrument before recovery hooks return fallback.** Emit `PLACEHOLDER_SUBSTITUTED`, `CACHE_FALLBACK_HIT`, or `LOAD_SUPPRESSED` and never mark the original resource as decode/load success.
-- [ ] **Step 5: Bridge events atomically to `AssetAuditService` via `RgssActivity`.** Do not persist reports inside immutable game content.
-- [ ] **Step 6: Ensure generator copies the module and add integration snapshot assertions.**
-- [ ] **Step 7: Run Ruby, Kotlin, and build tests; commit.**
-
-```powershell
-ruby android/shell/app/src/test/ruby/asset_audit_test.rb
-cargo test --test build_test
-```
-
-```powershell
-git add android/shell/app/src/main/assets/runtimepack_asset_audit.rb android/shell/app/src/main/assets/runtimepack_bootstrap.rb android/shell/app/src/test/ruby/asset_audit_test.rb android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt core/src/build_plan/generator.rs tests/integration/build_test.rs
-git commit -m "feat: instrument RGSS asset loaders"
-```
-
----
-
-### Task 4: Web Loader Instrumentation
-
-**Files:**
 - Create: `android/shell/app/src/main/assets/web_shims/runtimepack_asset_audit.js`
 - Modify: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js`
+- Modify: `android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt`
 - Modify: `android/shell/app/src/main/java/io/runtimepack/host/WebActivity.kt`
+- Create: `android/shell/app/src/test/ruby/asset_audit_test.rb`
 - Modify: `android/shell/app/src/test/js/web_shims.test.js`
 - Modify: `core/src/build_plan/generator.rs`
 
 **Interfaces:**
-- Produces structured image/audio/fetch/plugin load events for MV/MZ and Tyrano Web runtime.
+- Produces:
+  - RGSS loader hooks (`Bitmap.new`, `Cache.*`, `Audio.*`) emitting fallback diagnostics before returning dummy assets.
+  - Web loader hooks (`Image.onload`, `Audio`, `syncFetch`) emitting load/decode events.
+  - `RgssActivity` and `WebActivity` expose uniform `@JavascriptInterface` for audit & probe control.
 
-- [ ] **Step 1: Write Node tests** for successful image/audio requests, HTTP/VFS miss, decode rejection, encrypted resolution, fallback, dynamic plugin request, duplicate request deduplication, and Tyrano-specific resource path.
-- [ ] **Step 2: Verify failure with `node android/shell/app/src/test/js/web_shims.test.js`.**
-- [ ] **Step 3: Implement hooks** around image/audio/fetch/XHR/engine loaders without changing game semantics. Events must distinguish delivery from browser decode and engine acceptance.
-- [ ] **Step 4: Connect game WebView and overlay bridge to one `AssetAuditService`.**
-- [ ] **Step 5: Update generator and tests; run Node/Kotlin/Rust tests.**
-- [ ] **Step 6: Commit.**
+- [ ] **Step 1: Write failing Ruby and JS unit tests**:
+  - `asset_audit_test.rb`: test RGSS `Bitmap.new` failure emits `PLACEHOLDER_SUBSTITUTED` with exception class and requested path; `Audio.bgm_play` failure emits `LOAD_SUPPRESSED`.
+  - `web_shims.test.js`: test missing web image emits fallback event; test broken transfer emits error event.
+- [ ] **Step 2: Run tests to verify failure:**
+  - `ruby android/shell/app/src/test/ruby/asset_audit_test.rb`
+  - `node android/shell/app/src/test/js/web_shims.test.js`
+- [ ] **Step 3: Implement `runtimepack_asset_audit.rb` & update bootstrap**:
+  - Intercept `Bitmap.new`, `Cache.normal_bitmap`, `Audio.bgm_play`, `se_play`, `bgs_play`, `me_play`.
+  - Capture file path and exception *before* returning 1x1 dummy bitmap or nil.
+  - Write atomic event records to `files/runtime-state/audit/events.json` or forward via IPC.
+- [ ] **Step 4: Implement `runtimepack_asset_audit.js` & update web shims**:
+  - Intercept `Graphics.playVideo`, `ImageManager.loadBitmap`, `AudioManager.playBgm`, `playSe`.
+  - Notify `AssetAuditService` via `RuntimePackWeb.postAuditEvent(eventJson)`.
+- [ ] **Step 5: Connect `RgssActivity.kt` and `WebActivity.kt`**:
+  - Wire JavaScript interfaces: `startAssetAudit`, `getAuditEvents`, `getAuditReport`, `cancelAssetAudit`.
+  - Update `core/src/build_plan/generator.rs` to package the new audit scripts into APK assets.
+- [ ] **Step 6: Run tests to verify pass:** Ruby tests, Node tests, Kotlin tests, and `cargo test --test integration_build`.
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-git add android/shell/app/src/main/assets/web_shims android/shell/app/src/main/java/io/runtimepack/host/WebActivity.kt android/shell/app/src/test/js/web_shims.test.js core/src/build_plan/generator.rs tests/integration/build_test.rs
-git commit -m "feat: instrument web asset loaders"
+git add android/shell/app/src/main/assets/runtimepack_asset_audit.rb android/shell/app/src/main/assets/runtimepack_bootstrap.rb android/shell/app/src/main/assets/web_shims android/shell/app/src/main/java/io/runtimepack/host/RgssActivity.kt android/shell/app/src/main/java/io/runtimepack/host/WebActivity.kt core/src/build_plan/generator.rs android/shell/app/src/test
+git commit -m "feat: instrument RGSS and Web asset loaders and connect activity bridges"
 ```
 
 ---
 
-### Task 5: Probe Planner and Sampled Mode
+### Task 3: Sampled & Exhaustive Runtime Probe Engine with Checkpoints
 
 **Files:**
 - Create: `android/shell/app/src/main/java/io/runtimepack/host/AssetProbeRunner.kt`
-- Create: `android/shell/app/src/test/java/io/runtimepack/host/AssetProbeRunnerTest.kt`
-- Modify: `android/shell/app/src/main/java/io/runtimepack/host/AssetAuditService.kt`
-- Modify: `schemas/runtime-manifest.schema.json`
-
-**Interfaces:**
-- Produces: `ProbeMode::{Sampled,Exhaustive}`, `ProbeLimits`, deterministic sample selection.
-
-- [ ] **Step 1: Write tests** for stable sampling across asset kinds/sizes/sources, required-first selection, unsupported kind reporting, cancellation, timeout, memory budget, and `NOT_RUN` default.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Implement sampled runner** consuming bundled static graph and backend capability. Release each decoded resource immediately after evidence capture.
-- [ ] **Step 4: Add runtime capability metadata** without requiring probe for build success.
-- [ ] **Step 5: Run tests and commit.**
-
-```powershell
-git add android/shell/app/src/main/java/io/runtimepack/host/AssetProbeRunner.kt android/shell/app/src/main/java/io/runtimepack/host/AssetAuditService.kt android/shell/app/src/test/java/io/runtimepack/host/AssetProbeRunnerTest.kt schemas/runtime-manifest.schema.json
-git commit -m "feat: add sampled runtime asset probe"
-```
-
----
-
-### Task 6: Exhaustive Probe, Checkpoints, and Combined Summary
-
-**Files:**
-- Modify: `android/shell/app/src/main/java/io/runtimepack/host/AssetProbeRunner.kt`
-- Modify: `android/shell/app/src/main/java/io/runtimepack/host/AssetAuditService.kt`
-- Modify: `android/shell/app/src/test/java/io/runtimepack/host/AssetProbeRunnerTest.kt`
 - Create: `schemas/runtime-validation-report.schema.json`
 - Create: `schemas/combined-validation-summary.schema.json`
+- Create: `android/shell/app/src/test/java/io/runtimepack/host/AssetProbeRunnerTest.kt`
+- Modify: `android/shell/app/src/main/java/io/runtimepack/host/AssetAuditService.kt`
+- Modify: `android/shell/app/src/main/assets/overlay/diagnostic_suite.js`
+- Modify: `preview/diagnostic_suite.js`
+- Modify: `Docs/TEST_PLAN.md`
+- Modify: `Docs/RUNTIME_CONTRACT.md`
 
 **Interfaces:**
-- Produces runtime report and combined summary linked by static audit ID/hash.
+- Produces:
+  - `AssetProbeRunner` supporting `ProbeMode::Sampled` (fast deterministic sample) and `ProbeMode::Exhaustive` (all unique assets with memory limits & checkpoints).
+  - Emits `runtime-validation-report.json` and `combined-validation-summary.json`.
+  - Overlay provides UI buttons to trigger Sampled Probe or Exhaustive Probe with real live counters.
 
-- [ ] **Step 1: Write tests** for exhaustive unique traversal, checkpoint/resume, process restart, bounded concurrency, oversized image/audio rejection, per-resource timeout, global timeout, and static PASS/runtime FAIL separation.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Implement exhaustive mode** with configurable concurrency, decoded-pixel/audio limits, checkpoint sequence, and immediate release.
-- [ ] **Step 4: Implement separate report reduction.** Probe failure must not alter historical build status; combined summary reports both statuses.
-- [ ] **Step 5: Validate schemas and run tests.**
-- [ ] **Step 6: Commit.**
-
-```powershell
-git add android/shell/app/src/main/java/io/runtimepack/host android/shell/app/src/test/java/io/runtimepack/host schemas/runtime-validation-report.schema.json schemas/combined-validation-summary.schema.json
-git commit -m "feat: add exhaustive runtime asset probe"
-```
-
----
-
-### Task 7: Runtime Verification
-
-- [ ] **Step 1: Run all local verification commands.**
-
-```powershell
-ruby android/shell/app/src/test/ruby/asset_audit_test.rb
-node android/shell/app/src/test/js/web_shims.test.js
-cargo test --test build_test
-```
-
-From `android/shell`:
-
-```powershell
-.\gradlew.bat testDebugUnitTest
-```
-
-- [ ] **Step 2: Run Rust lint/type checks.**
+- [ ] **Step 1: Write failing Kotlin & JS unit tests**:
+  - `AssetProbeRunnerTest.kt`: test sampled mode selects representative images/audio deterministically; test exhaustive mode checkpoints every 100 items; test memory limit releases decoded bitmaps immediately; test timeout / cancellation halts cleanly.
+  - `diagnostic_suite.test.js`: test triggering probe updates UI with authentic stage counters and exports combined report.
+- [ ] **Step 2: Run tests to verify failure:** `.\gradlew.bat testDebugUnitTest --tests io.runtimepack.host.AssetProbeRunnerTest`.
+- [ ] **Step 3: Implement `AssetProbeRunner.kt`**:
+  - Reads embedded `asset-dependency-graph.json` or asset list.
+  - Mode `Sampled`: selects N items per asset category (tileset, character, audio, picture).
+  - Mode `Exhaustive`: queues all unique assets, decodes in small sequential batches, immediately releases memory (`Bitmap.recycle()`).
+  - Checkpoints progress to `filesDir/runtime-state/audit/probe_checkpoint.json` for crash resilience.
+- [ ] **Step 4: Implement report generators and schemas**:
+  - Save `runtime-validation-report.json` and `combined-validation-summary.json`.
+  - Validate against JSON schemas.
+- [ ] **Step 5: Connect probe controls to in-game overlay**:
+  - Diagnostic Suite tab "Stress Test" renamed to "Asset Audit & Probe".
+  - Add `[ Run Sampled Probe ]` and `[ Run Exhaustive Probe ]` buttons.
+  - Real live counters: `Scanned: X | Valid: Y | Missing: Z | Fallback: W`.
+  - Export Bug Report includes `combined-validation-summary.json`.
+- [ ] **Step 6: Run full test suite**:
+  - `.\gradlew.bat testDebugUnitTest`
+  - `node android/shell/app/src/test/js/diagnostic_suite.test.js`
+  - `cargo test --workspace`
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+git add android/shell/app/src/main/java/io/runtimepack/host/AssetProbeRunner.kt schemas/runtime-validation-report.schema.json schemas/combined-validation-summary.schema.json android/shell/app/src/test android/shell/app/src/main/assets/overlay preview Docs/TEST_PLAN.md Docs/RUNTIME_CONTRACT.md
+git commit -m "feat: implement sampled and exhaustive runtime probe engine with checkpoints"
 ```
-
-- [ ] **Step 3: Document Ren'Py runtime instrumentation as unavailable until its backend is integrated; do not simulate success.**

@@ -25,11 +25,17 @@
 
 ## Execution order
 
-1. `2026-09-24-deep-asset-audit-foundation-plan.md`
-2. `2026-09-24-deep-asset-audit-adapters-plan.md`
-3. `2026-09-24-deep-asset-audit-reporting-plan.md`
-4. `2026-09-24-deep-asset-audit-runtime-plan.md`
-5. `2026-09-24-deep-asset-audit-overlay-validation-plan.md`
+1. `2026-09-24-deep-asset-audit-foundation-plan.md` (6 tasks) — **COMPLETED & MERGED**
+2. `2026-09-24-deep-asset-audit-adapters-plan.md` (6 tasks) — **COMPLETED & MERGED**
+3. `2026-09-24-deep-asset-audit-reporting-plan.md` (3 tasks) — **CURRENT**
+   - Task 1: Canonical Report Writer & Content-Hash Cache
+   - Task 2: Standalone Offline HTML Viewer & Manifest Link
+   - Task 3: Orphan Analysis, Bounded Network Audit & Verification Docs
+4. `2026-09-24-deep-asset-audit-runtime-plan.md` (3 tasks) — **NEXT**
+   - Task 1: Runtime Audit Protocol, Native VFS Evidence & In-Game Overlay Cleanup
+   - Task 2: Multi-Engine Loader Instrumentation & Android Activity Bridges
+   - Task 3: Sampled & Exhaustive Runtime Probe Engine with Checkpoints
+5. User Device Live Verification (Manual testing on phone/emulator by user)
 
 Plans 2 and 3 may proceed in parallel after Plan 1. Plan 4 requires the Plan 1 schema and Plan 3 persistence contract. Plan 5 requires Plans 3 and 4.
 

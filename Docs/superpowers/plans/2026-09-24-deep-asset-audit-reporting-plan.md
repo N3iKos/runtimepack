@@ -1,209 +1,151 @@
-# Deep Asset Audit Reporting Implementation Plan
+# Deep Asset Audit Reporting Implementation Plan (Condensed)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add deterministic report persistence, content-sensitive caching, HTML viewing, manifest/provenance integration, bounded network audit, and orphan reporting.
+**Goal:** Add deterministic canonical JSON reporting, content-sensitive audit caching, standalone offline HTML viewer, manifest/provenance links, bounded network auditing, and orphan analysis.
 
-**Architecture:** Canonical JSON is generated from `AssetAuditReport`; cache and viewers consume that canonical representation. HTML never computes outcome. Network evidence and orphan analysis extend the graph without weakening default fail-closed behavior.
+**Architecture:** Canonical JSON is rendered from `AssetAuditReport` with deterministic key/array sorting and sanitized paths. Caching uses SHA-256 of game content and engine metadata. The HTML viewer is a self-contained offline single-file app. Orphan analysis and bounded network auditing enrich the graph without breaking fail-closed policy.
 
-**Tech Stack:** Rust, serde_json, SHA-256, existing HTTP capability if present, JSON Schema.
+**Tech Stack:** Rust, serde_json, SHA-256, JSON Schema, Cargo integration tests.
 
 **Spec:** `Docs/superpowers/specs/2026-09-24-multi-engine-deep-asset-audit-design.md`
 
 ## Global Constraints
 
-- Requires Foundation Plan; full engine coverage requires Adapter Plan.
-- No new HTTP dependency unless license/provenance/version checks are completed.
-- No absolute host/device paths in output.
-- Cache hit and miss must produce identical authoritative JSON.
+- Never execute game scripts or binaries.
+- Output paths must not leak host/device absolute paths (sanitized logical paths only).
+- Output must never write into immutable source directories.
+- Caching hit vs miss must produce byte-identical canonical JSON.
+- Orphan findings are strictly `INFO | POSSIBLY_UNUSED` and never alter build policy outcomes.
+- No external CDN/network dependencies in offline HTML viewer.
 
 ---
 
-### Task 1: Canonical Report Writer
+### Task 1: Canonical Report Writer & Content-Sensitive Audit Cache
 
 **Files:**
 - Create: `core/src/asset_audit/report.rs`
-- Modify: `core/src/asset_audit/mod.rs`
-- Create: `tests/integration/asset_audit_report_test.rs`
-
-**Interfaces:**
-- Produces: `CanonicalAuditArtifacts`, `write_audit_artifacts`.
-
-- [ ] **Step 1: Write golden report tests** that randomize input insertion order, redact absolute paths, reject malformed status/stage sequences, and compare byte-identical JSON.
-- [ ] **Step 2: Run `cargo test --test asset_audit_report_test` and verify failure.**
-- [ ] **Step 3: Implement:**
-
-```rust
-pub struct CanonicalAuditArtifacts {
-    pub report_json: Vec<u8>,
-    pub graph_json: Vec<u8>,
-    pub report_sha256: String,
-    pub graph_sha256: String,
-}
-
-pub fn render_canonical_artifacts(report: &AssetAuditReport)
-    -> Result<CanonicalAuditArtifacts, Diagnostic>;
-
-pub fn write_audit_artifacts(
-    output_dir: &Path,
-    artifacts: &CanonicalAuditArtifacts,
-) -> Result<(), Diagnostic>;
-```
-
-Use atomic sibling temp files and deterministic formatting. Operational timings may be included in a non-canonical section but excluded from semantic hashes.
-
-- [ ] **Step 4: Run tests and commit.**
-
-```powershell
-git add core/src/asset_audit tests/integration/asset_audit_report_test.rs
-git commit -m "feat: write canonical asset audit reports"
-```
-
----
-
-### Task 2: Content-Sensitive Audit Cache
-
-**Files:**
 - Create: `core/src/asset_audit/cache.rs`
 - Modify: `core/src/asset_audit/mod.rs`
 - Modify: `cli/src/main.rs`
-- Test: `tests/integration/asset_audit_report_test.rs`
+- Create: `tests/integration/asset_audit_report_test.rs`
 
 **Interfaces:**
-- Produces: `AuditCacheKey`, `AuditCache`.
+- Produces:
+  - `CanonicalAuditArtifacts`, `render_canonical_artifacts(&AssetAuditReport) -> Result<CanonicalAuditArtifacts, Diagnostic>`
+  - `write_audit_artifacts(output_dir: &Path, artifacts: &CanonicalAuditArtifacts) -> Result<(), Diagnostic>`
+  - `AuditCacheKey`, `AuditCache::get(...)`, `AuditCache::put(...)`
 
-- [ ] **Step 1: Write tests** for cache hit/miss equivalence, same-size content mutation, engine/profile/mode/policy/limit/parser/schema/ruleset version invalidation, corrupt entry recovery, and source-external cache location.
-- [ ] **Step 2: Verify failure.**
+- [ ] **Step 1: Write integration tests** in `tests/integration/asset_audit_report_test.rs`:
+  - Verify canonical JSON output is deterministic regardless of in-memory insertion order.
+  - Verify absolute paths are sanitized to logical paths.
+  - Verify cache key incorporates content hash, engine descriptor, mode, limits, and ruleset version.
+  - Verify cache hit produces identical JSON to fresh audit.
+  - Verify corrupt cache entries fail closed to fresh audit.
+  - Verify atomic file writing uses unique temp files and preserves existing destination on write error.
+- [ ] **Step 2: Run test to verify failure:** `cargo test --test asset_audit_report_test`.
+- [ ] **Step 3: Implement `core/src/asset_audit/report.rs`**:
+  - `render_canonical_artifacts`: canonicalize report, serialize pretty JSON with trailing newline, calculate SHA-256, sanitize paths.
+  - `write_audit_artifacts`: atomic write `asset-audit-report.json` and `asset-dependency-graph.json`.
+- [ ] **Step 4: Implement `core/src/asset_audit/cache.rs`**:
+  - Compute `AuditCacheKey` from `GameSourceIndex.source_hash`, `EngineDescriptor`, `AuditMode`, `AuditLimits`, and toolchain versions.
+  - Read/write cache entries atomically under `.runtimepack/cache/audit/` or designated cache dir outside game source.
+- [ ] **Step 5: Wire cache and report writer into `cli/src/main.rs` & `cli/src/audit_command.rs`**:
+  - CLI `runtimepack audit` checks cache before running scan, writes cache on completion.
+  - `runtimepack build` uses canonical writer for output `asset-audit-report.json`.
+- [ ] **Step 6: Run tests to verify pass:** `cargo test --test asset_audit_report_test` and `cargo test --workspace`.
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-cargo test --test asset_audit_report_test cache
-```
-
-- [ ] **Step 3: Implement cache key** from selected content hashes plus all approved dimensions; do not rely solely on existing path/size source hash.
-- [ ] **Step 4: Implement atomic cache read/write** under RuntimePack cache/output state, never inside the source.
-- [ ] **Step 5: Integrate CLI cache use and emit explicit cache provenance.**
-- [ ] **Step 6: Run tests and commit.**
-
-```powershell
-git add core/src/asset_audit cli/src/main.rs tests/integration/asset_audit_report_test.rs
-git commit -m "feat: cache deterministic asset audits"
+git add core/src/asset_audit/report.rs core/src/asset_audit/cache.rs core/src/asset_audit/mod.rs cli/src/main.rs cli/src/audit_command.rs tests/integration/asset_audit_report_test.rs
+git commit -m "feat: add canonical report writer and content-sensitive cache"
 ```
 
 ---
 
-### Task 3: Offline HTML Viewer
+### Task 2: Standalone Offline HTML Viewer & Build Manifest/Provenance Integration
 
 **Files:**
 - Create: `core/src/asset_audit/html.rs`
 - Modify: `core/src/asset_audit/mod.rs`
-- Test: `tests/integration/asset_audit_report_test.rs`
-
-**Interfaces:**
-- Produces: `render_audit_html(&CanonicalAuditArtifacts) -> Result<Vec<u8>, Diagnostic>`.
-
-- [ ] **Step 1: Write viewer tests** asserting escaped game-controlled strings, no external URLs/scripts/styles/fonts, no independent outcome computation, filters for stage/code/severity/source, and cache hit/miss identity.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Implement self-contained HTML** embedding authoritative report JSON and rendering its provided outcome/stats only.
-- [ ] **Step 4: Run tests and commit.**
-
-```powershell
-git add core/src/asset_audit tests/integration/asset_audit_report_test.rs
-git commit -m "feat: add offline asset audit viewer"
-```
-
----
-
-### Task 4: Manifest, Compatibility, and Provenance Links
-
-**Files:**
 - Modify: `core/src/build_plan/mod.rs`
 - Modify: `core/src/build_plan/generator.rs`
+- Modify: `cli/src/main.rs`
+- Modify: `cli/src/audit_command.rs`
 - Modify: `schemas/build-manifest.schema.json`
-- Modify: `schemas/compatibility-report.schema.json`
+- Modify: `tests/integration/asset_audit_report_test.rs`
 - Modify: `tests/integration/build_test.rs`
 
 **Interfaces:**
-- Produces manifest `asset_audit` metadata containing mode, outcome, schema version, report path/hash, graph path/hash, cache provenance, override records, and runtime status.
+- Produces:
+  - `render_audit_html(&CanonicalAuditArtifacts) -> Result<Vec<u8>, Diagnostic>`
+  - `write_audit_artifacts` emits `asset-audit-report.html` alongside JSON.
+  - Build manifest records `manifest.audit.report_sha256` and matching provenance.
 
-- [ ] **Step 1: Write build snapshot tests** for PASS, WARNING, accepted FAIL, accepted INDETERMINATE, and runtime `NOT_RUN`.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Add optional schema/model fields** without embedding the full graph in compatibility report.
-- [ ] **Step 4: Emit artifacts before Android project generation** and copy immutable report metadata into generated assets only when runtime viewer needs it.
-- [ ] **Step 5: Run tests and commit.**
+- [ ] **Step 1: Write integration tests**:
+  - Test HTML generator creates completely self-contained HTML (zero `http://`, `https://`, external CDN links).
+  - Test game-controlled text, event names, and error messages are HTML-escaped.
+  - Test HTML renders stat counters, status badges (`PASS`/`WARNING`/`FAIL`/`INDETERMINATE`), stage filter, and findings table matching JSON exactly.
+  - Test `runtimepack build` embeds `asset-audit-report.json` hash into `build-manifest.json` and `manifest.provenance.audit`.
+- [ ] **Step 2: Run test to verify failure:** `cargo test --test asset_audit_report_test`.
+- [ ] **Step 3: Implement `core/src/asset_audit/html.rs`**:
+  - Embedded CSS and vanilla JS (responsive, dark mode matching RuntimePack theme).
+  - Embed the exact canonical JSON inside a `<script type="application/json" id="audit-data">` element.
+  - Client-side filtering by severity, category, stage, and text search.
+  - Clean collapsible views for map/event/database provenance.
+- [ ] **Step 4: Update `write_audit_artifacts` and CLI**:
+  - Automatically emit `asset-audit-report.html` in target directory on `runtimepack audit` and `runtimepack build`.
+  - Add `--no-html` CLI flag if user wants JSON only.
+- [ ] **Step 5: Connect build manifest and provenance**:
+  - Ensure `build_plan::generator` and `cmd_build` write matching SHA-256 for `asset-audit-report.json`.
+- [ ] **Step 6: Run tests to verify pass:** `cargo test --test asset_audit_report_test` and `cargo test --test integration_build`.
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-git add core/src/build_plan schemas tests/integration/build_test.rs
-git commit -m "feat: link audit reports to build provenance"
+git add core/src/asset_audit/html.rs core/src/asset_audit/mod.rs core/src/build_plan cli/src schemas/build-manifest.schema.json tests/integration/asset_audit_report_test.rs tests/integration/build_test.rs
+git commit -m "feat: add standalone offline HTML audit viewer and manifest provenance"
 ```
 
 ---
 
-### Task 5: Bounded Network Audit
-
-**Files:**
-- Create: `core/src/asset_audit/network.rs`
-- Modify: `core/src/asset_audit/mod.rs`
-- Modify: `cli/src/main.rs`
-- Test: `tests/integration/asset_audit_report_test.rs`
-- Modify: `Docs/REFERENCES.md` if an HTTP implementation dependency is introduced
-
-**Interfaces:**
-- Produces: `NetworkAuditPolicy` and `NetworkEvidence`.
-
-- [ ] **Step 1: Write tests with a local deterministic HTTP fixture** for disabled-by-default, timeout, redirect limit, maximum body/header bytes, MIME mismatch, unavailable resource, and no content execution.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Implement policy** using an already pinned repository HTTP facility; if none exists, stop with dependency/license review before adding one.
-- [ ] **Step 4: Keep required external resources `INDETERMINATE` when network audit is disabled.** Successful bounded reachability proves only network read/metadata, not engine decode/use.
-- [ ] **Step 5: Run tests and commit.**
-
-```powershell
-git add core/src/asset_audit cli/src/main.rs tests/integration/asset_audit_report_test.rs Docs/REFERENCES.md
-git commit -m "feat: add opt-in bounded network audit"
-```
-
----
-
-### Task 6: Orphan Analysis
+### Task 3: Orphan Analysis, Bounded Network Audit & Verification Docs
 
 **Files:**
 - Create: `core/src/asset_audit/orphans.rs`
+- Create: `core/src/asset_audit/network.rs`
 - Modify: `core/src/asset_audit/mod.rs`
-- Test: `tests/integration/asset_audit_report_test.rs`
-
-**Interfaces:**
-- Produces: `classify_possible_orphans(&DependencyGraph, &AuditCoverage)`.
-
-- [ ] **Step 1: Write tests** proving unreachable assets become `INFO | POSSIBLY_UNUSED`, dynamic/unsupported coverage prevents definitive unused claims, generated/runtime files are excluded, and outcome never escalates.
-- [ ] **Step 2: Verify failure.**
-- [ ] **Step 3: Implement graph reachability from declared roots.** Never delete or modify assets.
-- [ ] **Step 4: Run tests and commit.**
-
-```powershell
-git add core/src/asset_audit tests/integration/asset_audit_report_test.rs
-git commit -m "feat: report possible orphan assets"
-```
-
----
-
-### Task 7: Reporting Verification and Documentation
-
-**Files:**
+- Modify: `cli/src/main.rs`
+- Modify: `cli/src/audit_command.rs`
 - Modify: `Docs/COMPATIBILITY.md`
 - Modify: `Docs/CONFIG_AND_SCHEMAS.md`
-- Modify: `Docs/TEST_PLAN.md`
+- Modify: `tests/integration/asset_audit_report_test.rs`
 
-- [ ] **Step 1: Document canonical/non-canonical fields, cache key, sanitization, HTML authority, network limits, and orphan semantics.**
-- [ ] **Step 2: Run verification.**
+**Interfaces:**
+- Produces:
+  - `classify_possible_orphans(&GameSourceIndex, &DependencyGraph, &AuditCoverage) -> Vec<AuditFinding>`
+  - `audit_network_reference(url: &str, options: &AssetAuditOptions) -> NetworkAuditResult`
+  - Canonical docs update.
+
+- [ ] **Step 1: Write integration tests**:
+  - Unreachable files in source become `INFO | POSSIBLY_UNUSED` (diagnostic `CMP-AUD-013` or similar informational code).
+  - Dynamic expressions or incomplete scope properly mark orphan status as `POSSIBLY_UNUSED`, never altering overall audit outcome.
+  - External HTTP(S) URLs tested with local mock server: when `--allow-network-audit` is off -> `INDETERMINATE`. When on -> bounded HEAD/GET check with size/timeout limit; fails gracefully on 404/network error without crashing.
+- [ ] **Step 2: Run test to verify failure:** `cargo test --test asset_audit_report_test`.
+- [ ] **Step 3: Implement `core/src/asset_audit/orphans.rs`**:
+  - Collect all files present in `GameSourceIndex`.
+  - Traverse `DependencyGraph` from entrypoints/roots.
+  - Unreferenced assets categorized as `POSSIBLY_UNUSED`. Never delete or touch source files.
+- [ ] **Step 4: Implement `core/src/asset_audit/network.rs`**:
+  - Parse URL, enforce HTTP/HTTPS schemes only.
+  - If `--allow-network-audit`: perform bounded request with timeout (max 5s) and redirect cap (max 3). Check MIME and status code. Never execute downloaded payload.
+- [ ] **Step 5: Update documentation**:
+  - Update `Docs/COMPATIBILITY.md` and `Docs/CONFIG_AND_SCHEMAS.md` with orphan semantics, cache rules, and HTML viewer description.
+- [ ] **Step 6: Run full workspace tests and formatting:**
+  - `cargo fmt --all -- --check`
+  - `cargo test --workspace`
+- [ ] **Step 7: Commit changes.**
 
 ```powershell
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
-- [ ] **Step 3: Commit.**
-
-```powershell
-git add Docs/COMPATIBILITY.md Docs/CONFIG_AND_SCHEMAS.md Docs/TEST_PLAN.md
-git commit -m "docs: define audit reporting and cache"
+git add core/src/asset_audit/orphans.rs core/src/asset_audit/network.rs core/src/asset_audit/mod.rs cli/src Docs/COMPATIBILITY.md Docs/CONFIG_AND_SCHEMAS.md tests/integration/asset_audit_report_test.rs
+git commit -m "feat: add orphan analysis, bounded network audit, and documentation"
 ```
