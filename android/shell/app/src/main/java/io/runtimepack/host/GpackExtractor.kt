@@ -163,6 +163,16 @@ object GpackExtractor {
             Log.w(TAG, "Could not copy runtimepack_bootstrap.rb from assets: ${e.message}")
         }
 
+        try {
+            context.assets.open("runtimepack_asset_audit.rb").use { auditInput ->
+                FileOutputStream(File(destDir, "runtimepack_asset_audit.rb")).use { auditOutput ->
+                    auditInput.copyTo(auditOutput)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not copy runtimepack_asset_audit.rb from assets: ${e.message}")
+        }
+
         var detectedExecName: String? = null
         val rtpList = mutableListOf<String>()
         val extraFontSubs = mutableListOf<String>()

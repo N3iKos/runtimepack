@@ -128,11 +128,15 @@ end
 
 begin
   require_relative 'runtimepack_asset_audit'
-rescue LoadError, ScriptError, StandardError
+rescue Exception
   begin
     require './runtimepack_asset_audit'
-  rescue LoadError, ScriptError, StandardError
-    load File.expand_path('runtimepack_asset_audit.rb', File.dirname(__FILE__)) rescue nil
+  rescue Exception
+    begin
+      audit_file = File.expand_path('runtimepack_asset_audit.rb', File.dirname(__FILE__))
+      load audit_file if File.file?(audit_file)
+    rescue Exception
+    end
   end
 end
 
