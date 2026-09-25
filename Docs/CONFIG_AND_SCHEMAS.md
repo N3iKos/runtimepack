@@ -91,12 +91,13 @@ allow_network = false          # default false; external network assets evaluate
 ### 8.2 CLI commands and flags
 
 ```text
-runtimepack audit <game> [--mode standard|deep] [--allow-network-audit] [--output <path>]
-runtimepack build <game> [--audit-mode standard|deep] [--accept-audit-fail] [--accept-audit-unknown]
+runtimepack audit <game> [--mode standard|deep] [--allow-network-audit] [--output <path>] [--no-html]
+runtimepack build <game> [--audit-mode standard|deep] [--accept-audit-fail] [--accept-audit-unknown] [--no-html]
 ```
 
-- `--mode standard|deep` / `--audit-mode standard|deep`: Chooses bounded standard dependency check or exhaustive deep analysis (scripts, AST, archives, transitive assets, and orphans).
-- `--allow-network-audit`: Allows bounded network checks for remote HTTP(S) asset availability without executing remote payloads.
+- `--mode standard|deep` / `--audit-mode standard|deep`: Chooses bounded standard dependency check or exhaustive deep analysis (scripts, AST, archives, transitive assets, and candidate orphan classification).
+- `--allow-network-audit`: Allows bounded network checks for remote HTTP(S) asset availability (5s timeout, 3 redirects cap, max body buffer limit) without executing remote payloads. Offline audits default external resources to `INDETERMINATE` under `CMP-AUD-011`.
+- `--no-html`: Suppresses generation of the self-contained offline HTML audit report viewer (`asset-audit-report.html`).
 - `--accept-audit-fail`: Explicitly accepts an audit outcome of `FAIL`; rejects `INDETERMINATE`.
 - `--accept-audit-unknown`: Explicitly accepts an audit outcome of `INDETERMINATE`; rejects `FAIL`.
 - Non-bypassable hard blockers: Security violations, container corruption (`CNT-*`), Tyrano legal gate (`TYR-101`), ambiguous engine detection, unresolved runtime version, and unsupported native modules/libraries (`CMP-102`) cannot be overridden.
@@ -107,6 +108,9 @@ runtimepack build <game> [--audit-mode standard|deep] [--accept-audit-fail] [--a
 - **Atomic emission:** All reports are written to sibling temporary files and replaced atomically.
 - **PASS definition:** Outcome `PASS` certifies **only that declared static scope passed**. It does **not** certify runtime playability or coverage of undeclared dynamic assets.
 - **Static and runtime separation:** Static audit executes no game code. Telemetry progress bars or UI indicators are non-authoritative viewers and never constitute validation proof.
+- **Orphan asset classification:** Assets in the source tree with no incoming reference edges in the dependency graph are reported as `INFO | POSSIBLY_UNUSED` (`CMP-AUD-013`). They are purely informational, never escalate outcomes, never block builds, and source files are never deleted. When dynamic coverage exists, the finding message clarifies that dynamic references exist and the asset may be resolved dynamically.
+- **Cache invalidation rules:** Cache keys include SHA-256 of all ingested files, engine ID, audit mode, ruleset version, toolchain version, resource limits, network audit permission, and detected version. Any discrepancy forces a clean re-scan. Cache paths within the source directory are rejected. Corrupt cache entries fail-closed.
+- **HTML report viewer:** Emits a standalone, zero-CDN, offline HTML report (`asset-audit-report.html`) containing outcome summary cards, completeness badges, statistics, searchable/filterable findings table, and interactive SVG/DOM dependency graph viewer. All game-controlled strings are sanitized via strict HTML entity escaping.
 
 ## 9. Asset audit report schema and manifest integration
 

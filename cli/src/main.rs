@@ -963,7 +963,8 @@ fn cmd_build(args: BuildArgs) {
 
     let report_json = serde_json::to_string_pretty(&report).unwrap();
     fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
-    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html) {
+    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html)
+    {
         eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
         std::process::exit(1);
     }

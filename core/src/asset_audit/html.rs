@@ -33,9 +33,7 @@ pub fn escape_html(input: &str) -> String {
     escaped
 }
 
-pub fn render_audit_html(
-    artifacts: &CanonicalAuditArtifacts,
-) -> Result<Vec<u8>, DiagnosticError> {
+pub fn render_audit_html(artifacts: &CanonicalAuditArtifacts) -> Result<Vec<u8>, DiagnosticError> {
     let report: AssetAuditReport = serde_json::from_slice(&artifacts.report_json).map_err(|e| {
         DiagnosticError::from_code(
             "CMP-AUD-010",
@@ -587,9 +585,13 @@ footer {
 
     html.push_str("  <div class=\"filter-group\">\n");
     html.push_str("    <button type=\"button\" class=\"filter-btn active\" data-severity=\"all\">All</button>\n");
-    html.push_str("    <button type=\"button\" class=\"filter-btn\" data-severity=\"ERROR\">Error</button>\n");
+    html.push_str(
+        "    <button type=\"button\" class=\"filter-btn\" data-severity=\"ERROR\">Error</button>\n",
+    );
     html.push_str("    <button type=\"button\" class=\"filter-btn\" data-severity=\"WARNING\">Warning</button>\n");
-    html.push_str("    <button type=\"button\" class=\"filter-btn\" data-severity=\"INFO\">Info</button>\n");
+    html.push_str(
+        "    <button type=\"button\" class=\"filter-btn\" data-severity=\"INFO\">Info</button>\n",
+    );
     html.push_str("  </div>\n");
 
     html.push_str("  <div class=\"filter-group\">\n");
@@ -710,15 +712,14 @@ footer {
             html.push_str("        <div class=\"details-section\">\n");
             html.push_str("          <div class=\"details-section-title\">Referencing Sources &amp; Provenance</div>\n");
             if finding.source_node_ids.is_empty() {
-                html.push_str("          <p class=\"details-list\">No specific source nodes recorded.</p>\n");
+                html.push_str(
+                    "          <p class=\"details-list\">No specific source nodes recorded.</p>\n",
+                );
             } else {
                 html.push_str("          <ul class=\"details-list\">\n");
                 for src_id in &finding.source_node_ids {
                     if let Some(node) = node_map.get(src_id.as_str()) {
-                        let path_display = node
-                            .logical_path
-                            .as_deref()
-                            .unwrap_or("<none>");
+                        let path_display = node.logical_path.as_deref().unwrap_or("<none>");
                         html.push_str(&format!(
                             "            <li><strong>[{:?}]</strong> {} &rarr; <code>{}</code></li>\n",
                             node.kind,
@@ -747,7 +748,8 @@ footer {
 
                         const MAX_PROVENANCE_EDGES: usize = 16;
                         let display_count = candidate_edges.len().min(MAX_PROVENANCE_EDGES);
-                        let omitted_count = candidate_edges.len().saturating_sub(MAX_PROVENANCE_EDGES);
+                        let omitted_count =
+                            candidate_edges.len().saturating_sub(MAX_PROVENANCE_EDGES);
 
                         for edge in &candidate_edges[..display_count] {
                             let res_str = format!("{:?}", edge.resolution).to_uppercase();

@@ -1,12 +1,16 @@
 mod cache;
 mod graph;
 mod html;
+mod network;
+mod orphans;
 mod report;
 mod resolver;
 
 pub use cache::*;
 pub use graph::*;
 pub use html::*;
+pub use network::*;
+pub use orphans::*;
 pub use report::*;
 pub use resolver::*;
 
@@ -402,7 +406,12 @@ impl AssetAuditReport {
             return;
         }
 
-        let mut relevant = self.findings.iter().filter(|finding| !finding.orphan);
+        let mut relevant = self.findings.iter().filter(|finding| {
+            !finding.orphan
+                && finding.code != DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+                && finding.disposition != FindingDisposition::Informational
+                && finding.severity != FindingSeverity::Info
+        });
         let required_blocking = relevant.clone().any(|finding| {
             finding.disposition == FindingDisposition::Blocking
                 || finding.severity == FindingSeverity::Error
@@ -528,6 +537,15 @@ impl AssetAuditorRegistry {
                 "no asset auditor is registered for the selected engine".into(),
             );
         }
+
+        if options.mode == AuditMode::Deep {
+            let coverage = AuditCoverage::from_completeness(&combined.completeness);
+            let orphans = classify_possible_orphans(source, &combined.graph, &coverage);
+            combined.findings.extend(orphans);
+        }
+
+        audit_external_network_resources(&mut combined, options);
+
         combined.completeness.required_scope_complete &= !combined
             .findings
             .iter()
@@ -535,6 +553,69 @@ impl AssetAuditorRegistry {
         combined.recompute_outcome();
         combined.canonicalize();
         combined
+    }
+}
+
+fn audit_external_network_resources(report: &mut AssetAuditReport, options: &AssetAuditOptions) {
+    let mut external_refs: Vec<(String, Option<String>)> = Vec::new();
+
+    for node in &report.graph.nodes {
+        if node.kind == AssetKind::ExternalResource || node.id.starts_with("external:") {
+            let url = if let Some(ref lp) = node.logical_path {
+                lp.clone()
+            } else if let Some((_, u)) = node.id.split_once(':') {
+                u.to_string()
+            } else {
+                node.id.clone()
+            };
+            external_refs.push((url, Some(node.id.clone())));
+        }
+    }
+
+    for edge in &report.graph.edges {
+        if edge.resolution == ReferenceResolution::External {
+            let url = if let Some((_, u)) = edge.target.split_once(':') {
+                u.to_string()
+            } else {
+                edge.target.clone()
+            };
+            external_refs.push((url, Some(edge.source.clone())));
+        }
+    }
+
+    let mut unique_urls = std::collections::BTreeMap::new();
+    for (url, src) in external_refs {
+        unique_urls.entry(url).or_insert(src);
+    }
+
+    for (url, source_id) in unique_urls {
+        let res = audit_network_reference(&url, options);
+
+        if res.is_verified() {
+            report.findings.retain(|f| {
+                !(f.code == DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+                    && f.message.contains(&url))
+            });
+            for edge in &mut report.graph.edges {
+                if edge.target == url || edge.target == format!("external:{url}") {
+                    edge.evidence = EvidenceTrail::through(EvidenceStage::IntegrityVerified);
+                }
+            }
+        } else if let Some(finding) = res.to_finding(source_id.as_deref()) {
+            if !report
+                .findings
+                .iter()
+                .any(|f| f.code == finding.code && f.message.contains(&url))
+            {
+                if finding.disposition == FindingDisposition::Blocking {
+                    report.findings.retain(|f| {
+                        !(f.code == DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+                            && f.message.contains(&url))
+                    });
+                }
+                report.findings.push(finding);
+            }
+        }
     }
 }
 

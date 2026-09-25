@@ -260,5 +260,31 @@ If future versions introduce a score, its formula and benchmark must be document
   - All report generation uses atomic writes (temporary sibling file followed by atomic rename) strictly outside the source tree.
 
 - **Orphan Asset Semantics:**
-  Assets present on disk but unreferenced by declared dependency trees are classified as `INFO | POSSIBLY_UNUSED` (`CMP-AUD-011`). They are informational, never escalate outcome, never block builds, and are never deleted automatically.
+  Assets present in the game source directory that have no incoming reference edges in the static dependency graph are classified as candidate orphans:
+  - Severity is strictly `INFO` (`FindingSeverity::Info`) and disposition is strictly `INFORMATIONAL` (`FindingDisposition::Informational`) under diagnostic code `CMP-AUD-013` (`CMP_AUD_POSSIBLY_UNUSED`).
+  - Candidate orphans never escalate the audit outcome to `Warning`, `Fail`, or `Indeterminate`, and never block builds.
+  - Input game files remain 100% immutable: candidate orphans are never automatically modified, moved, or deleted.
+  - When dynamic expressions or unsupported classes exist in coverage (`has_unsupported_or_dynamic() == true`), the diagnostic message explicitly notes that dynamic references exist and the asset may be referenced dynamically at runtime.
+
+- **Bounded Network Audit Policy:**
+  - Network access is disabled by default. External HTTP/HTTPS asset references produce `INDETERMINATE` with `CMP-AUD-011` (`CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED`).
+  - Supplying `--allow-network-audit` permits bounded verification of external HTTP/HTTPS assets:
+    - Strictly restricts schemes to `http` and `https`; other schemes trigger `CMP-AUD-008` (`CMP_AUD_MALFORMED_RESOURCE`).
+    - Enforces a strict 5-second connection/read timeout and a maximum of 3 redirects.
+    - Bounded header/body inspects status line and MIME without buffering entire files into memory.
+    - Returns `Verified` on 200..299 status, clearing the unverified finding and updating evidence to `INTEGRITY_VERIFIED`.
+    - Returns `NotFound` on 404 or connection error, emitting blocking error `CMP-AUD-002` (`CMP_AUD_REQUIRED_REFERENCE_MISSING`).
+    - Zero code execution: remote payloads are strictly inspected for transport reachability and are never executed, parsed as code, or evaluated.
+
+- **Cache Invalidation and Hermetic Storage:**
+  - `AuditCacheKey` binds: source content hash (SHA-256), engine profile ID, audit mode (`standard` vs `deep`), ruleset version, toolchain version, limits (`max_files`, `max_total_bytes`, `max_single_file_bytes`), `allow_network` flag, and detected engine version.
+  - Any alteration to source assets, engine rules, mode, network permission, or budgets deterministically invalidates the cache key.
+  - Cache storage inside the source directory is strictly prohibited (`validate_outside_source`).
+  - Corrupt or invalid cache entries fail-closed: they are automatically deleted and bypassed for a fresh static audit.
+
+- **Offline HTML Report Viewer:**
+  - A self-contained, standalone single-file HTML viewer (`asset-audit-report.html`) is emitted alongside JSON reports by default (suppressible via `--no-html`).
+  - Fully offline with zero external CDNs, fonts, or network requests.
+  - Employs strict HTML entity escaping for all game-provided metadata, file paths, and diagnostic messages to prevent script injection.
+  - Visualizes audit outcome badges, reference class completeness, statistics, filterable findings table, and interactive dependency graph inspector.
 

@@ -202,11 +202,13 @@ pub fn run(
 
     if request.emit_html {
         let html_output = output.with_file_name("asset-audit-report.html");
-        let html_bytes = match &artifacts.html_bytes {
-            Some(bytes) => bytes.clone(),
-            None => runtimepack_core::asset_audit::render_audit_html(&artifacts)
-                .map_err(|error| format!("[CMP-AUD-010] Failed to render HTML audit report: {error}"))?,
-        };
+        let html_bytes =
+            match &artifacts.html_bytes {
+                Some(bytes) => bytes.clone(),
+                None => runtimepack_core::asset_audit::render_audit_html(&artifacts).map_err(
+                    |error| format!("[CMP-AUD-010] Failed to render HTML audit report: {error}"),
+                )?,
+            };
         context
             .write_report(&html_output, &html_bytes)
             .map_err(|error| {

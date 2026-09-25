@@ -68,6 +68,7 @@ impl DiagnosticCode {
     pub const CMP_AUD_REPORT_INVALID: &'static str = "CMP-AUD-010";
     pub const CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED: &'static str = "CMP-AUD-011";
     pub const CMP_AUD_POLICY_BLOCKED: &'static str = "CMP-AUD-012";
+    pub const CMP_AUD_POSSIBLY_UNUSED: &'static str = "CMP-AUD-013";
 
     pub const RT_UNRESOLVED: &'static str = "RT-101";
     pub const RT_UNSUPPORTED_CAPABILITY: &'static str = "RT-102";
@@ -176,6 +177,12 @@ pub const AUDIT_DIAGNOSTICS: &[AuditDiagnosticSpec] = &[
         name: "EXTERNAL_RESOURCE_UNVERIFIED",
         severity: DiagnosticSeverity::Warning,
         remediation: RemediationCategory::Dependency,
+    },
+    AuditDiagnosticSpec {
+        code: DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+        name: "POSSIBLY_UNUSED",
+        severity: DiagnosticSeverity::Info,
+        remediation: RemediationCategory::UserActionRequired,
     },
 ];
 
@@ -331,6 +338,7 @@ mod tests {
             ("CMP-AUD-009", "UNSAFE_PATH"),
             ("CMP-AUD-010", "REPORT_INVALID"),
             ("CMP-AUD-011", "EXTERNAL_RESOURCE_UNVERIFIED"),
+            ("CMP-AUD-013", "POSSIBLY_UNUSED"),
         ];
 
         assert_eq!(AUDIT_DIAGNOSTICS.len(), expected.len());
@@ -408,6 +416,11 @@ mod tests {
                 DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
                 DiagnosticSeverity::Warning,
                 RemediationCategory::Dependency,
+            ),
+            (
+                DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+                DiagnosticSeverity::Info,
+                RemediationCategory::UserActionRequired,
             ),
         ] {
             let spec = audit_diagnostic_spec(code).unwrap();

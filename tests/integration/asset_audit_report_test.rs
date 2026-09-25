@@ -1,12 +1,15 @@
 use runtimepack_core::asset_audit::{
-    render_audit_html, render_canonical_artifacts, write_audit_artifacts,
-    write_audit_artifacts_with_options, AssetAuditReport, AssetKind, AssetNode, AuditCache,
-    AuditCacheKey, AuditCompleteness, AuditFinding, AuditLimits, AuditMode, AuditOutcome,
+    audit_network_reference, classify_possible_orphans, render_audit_html,
+    render_canonical_artifacts, write_audit_artifacts, write_audit_artifacts_with_options,
+    AssetAuditOptions, AssetAuditReport, AssetKind, AssetNode, AuditCache, AuditCacheKey,
+    AuditCompleteness, AuditCoverage, AuditFinding, AuditLimits, AuditMode, AuditOutcome,
     AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage, EvidenceTrail,
-    FindingDisposition, FindingSeverity, ReferenceEdge, ReferenceRequiredness, ReferenceResolution,
-    RuntimeValidationState, CURRENT_AUDIT_RULESET_VERSION,
+    FindingDisposition, FindingSeverity, NetworkAuditResult, ReferenceEdge, ReferenceRequiredness,
+    ReferenceResolution, RuntimeValidationState, CURRENT_AUDIT_RULESET_VERSION,
 };
+use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
+use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
@@ -635,8 +638,7 @@ fn test_render_audit_html_is_completely_offline_and_self_contained() {
     let embedded_json = html[json_start..json_end].trim();
     let parsed_json: serde_json::Value =
         serde_json::from_str(embedded_json).expect("embedded JSON must be valid");
-    let canonical_json: serde_json::Value =
-        serde_json::from_slice(&artifacts.report_json).unwrap();
+    let canonical_json: serde_json::Value = serde_json::from_slice(&artifacts.report_json).unwrap();
     assert_eq!(
         parsed_json, canonical_json,
         "Embedded JSON must match canonical JSON"
@@ -664,7 +666,9 @@ fn test_render_audit_html_escapes_game_controlled_text() {
 
     // Finding row / display text must be escaped
     assert!(
-        html.contains("&lt;script&gt;alert(&#39;xss &amp; dangerous &quot;quotes&quot;&#39;)&lt;/script&gt;"),
+        html.contains(
+            "&lt;script&gt;alert(&#39;xss &amp; dangerous &quot;quotes&quot;&#39;)&lt;/script&gt;"
+        ),
         "Game-controlled finding message must be HTML-escaped in rendered body"
     );
     assert!(
@@ -881,4 +885,316 @@ fn test_cli_audit_emits_html_by_default_and_respects_no_html_flag() {
     );
 
     let _ = fs::remove_dir_all(working_dir);
+}
+
+#[test]
+fn test_orphan_analysis_unreferenced_assets_become_info_possibly_unused() {
+    let mut files = std::collections::HashMap::new();
+    for path in [
+        "data/System.json",
+        "graphics/titles/Title.png",
+        "audio/bgm/Title.ogg",
+        "graphics/pictures/unused_pic.png",
+        "audio/se/unused_sound.wav",
+    ] {
+        files.insert(
+            path.to_ascii_lowercase(),
+            IndexedFile {
+                logical_path: path.to_string(),
+                relative_path: PathBuf::from(path),
+                size_bytes: 1234,
+            },
+        );
+    }
+    let source_index = GameSourceIndex {
+        root_path: PathBuf::from("mock_game"),
+        files,
+        total_size_bytes: 1234 * 5,
+        source_hash: "mockhash".into(),
+    };
+
+    let mut graph = DependencyGraph::default();
+    let node_root = AssetNode {
+        id: "data:data/System.json".into(),
+        kind: AssetKind::DatabaseEntity,
+        logical_path: Some("data/System.json".into()),
+    };
+    let node_img = AssetNode {
+        id: "image:graphics/titles/Title.png".into(),
+        kind: AssetKind::Image,
+        logical_path: Some("graphics/titles/Title.png".into()),
+    };
+    let node_audio = AssetNode {
+        id: "audio:audio/bgm/Title.ogg".into(),
+        kind: AssetKind::Audio,
+        logical_path: Some("audio/bgm/Title.ogg".into()),
+    };
+    graph.nodes.push(node_root);
+    graph.nodes.push(node_img);
+    graph.nodes.push(node_audio);
+
+    graph.edges.push(ReferenceEdge {
+        source: "data:data/System.json".into(),
+        target: "image:graphics/titles/Title.png".into(),
+        relation: "title_graphic".into(),
+        requiredness: ReferenceRequiredness::Required,
+        evidence: EvidenceTrail::through(EvidenceStage::FileReadable),
+        resolution: ReferenceResolution::Resolved,
+    });
+    graph.edges.push(ReferenceEdge {
+        source: "data:data/System.json".into(),
+        target: "audio:audio/bgm/Title.ogg".into(),
+        relation: "title_bgm".into(),
+        requiredness: ReferenceRequiredness::Required,
+        evidence: EvidenceTrail::through(EvidenceStage::FileReadable),
+        resolution: ReferenceResolution::Resolved,
+    });
+
+    let mut coverage = AuditCoverage::new();
+    coverage.add_covered("database");
+    coverage.add_covered("image");
+    coverage.add_covered("audio");
+
+    let orphan_findings = classify_possible_orphans(&source_index, &graph, &coverage);
+
+    assert_eq!(
+        orphan_findings.len(),
+        2,
+        "Exactly 2 unused assets should be classified as candidate orphans"
+    );
+
+    for finding in &orphan_findings {
+        assert_eq!(
+            finding.code,
+            DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+            "Finding code must be CMP-AUD-013"
+        );
+        assert_eq!(
+            finding.severity,
+            FindingSeverity::Info,
+            "Severity must strictly be Info"
+        );
+        assert_eq!(
+            finding.disposition,
+            FindingDisposition::Informational,
+            "Disposition must strictly be Informational"
+        );
+        assert!(finding.orphan, "orphan flag must strictly be true");
+        assert!(
+            finding.message.contains("possibly unused")
+                || finding.message.contains("no incoming reference edge"),
+            "Message must clarify candidate orphan status: {}",
+            finding.message
+        );
+    }
+
+    // Verify non-escalating outcome
+    let mut report = AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerMv,
+        mode: AuditMode::Deep,
+        outcome: AuditOutcome::Pass,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: vec!["database".into(), "image".into(), "audio".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph,
+        findings: orphan_findings,
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    };
+
+    report.recompute_outcome();
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Orphan findings must never escalate outcome to Warning or Fail"
+    );
+}
+
+#[test]
+fn test_orphan_analysis_dynamic_coverage_keeps_orphan_informational_with_clarification() {
+    let mut files = std::collections::HashMap::new();
+    files.insert(
+        "graphics/pictures/extra.png".to_string(),
+        IndexedFile {
+            logical_path: "graphics/pictures/extra.png".to_string(),
+            relative_path: PathBuf::from("graphics/pictures/extra.png"),
+            size_bytes: 500,
+        },
+    );
+    let source_index = GameSourceIndex {
+        root_path: PathBuf::from("mock_game"),
+        files,
+        total_size_bytes: 500,
+        source_hash: "mockhash".into(),
+    };
+
+    let graph = DependencyGraph::default();
+
+    let mut coverage = AuditCoverage::new();
+    coverage.add_covered("image");
+    coverage.add_dynamic("script_eval", ReferenceRequiredness::Required);
+
+    assert!(
+        coverage.has_unsupported_or_dynamic(),
+        "Coverage must indicate dynamic references exist"
+    );
+
+    let orphan_findings = classify_possible_orphans(&source_index, &graph, &coverage);
+
+    assert_eq!(orphan_findings.len(), 1);
+    let finding = &orphan_findings[0];
+    assert_eq!(finding.code, DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED);
+    assert_eq!(finding.severity, FindingSeverity::Info);
+    assert_eq!(finding.disposition, FindingDisposition::Informational);
+    assert!(finding.orphan);
+    assert!(
+        finding.message.to_lowercase().contains("dynamic"),
+        "Message must clarify that dynamic references exist in the project: {}",
+        finding.message
+    );
+}
+
+#[test]
+fn test_bounded_network_audit_with_mock_http_server() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock server");
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).expect("set nonblocking");
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    let server_handle = std::thread::spawn(move || {
+        while r.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.contains("/assets/valid.png") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\nConnection: close\r\n\r\nTEST";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.contains("/assets/redirect.png") {
+                        let resp = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/assets/valid.png\r\nConnection: close\r\n\r\n",
+                            port
+                        );
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.contains("/assets/missing.png") {
+                        let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else {
+                        let resp = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let valid_url = format!("http://127.0.0.1:{port}/assets/valid.png");
+    let redirect_url = format!("http://127.0.0.1:{port}/assets/redirect.png");
+    let missing_url = format!("http://127.0.0.1:{port}/assets/missing.png");
+
+    // Case 1: allow_network = false -> UnverifiedOffline
+    let offline_options = AssetAuditOptions {
+        allow_network: false,
+        ..Default::default()
+    };
+
+    let offline_res = audit_network_reference(&valid_url, &offline_options);
+    assert!(
+        matches!(offline_res, NetworkAuditResult::UnverifiedOffline { .. }),
+        "Offline audit must produce UnverifiedOffline"
+    );
+    let offline_finding = offline_res.to_finding(Some("source_node_1")).unwrap();
+    assert_eq!(
+        offline_finding.code,
+        DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+    );
+    assert_eq!(
+        offline_finding.disposition,
+        FindingDisposition::Indeterminate
+    );
+
+    // Case 2: allow_network = true -> Verified for 200 OK
+    let online_options = AssetAuditOptions {
+        allow_network: true,
+        ..Default::default()
+    };
+
+    let online_res = audit_network_reference(&valid_url, &online_options);
+    assert!(
+        matches!(
+            online_res,
+            NetworkAuditResult::Verified {
+                status_code: 200,
+                ..
+            }
+        ),
+        "Online audit for valid URL must return Verified: {:?}",
+        online_res
+    );
+    assert!(
+        online_res.to_finding(None).is_none(),
+        "Verified network resource must produce no error finding"
+    );
+
+    // Case 3: allow_network = true -> Follows redirect (302 -> 200)
+    let redirect_res = audit_network_reference(&redirect_url, &online_options);
+    assert!(
+        matches!(
+            redirect_res,
+            NetworkAuditResult::Verified {
+                status_code: 200,
+                ..
+            }
+        ),
+        "Online audit following redirect must return Verified: {:?}",
+        redirect_res
+    );
+
+    // Case 4: allow_network = true -> NotFound on 404
+    let missing_res = audit_network_reference(&missing_url, &online_options);
+    assert!(
+        matches!(
+            missing_res,
+            NetworkAuditResult::NotFound {
+                status_code: Some(404),
+                ..
+            }
+        ),
+        "Online audit for missing URL must return NotFound: {:?}",
+        missing_res
+    );
+    let missing_finding = missing_res.to_finding(Some("source_node_2")).unwrap();
+    assert_eq!(
+        missing_finding.code,
+        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+    );
+    assert_eq!(missing_finding.disposition, FindingDisposition::Blocking);
+
+    // Case 5: Invalid scheme (e.g. ftp://)
+    let invalid_res = audit_network_reference("ftp://example.com/asset.png", &online_options);
+    assert!(
+        matches!(invalid_res, NetworkAuditResult::InvalidUrl { .. }),
+        "Invalid scheme must return InvalidUrl"
+    );
+
+    running.store(false, Ordering::SeqCst);
+    let _ = server_handle.join();
 }

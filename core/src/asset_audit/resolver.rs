@@ -471,6 +471,22 @@ impl AuditCoverage {
             .any(|c| matches!(c.level, CoverageLevel::Unsupported | CoverageLevel::Dynamic))
     }
 
+    pub fn from_completeness(completeness: &AuditCompleteness) -> Self {
+        let mut cov = Self::new();
+        for class_name in &completeness.covered_reference_classes {
+            cov.add_covered(class_name);
+        }
+        for class_name in &completeness.uncovered_reference_classes {
+            cov.add_dynamic(class_name, ReferenceRequiredness::Required);
+        }
+        if !completeness.required_scope_complete
+            && completeness.uncovered_reference_classes.is_empty()
+        {
+            cov.add_unsupported("uncovered_scope", ReferenceRequiredness::Required);
+        }
+        cov
+    }
+
     pub fn to_completeness(&self) -> AuditCompleteness {
         let mut covered = self.covered_classes();
         covered.sort();

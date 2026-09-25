@@ -13,3 +13,5 @@ LONA-*/
 .gradle/
 build/
 .worktrees/
+.runtimepack/
+**/.runtimepack/
