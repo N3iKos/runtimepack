@@ -345,4 +345,111 @@ class AssetProbeRunnerTest {
         val summaryJson = AssetAuditService.getCombinedSummary()
         assertTrue("getCombinedSummary must return valid JSON summary", summaryJson.contains("\"combined_outcome\":\"PASS\""))
     }
+
+    @Test
+    fun testFallbackDiscoveryIgnoresNonMediaAndExcludesBinRbTxtJson() {
+        // Create forbidden non-media files
+        File(gameDir, "rp_input_state.bin").writeBytes(byteArrayOf(0, 1, 2, 3))
+        File(gameDir, "runtimepack_asset_audit.rb").writeText("puts 'audit'")
+        File(gameDir, "script_165_Main.txt").writeText("script text")
+        File(gameDir, "data.json").writeText("{}")
+        File(gameDir, "temp.tmp").writeText("tmp")
+        File(gameDir, "backup.bak").writeText("bak")
+        File(gameDir, ".ds_store").writeBytes(byteArrayOf(0, 0))
+        File(gameDir, ".gitignore").writeText("*")
+        File(gameDir, ".gpack_extracted").writeText("extracted")
+
+        // Create valid media files
+        val imgDir = File(gameDir, "img")
+        imgDir.mkdirs()
+        File(imgDir, "sprite.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+
+        val audioDir = File(gameDir, "audio")
+        audioDir.mkdirs()
+        File(audioDir, "bgm.ogg").writeBytes(byteArrayOf(0x4F, 0x67, 0x67, 0x53, 0x00, 0x02))
+
+        val dataDir = File(gameDir, "data")
+        dataDir.mkdirs()
+        File(dataDir, "System.rvdata2").writeBytes(byteArrayOf(0x04, 0x08, 0x6F))
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "rgss",
+            mode = ProbeMode.EXHAUSTIVE
+        )
+
+        val report = runner.run()
+
+        // Verify only valid media files were discovered and probed (sprite.png, bgm.ogg, System.rvdata2)
+        assertEquals(3, report.total_probed)
+        val probedPaths = report.events.map { it.asset_path }
+
+        assertTrue(probedPaths.contains("img/sprite.png"))
+        assertTrue(probedPaths.contains("audio/bgm.ogg"))
+        assertTrue(probedPaths.contains("data/System.rvdata2"))
+
+        assertFalse("Must not probe .bin files", probedPaths.any { it.endsWith(".bin") })
+        assertFalse("Must not probe .rb files", probedPaths.any { it.endsWith(".rb") })
+        assertFalse("Must not probe .txt files", probedPaths.any { it.endsWith(".txt") })
+        assertFalse("Must not probe .json files", probedPaths.any { it.endsWith(".json") })
+        assertFalse("Must not probe .tmp files", probedPaths.any { it.endsWith(".tmp") })
+        assertFalse("Must not probe .bak files", probedPaths.any { it.endsWith(".bak") })
+        assertFalse("Must not probe .ds_store", probedPaths.any { it.endsWith(".ds_store") })
+        assertFalse("Must not probe .gitignore", probedPaths.any { it.endsWith(".gitignore") })
+        assertFalse("Must not probe .gpack_extracted", probedPaths.any { it.endsWith(".gpack_extracted") })
+    }
+
+    @Test
+    fun testNonImageReadableFilesDoNotEmitDecodeSuccess() {
+        val audioDir = File(gameDir, "audio")
+        audioDir.mkdirs()
+        File(audioDir, "sound.ogg").writeBytes(byteArrayOf(0x4F, 0x67, 0x67, 0x53, 0x00, 0x02))
+
+        val dataDir = File(gameDir, "data")
+        dataDir.mkdirs()
+        File(dataDir, "Map001.rvdata2").writeBytes(byteArrayOf(0x04, 0x08, 0x6F))
+
+        val imgDir = File(gameDir, "img")
+        imgDir.mkdirs()
+        File(imgDir, "pic.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "rgss",
+            mode = ProbeMode.EXHAUSTIVE
+        )
+
+        val report = runner.run()
+
+        assertEquals(RuntimeAuditOutcome.PASS, report.outcome)
+        assertEquals(3, report.total_probed)
+
+        val oggEvents = report.events.filter { it.asset_path == "audio/sound.ogg" }
+        val rvdataEvents = report.events.filter { it.asset_path == "data/Map001.rvdata2" }
+        val imgEvents = report.events.filter { it.asset_path == "img/pic.png" }
+
+        assertTrue(oggEvents.isNotEmpty())
+        assertTrue(rvdataEvents.isNotEmpty())
+        assertTrue(imgEvents.isNotEmpty())
+
+        // Non-image events must emit FILE_READABLE, never DECODE_SUCCESS
+        for (ev in oggEvents) {
+            assertEquals("Audio files must emit FILE_READABLE, not DECODE_SUCCESS", RuntimeAuditStage.FILE_READABLE, ev.stage)
+            assertEquals(RuntimeAuditOutcome.PASS, ev.outcome)
+        }
+        for (ev in rvdataEvents) {
+            assertEquals("Data archive files must emit FILE_READABLE, not DECODE_SUCCESS", RuntimeAuditStage.FILE_READABLE, ev.stage)
+            assertEquals(RuntimeAuditOutcome.PASS, ev.outcome)
+        }
+
+        // Image events must emit DECODE_SUCCESS
+        val imgTerminal = imgEvents.last()
+        assertEquals(RuntimeAuditStage.DECODE_SUCCESS, imgTerminal.stage)
+        assertEquals(RuntimeAuditOutcome.PASS, imgTerminal.outcome)
+
+        // Stage counts for DECODE_SUCCESS must only be 1 (for pic.png)
+        assertEquals(1, report.stage_counts["DECODE_SUCCESS"])
+    }
 }

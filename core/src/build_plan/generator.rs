@@ -510,6 +510,34 @@ dependencies {{
             .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         fs::write(assets_dir.join("build-manifest.json"), &manifest_json)?;
 
+        // Copy asset-dependency-graph.json if available
+        let graph_candidates = [
+            project_dir.parent().map(|p| p.join("asset-dependency-graph.json")),
+            Some(project_dir.join("asset-dependency-graph.json")),
+            game_source_dir.map(|p| p.join("asset-dependency-graph.json")),
+            game_source_dir.and_then(|p| p.parent().map(|p2| p2.join("asset-dependency-graph.json"))),
+        ];
+        for cand in graph_candidates.into_iter().flatten() {
+            if cand.is_file() {
+                let _ = fs::copy(&cand, assets_dir.join("asset-dependency-graph.json"));
+                break;
+            }
+        }
+
+        // Copy asset-audit-report.json if available
+        let report_candidates = [
+            project_dir.parent().map(|p| p.join("asset-audit-report.json")),
+            Some(project_dir.join("asset-audit-report.json")),
+            game_source_dir.map(|p| p.join("asset-audit-report.json")),
+            game_source_dir.and_then(|p| p.parent().map(|p2| p2.join("asset-audit-report.json"))),
+        ];
+        for cand in report_candidates.into_iter().flatten() {
+            if cand.is_file() {
+                let _ = fs::copy(&cand, assets_dir.join("asset-audit-report.json"));
+                break;
+            }
+        }
+
         // Copy packed content if available
         if let Some(pack_path) = packed_content_path {
             if pack_path.exists() {
@@ -549,6 +577,12 @@ dependencies {{
         if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
             let shims_dst = assets_dir.join("web_shims");
             copy_dir_all(&shims_src, &shims_dst)?;
+        }
+
+        // Copy fonts (e.g. VL-Gothic-Regular.ttf)
+        if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
+            let fonts_dst = assets_dir.join("fonts");
+            copy_dir_all(&fonts_src, &fonts_dst)?;
         }
 
         // Copy Android resources (launcher icons, mipmaps)

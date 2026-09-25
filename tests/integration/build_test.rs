@@ -810,6 +810,20 @@ fn test_rgss_extractor_emits_font_substitutions() {
     let source = std::fs::read_to_string(extractor_path).unwrap();
 
     assert!(source.contains("\"fontSub\""));
+    let cjk_font_subs = [
+        "UmePlus Gothic>VL Gothic",
+        "VL PGothic>VL Gothic",
+        "MS Gothic>VL Gothic",
+        "MS Mincho>VL Gothic",
+    ];
+    for entry in cjk_font_subs.iter() {
+        assert!(
+            source.contains(entry),
+            "missing cjk fontSub entry: {entry}"
+        );
+    }
+    assert!(source.contains("fonts/VL-Gothic-Regular.ttf"));
+
     let expected = [
         "Noto Sans CJK TC Black>Noto Sans CJK TC",
         "Noto Sans CJK TC Medium>Noto Sans CJK TC",
@@ -1146,6 +1160,79 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
 }
 
 #[test]
+fn test_emit_project_packages_cjk_fonts() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_fonts_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-26T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        app: AppConfig {
+            name: "Font Test Game".to_string(),
+            package: "com.example.fonttest".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_vxace".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "hash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        assets_dir.join("fonts/VL-Gothic-Regular.ttf").exists(),
+        "fonts/VL-Gothic-Regular.ttf must be packaged in emitted project assets"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
     let temp_dir =
         std::env::temp_dir().join(format!("build_test_icons_default_{}", std::process::id()));
@@ -1338,6 +1425,88 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+}
+
+#[test]
+fn test_emit_project_packages_asset_dependency_graph() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_graph_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let sample_graph = r#"{"schema_version":1,"engine":"rgss","mode":"STANDARD","nodes":[{"id":"node_1","kind":"IMAGE","logical_path":"Graphics/Titles/Title.png"}],"edges":[]}"#;
+    std::fs::write(temp_dir.join("asset-dependency-graph.json"), sample_graph).unwrap();
+
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-25T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        app: AppConfig {
+            name: "Graph Test Game".to_string(),
+            package: "com.example.graphtest".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_vxace".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "hash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    let packaged_graph = assets_dir.join("asset-dependency-graph.json");
+    assert!(
+        packaged_graph.exists(),
+        "asset-dependency-graph.json must be packaged in APK assets when present in output/parent directory"
+    );
+    let content = std::fs::read_to_string(&packaged_graph).unwrap();
+    assert!(
+        content.contains("Graphics/Titles/Title.png"),
+        "packaged graph content must match source graph"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]

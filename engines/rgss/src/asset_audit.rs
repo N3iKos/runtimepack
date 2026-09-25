@@ -9,7 +9,8 @@ use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::GameSourceIndex;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 fn make_finding(
     code: &'static str,
@@ -662,6 +663,7 @@ impl AssetAuditor for RgssAssetAuditor {
         coverage.add_covered("maps");
         coverage.add_covered("events");
         coverage.add_covered("database");
+        coverage.add_covered("fonts");
 
         let ext = gen.data_extension();
 
@@ -772,6 +774,16 @@ impl AssetAuditor for RgssAssetAuditor {
             gen,
             source,
             &resolver,
+            &mut graph,
+            &mut node_ids,
+            &mut findings,
+            &mut finding_counter,
+        );
+
+        // 4. Audit Font & CJK requirements
+        audit_font_requirements(
+            gen,
+            source,
             &mut graph,
             &mut node_ids,
             &mut findings,
@@ -2082,6 +2094,64 @@ fn is_map_file(logical_path: &str, ext: &str) -> bool {
     false
 }
 
+fn tile_id_to_tileset_slot(tile_id: u16) -> Option<usize> {
+    match tile_id {
+        0 => None,
+        1..=255 => Some(5),     // B (Props, Furniture)
+        256..=511 => Some(6),   // C
+        512..=767 => Some(7),   // D
+        768..=1023 => Some(8),  // E
+        1536..=2047 => Some(4), // A5 (Normal Floor & Walls)
+        2048..=2815 => Some(0), // A1 (Animation / Water)
+        2816..=4351 => Some(1), // A2 (Ground / Floor)
+        4352..=5887 => Some(2), // A3 (Buildings)
+        5888..=7423 => Some(3), // A4 (Walls)
+        _ => None,
+    }
+}
+
+fn load_tilesets_map(source: &GameSourceIndex, ext: &str) -> HashMap<i32, Vec<String>> {
+    let tilesets_path = format!("Data/Tilesets.{ext}");
+    let indexed_file = match source.get_file(&tilesets_path) {
+        Some(f) => f,
+        None => return HashMap::new(),
+    };
+    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let bytes = match std::fs::read(&full_path) {
+        Ok(b) => b,
+        Err(_) => return HashMap::new(),
+    };
+    let val = match parse_marshal(&bytes) {
+        Ok(v) => v,
+        Err(_) => return HashMap::new(),
+    };
+    let mut map = HashMap::new();
+    if let Some(tilesets) = val.as_array() {
+        for ts in tilesets {
+            let id = ts.get_ivar_i32("@id").unwrap_or(0);
+            if id == 0 {
+                continue;
+            }
+            if let Some(names_arr) = ts.get_ivar("@tileset_names").and_then(|v| v.as_array()) {
+                let names: Vec<String> = names_arr
+                    .iter()
+                    .map(|v| v.as_str().unwrap_or("").to_string())
+                    .collect();
+                map.insert(id, names);
+            }
+        }
+    }
+    map
+}
+
+static SUBTRACTIVE_FOG_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn get_subtractive_fog_regex() -> &'static regex::Regex {
+    SUBTRACTIVE_FOG_RE.get_or_init(|| {
+        regex::Regex::new(r"==マップフォグ.*?\[\s*[^,]+\s*,\s*[^,]+\s*,\s*(\d+)\s*,\s*[^,]+\s*,\s*2\s*\]==")
+            .expect("valid subtractive fog regex")
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn audit_map_files(
     gen: RgssGeneration,
@@ -2093,6 +2163,7 @@ fn audit_map_files(
     finding_counter: &mut usize,
 ) {
     let ext = gen.data_extension();
+    let tilesets_map = load_tilesets_map(source, ext);
     let mut map_paths: Vec<String> = source
         .files
         .values()
@@ -2118,6 +2189,10 @@ fn audit_map_files(
         let map_name = filename
             .strip_suffix(&format!(".{ext}"))
             .unwrap_or(filename);
+        let map_id = map_name
+            .strip_prefix("Map")
+            .or_else(|| map_name.strip_prefix("map"))
+            .unwrap_or(map_name);
 
         if node_ids.insert(map_node_id.clone()) {
             graph.nodes.push(AssetNode {
@@ -2125,6 +2200,91 @@ fn audit_map_files(
                 kind: AssetKind::Map,
                 logical_path: Some(map_path.clone()),
             });
+        }
+
+        // Layer 0 & 1 tile inspection against tilesets (VX / VX Ace)
+        if gen == RgssGeneration::Vx || gen == RgssGeneration::VxAce {
+            let tileset_id = map_obj.get_ivar_i32("@tileset_id").unwrap_or(0);
+            if let Some(MarshalValue::UserDefined { class_name, data }) = map_obj.get_ivar("@data") {
+                if class_name == "Table" && data.len() >= 20 {
+                    let xsize = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+                    let ysize = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
+                    let zsize = u32::from_le_bytes([data[12], data[13], data[14], data[15]]) as usize;
+                    let total_size = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
+                    let layer_size = xsize * ysize;
+                    let tiles_bytes = &data[20..];
+
+                    if tiles_bytes.len() >= total_size * 2 && layer_size > 0 {
+                        let layers_to_scan = [0, 1];
+                        for layer in layers_to_scan {
+                            if layer < zsize {
+                                let mut slot_counts: BTreeMap<usize, usize> = BTreeMap::new();
+                                let start_idx = layer * layer_size;
+                                let end_idx = (layer + 1) * layer_size;
+                                for i in start_idx..end_idx {
+                                    let tile_id = u16::from_le_bytes([
+                                        tiles_bytes[i * 2],
+                                        tiles_bytes[i * 2 + 1],
+                                    ]);
+                                    if let Some(slot) = tile_id_to_tileset_slot(tile_id) {
+                                        *slot_counts.entry(slot).or_default() += 1;
+                                    }
+                                }
+
+                                if let Some(names) = tilesets_map.get(&tileset_id) {
+                                    for (slot, count) in slot_counts {
+                                        if let Some(tileset_name) = names.get(slot) {
+                                            if !tileset_name.is_empty() {
+                                                let rule = CandidateRule::with_extensions(
+                                                    &format!("Graphics/Tilesets/{tileset_name}"),
+                                                    IMAGE_EXTENSIONS.iter().copied(),
+                                                );
+                                                let is_missing = match resolver.resolve(&rule, AssetKind::Image) {
+                                                    ResolutionResult::Exact(_) | ResolutionResult::CaseMismatch { .. } => false,
+                                                    _ => true,
+                                                };
+                                                if is_missing {
+                                                    findings.push(make_finding(
+                                                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                                                        ReferenceRequiredness::Required,
+                                                        format!(
+                                                            "Map {map_id} Layer {layer} has {count} tiles referencing missing tileset '{tileset_name}'; floor/walls will render transparent/black"
+                                                        ),
+                                                        vec![map_node_id.clone()],
+                                                        finding_counter,
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Map note tag inspection for subtractive fog planes
+        if let Some(note) = map_obj.get_ivar_str("@note") {
+            let re = get_subtractive_fog_regex();
+            for cap in re.captures_iter(note) {
+                if let Some(z_match) = cap.get(1) {
+                    if let Ok(z) = z_match.as_str().parse::<i32>() {
+                        if z < 32 {
+                            findings.push(make_finding(
+                                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+                                ReferenceRequiredness::Optional,
+                                format!(
+                                    "Map {map_id} has subtractive fog Plane at Z={z} (below character layer Z=32); may cause black occlusion under OpenGL ES"
+                                ),
+                                vec![map_node_id.clone()],
+                                finding_counter,
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         // BGM / BGS
@@ -2658,6 +2818,358 @@ fn audit_event_commands(
                 }
             },
             _ => {}
+        }
+    }
+}
+
+fn has_cjk_or_japanese_punctuation(s: &str) -> bool {
+    s.chars().any(|c| {
+        let u = c as u32;
+        // CJK Symbols and Punctuation (0x3000..=0x303F) including 「 (0x300C), 」 (0x300D), 、(0x3001), 。(0x3002)
+        (0x3000..=0x303F).contains(&u)
+            // Hiragana (0x3040..=0x309F)
+            || (0x3040..=0x309F).contains(&u)
+            // Katakana (0x30A0..=0x30FF)
+            || (0x30A0..=0x30FF).contains(&u)
+            // CJK Unified Ideographs (Kanji) (0x4E00..=0x9FFF)
+            || (0x4E00..=0x9FFF).contains(&u)
+            // Fullwidth forms (0xFF00..=0xFFEF)
+            || (0xFF00..=0xFFEF).contains(&u)
+    })
+}
+
+fn raw_bytes_contain_cjk_markers(bytes: &[u8]) -> bool {
+    bytes.windows(3).any(|w| w == [0xE3, 0x80, 0x8C] || w == [0xE3, 0x80, 0x8D])
+        || bytes.windows(2).any(|w| w == [0x81, 0x75] || w == [0x81, 0x76])
+}
+
+fn text_requests_font(s: &str) -> bool {
+    s.contains("Font.default_name")
+        || s.contains("VL Gothic")
+        || s.contains("VL PGothic")
+        || s.contains("UmePlus Gothic")
+        || s.contains("MS Gothic")
+        || s.contains("MS Mincho")
+}
+
+fn check_value_for_font_or_cjk(val: &MarshalValue) -> bool {
+    if let Some(s) = val.as_str() {
+        if has_cjk_or_japanese_punctuation(s) || text_requests_font(s) {
+            return true;
+        }
+    }
+    match val {
+        MarshalValue::String(b) => raw_bytes_contain_cjk_markers(b),
+        MarshalValue::InstanceVars { target, .. } => {
+            if let MarshalValue::String(b) = &**target {
+                raw_bytes_contain_cjk_markers(b)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn try_read_and_parse_data_file(
+    logical_path: &str,
+    source: &GameSourceIndex,
+) -> Option<MarshalValue> {
+    let indexed_file = source.get_file(logical_path)?;
+    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let bytes = std::fs::read(&full_path).ok()?;
+    parse_marshal(&bytes).ok()
+}
+
+fn inspect_scripts_for_font_cjk(ext: &str, source: &GameSourceIndex) -> Option<String> {
+    let scripts_path = format!("Data/Scripts.{ext}");
+    let indexed_file = source.get_file(&scripts_path)?;
+    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let bytes = std::fs::read(&full_path).ok()?;
+
+    if let Ok(val) = parse_marshal(&bytes) {
+        if let Some(arr) = val.as_array() {
+            for entry in arr {
+                if let Some(fields) = entry.as_array() {
+                    let script_name = fields.get(1).and_then(|v| v.as_str()).unwrap_or("Script");
+                    if let Some(script_data_val) = fields.get(2) {
+                        let script_bytes = match script_data_val {
+                            MarshalValue::String(b) => b.as_slice(),
+                            MarshalValue::InstanceVars { target, .. } => {
+                                if let MarshalValue::String(b) = &**target {
+                                    b.as_slice()
+                                } else {
+                                    &[]
+                                }
+                            }
+                            _ => &[],
+                        };
+                        let mut decompressed = Vec::new();
+                        let text_bytes = {
+                            use std::io::Read;
+                            let mut decoder = flate2::read::ZlibDecoder::new(script_bytes);
+                            if decoder.read_to_end(&mut decompressed).is_ok()
+                                && !decompressed.is_empty()
+                            {
+                                decompressed.as_slice()
+                            } else {
+                                script_bytes
+                            }
+                        };
+                        if let Ok(text) = std::str::from_utf8(text_bytes) {
+                            if text_requests_font(text) {
+                                return Some(format!(
+                                    "script '{script_name}' requests specific font"
+                                ));
+                            }
+                            if has_cjk_or_japanese_punctuation(text) {
+                                return Some(format!(
+                                    "script '{script_name}' contains CJK characters or Japanese punctuation"
+                                ));
+                            }
+                        } else {
+                            if raw_bytes_contain_cjk_markers(text_bytes) {
+                                return Some(format!(
+                                    "script '{script_name}' contains CJK characters or Japanese punctuation"
+                                ));
+                            }
+                            if text_bytes.windows(9).any(|w| w == b"VL Gothic")
+                                || text_bytes.windows(14).any(|w| w == b"UmePlus Gothic")
+                                || text_bytes.windows(17).any(|w| w == b"Font.default_name")
+                            {
+                                return Some(format!(
+                                    "script '{script_name}' requests specific font"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Also check raw bytes of Scripts file directly
+    if raw_bytes_contain_cjk_markers(&bytes) {
+        return Some("Scripts archive contains CJK quotation marks or punctuation".to_string());
+    }
+    if bytes.windows(9).any(|w| w == b"VL Gothic")
+        || bytes.windows(14).any(|w| w == b"UmePlus Gothic")
+        || bytes.windows(17).any(|w| w == b"Font.default_name")
+    {
+        return Some("Scripts archive requests font".to_string());
+    }
+    None
+}
+
+fn inspect_event_commands_for_font_cjk(commands: &[MarshalValue]) -> Option<String> {
+    for cmd in commands {
+        let code = cmd.get_ivar_i32("@code").unwrap_or(0);
+        let params = cmd
+            .get_ivar("@parameters")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&[]);
+        match code {
+            401 | 108 | 408 | 355 | 655 => {
+                if let Some(p0) = params.first() {
+                    if check_value_for_font_or_cjk(p0) {
+                        return Some(
+                            "dialogue or event text contains Japanese quotation marks / CJK glyphs"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            102 => {
+                if let Some(choices) = params.first().and_then(|v| v.as_array()) {
+                    for choice in choices {
+                        if check_value_for_font_or_cjk(choice) {
+                            return Some(
+                                "choice text contains Japanese quotation marks / CJK glyphs"
+                                    .to_string(),
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn inspect_maps_for_font_cjk(ext: &str, source: &GameSourceIndex) -> Option<String> {
+    for file in source.files.values() {
+        if is_map_file(&file.logical_path, ext) {
+            if let Some(map_obj) = try_read_and_parse_data_file(&file.logical_path, source) {
+                if let Some(events_hash) = map_obj.get_ivar("@events").and_then(|v| match v {
+                    MarshalValue::Hash(entries) => Some(entries),
+                    _ => None,
+                }) {
+                    for (_k, ev) in events_hash {
+                        if let Some(pages) = ev.get_ivar("@pages").and_then(|v| v.as_array()) {
+                            for page in pages {
+                                if let Some(list) =
+                                    page.get_ivar("@list").and_then(|v| v.as_array())
+                                {
+                                    if let Some(reason) = inspect_event_commands_for_font_cjk(list)
+                                    {
+                                        return Some(format!(
+                                            "map '{}' {}",
+                                            file.logical_path, reason
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn inspect_common_events_and_troops_for_font_cjk(
+    ext: &str,
+    source: &GameSourceIndex,
+) -> Option<String> {
+    let ce_path = format!("Data/CommonEvents.{ext}");
+    if let Some(ce_val) = try_read_and_parse_data_file(&ce_path, source) {
+        if let Some(arr) = ce_val.as_array() {
+            for ce in arr {
+                if let Some(list) = ce.get_ivar("@list").and_then(|v| v.as_array()) {
+                    if let Some(reason) = inspect_event_commands_for_font_cjk(list) {
+                        return Some(format!("CommonEvents {reason}"));
+                    }
+                }
+            }
+        }
+    }
+    let troops_path = format!("Data/Troops.{ext}");
+    if let Some(troops_val) = try_read_and_parse_data_file(&troops_path, source) {
+        if let Some(arr) = troops_val.as_array() {
+            for troop in arr {
+                if let Some(pages) = troop.get_ivar("@pages").and_then(|v| v.as_array()) {
+                    for page in pages {
+                        if let Some(list) = page.get_ivar("@list").and_then(|v| v.as_array()) {
+                            if let Some(reason) = inspect_event_commands_for_font_cjk(list) {
+                                return Some(format!("Troops {reason}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn inspect_system_for_font_cjk(ext: &str, source: &GameSourceIndex) -> Option<String> {
+    let sys_path = format!("Data/System.{ext}");
+    if let Some(sys_val) = try_read_and_parse_data_file(&sys_path, source) {
+        if let Some(title) = sys_val.get_ivar("@game_title").and_then(|v| v.as_str()) {
+            if has_cjk_or_japanese_punctuation(title) || text_requests_font(title) {
+                return Some(
+                    "System game_title contains Japanese quotation marks / CJK glyphs".to_string(),
+                );
+            }
+        }
+    }
+    None
+}
+
+fn inspect_database_entities_for_font_cjk(ext: &str, source: &GameSourceIndex) -> Option<String> {
+    for db_name in &["Actors", "Items", "Skills", "Weapons", "Armors", "Enemies", "States"] {
+        let db_path = format!("Data/{db_name}.{ext}");
+        if let Some(val) = try_read_and_parse_data_file(&db_path, source) {
+            if let Some(arr) = val.as_array() {
+                for item in arr {
+                    if let Some(name) = item.get_ivar("@name") {
+                        if check_value_for_font_or_cjk(name) {
+                            return Some(format!(
+                                "{db_name} entity name contains Japanese punctuation or CJK glyphs"
+                            ));
+                        }
+                    }
+                    if let Some(desc) = item.get_ivar("@description") {
+                        if check_value_for_font_or_cjk(desc) {
+                            return Some(format!(
+                                "{db_name} description contains Japanese punctuation or CJK glyphs"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn audit_font_requirements(
+    gen: RgssGeneration,
+    source: &GameSourceIndex,
+    graph: &mut DependencyGraph,
+    node_ids: &mut HashSet<String>,
+    findings: &mut Vec<AuditFinding>,
+    finding_counter: &mut usize,
+) {
+    let ext = gen.data_extension();
+
+    let requirement = inspect_scripts_for_font_cjk(ext, source)
+        .or_else(|| inspect_maps_for_font_cjk(ext, source))
+        .or_else(|| inspect_common_events_and_troops_for_font_cjk(ext, source))
+        .or_else(|| inspect_system_for_font_cjk(ext, source))
+        .or_else(|| inspect_database_entities_for_font_cjk(ext, source));
+
+    let reason = match requirement {
+        Some(r) => r,
+        None => return,
+    };
+
+    let has_fonts = source.files.values().any(|f| {
+        let lower = f.logical_path.to_ascii_lowercase();
+        (lower.starts_with("fonts/") || lower.starts_with("fonts\\"))
+            && (lower.ends_with(".ttf")
+                || lower.ends_with(".otf")
+                || lower.ends_with(".ttc")
+                || lower.ends_with(".woff"))
+    });
+
+    if !has_fonts {
+        let font_target = "font:Fonts/VL-Gothic-Regular.ttf".to_string();
+        if node_ids.insert(font_target.clone()) {
+            graph.nodes.push(AssetNode {
+                id: font_target.clone(),
+                kind: AssetKind::Font,
+                logical_path: Some("Fonts/VL-Gothic-Regular.ttf".to_string()),
+            });
+        }
+        findings.push(make_finding(
+            DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+            ReferenceRequiredness::Required,
+            format!(
+                "Font 'VL Gothic' or CJK glyph coverage is missing from 'Fonts/' directory ({reason})"
+            ),
+            vec![font_target],
+            finding_counter,
+        ));
+    } else {
+        for f in source.files.values() {
+            let lower = f.logical_path.to_ascii_lowercase();
+            if (lower.starts_with("fonts/") || lower.starts_with("fonts\\"))
+                && (lower.ends_with(".ttf")
+                    || lower.ends_with(".otf")
+                    || lower.ends_with(".ttc")
+                    || lower.ends_with(".woff"))
+            {
+                let font_id = format!("font:{}", f.logical_path);
+                if node_ids.insert(font_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: font_id,
+                        kind: AssetKind::Font,
+                        logical_path: Some(f.logical_path.clone()),
+                    });
+                }
+            }
         }
     }
 }

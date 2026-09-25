@@ -21,9 +21,19 @@ object AssetAuditService {
     @Volatile
     private var currentEngine: String = "unknown"
 
-    fun init(filesDir: File, engine: String = "unknown") {
+    @Volatile
+    private var appContext: android.content.Context? = null
+
+    fun init(filesDir: File, engine: String = "unknown", context: android.content.Context? = null) {
         baseFilesDir = filesDir
         currentEngine = engine
+        if (context != null) {
+            appContext = context.applicationContext ?: context
+        }
+    }
+
+    fun setContext(context: android.content.Context) {
+        appContext = context.applicationContext ?: context
     }
 
     fun setEngine(engine: String) {
@@ -196,7 +206,8 @@ object AssetAuditService {
                 gameDir = gameDir,
                 stateDir = baseFilesDir,
                 engine = currentEngine,
-                mode = requestedMode
+                mode = requestedMode,
+                context = appContext
             )
             activeRunner = runner
             probeExecutor.submit {
@@ -262,7 +273,8 @@ object AssetAuditService {
             mode = mode,
             sampleLimitPerCategory = sampleLimitPerCategory,
             checkpointInterval = checkpointInterval,
-            timeoutMs = timeoutMs
+            timeoutMs = timeoutMs,
+            context = appContext
         )
         activeRunner = runner
         return runner.run()

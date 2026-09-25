@@ -86,6 +86,7 @@ module RuntimePackAssetAudit
       install_bitmap_hook!
       install_cache_hooks!
       install_audio_hooks!
+      probe_fonts! rescue nil
     end
 
     def install_bitmap_hook!
@@ -101,16 +102,46 @@ module RuntimePackAssetAudit
           rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
             if args.size == 1 && args[0].is_a?(String)
               path = args[0]
-              RuntimePackAssetAudit.record_event(
-                "FILE_EXISTS",
-                path,
-                "FAIL",
-                fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                error_message: "#{e.class}: #{e.message}",
-                source_location: "Bitmap.new"
-              )
-              dummy = (rp_audit_orig_new(32, 32) rescue nil)
-              dummy
+              if path.include?("Graphics/Tilesets/")
+                RuntimePackAssetAudit.record_event(
+                  "FILE_EXISTS",
+                  path,
+                  "FAIL",
+                  fallback_action: "TILESET_FALLBACK_DUMMY",
+                  error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                  source_location: "Bitmap.new"
+                )
+                dummy = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                  RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                  begin
+                    bmp = (rp_audit_orig_new(512, 384) rescue nil)
+                    if bmp && bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
+                      c1 = Color.new(24, 24, 28)
+                      c2 = Color.new(40, 40, 46)
+                      (0...12).each do |ty|
+                        (0...16).each do |tx|
+                          color = ((tx + ty) % 2 == 0) ? c1 : c2
+                          bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
+                        end
+                      end
+                    end
+                    bmp || (rp_audit_orig_new(32, 32) rescue nil)
+                  rescue
+                    (rp_audit_orig_new(32, 32) rescue nil)
+                  end
+                dummy
+              else
+                RuntimePackAssetAudit.record_event(
+                  "FILE_EXISTS",
+                  path,
+                  "FAIL",
+                  fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                  error_message: "#{e.class}: #{e.message}",
+                  source_location: "Bitmap.new"
+                )
+                dummy = (rp_audit_orig_new(32, 32) rescue nil)
+                dummy
+              end
             else
               raise e
             end
@@ -161,16 +192,46 @@ module RuntimePackAssetAudit
               begin
                 rp_audit_orig_normal_bitmap(path)
               rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
-                RuntimePackAssetAudit.record_event(
-                  "FILE_EXISTS",
-                  path.to_s,
-                  "FAIL",
-                  fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                  error_message: "#{e.class}: #{e.message}",
-                  source_location: "#{cache_mod}.normal_bitmap"
-                )
-                @cache ||= {}
-                @cache[path] = (Bitmap.new(32, 32) rescue nil)
+                if path.to_s.include?("Graphics/Tilesets/")
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path.to_s,
+                    "FAIL",
+                    fallback_action: "TILESET_FALLBACK_DUMMY",
+                    error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                  @cache ||= {}
+                  @cache[path] = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                    RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                    begin
+                      bmp = Bitmap.new(512, 384) rescue nil
+                      if bmp && bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
+                        c1 = Color.new(24, 24, 28)
+                        c2 = Color.new(40, 40, 46)
+                        (0...12).each do |ty|
+                          (0...16).each do |tx|
+                            color = ((tx + ty) % 2 == 0) ? c1 : c2
+                            bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
+                          end
+                        end
+                      end
+                      bmp || (Bitmap.new(32, 32) rescue nil)
+                    rescue
+                      Bitmap.new(32, 32) rescue nil
+                    end
+                else
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path.to_s,
+                    "FAIL",
+                    fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                    error_message: "#{e.class}: #{e.message}",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                  @cache ||= {}
+                  @cache[path] = (Bitmap.new(32, 32) rescue nil)
+                end
               end
             end
           end
@@ -205,6 +266,34 @@ module RuntimePackAssetAudit
               end
             end
           end
+        end
+      end
+    end
+
+    def probe_fonts!
+      return unless defined?(Font) && Font.respond_to?(:exist?)
+
+      default_name = Font.respond_to?(:default_name) ? Font.default_name : nil
+      names = []
+      if default_name.is_a?(Array)
+        names.concat(default_name)
+      elsif default_name.is_a?(String) && !default_name.empty?
+        names << default_name
+      end
+      ["VL Gothic", "UmePlus Gothic"].each do |f|
+        names << f unless names.include?(f)
+      end
+
+      names.each do |fn|
+        unless Font.exist?(fn)
+          record_event(
+            "FILE_EXISTS",
+            fn,
+            "FAIL",
+            fallback_action: "FONT_FALLBACK_LIBERATION_SANS",
+            error_message: "Font '#{fn}' not found in game Fonts directory or system",
+            source_location: "Font.exist?"
+          )
         end
       end
     end

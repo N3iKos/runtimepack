@@ -445,7 +445,7 @@ open class RgssActivity : SDLActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Set transparent window background so SurfaceView beneath is visible
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        AssetAuditService.init(filesDir, "rgss")
+        AssetAuditService.init(filesDir, "rgss", this)
 
         val gameDir = File(filesDir, "game")
         val alreadyExtracted = GpackExtractor.isExtracted(gameDir)

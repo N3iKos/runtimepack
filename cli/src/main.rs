@@ -717,6 +717,12 @@ fn cmd_build(args: BuildArgs) {
         std::process::exit(1);
     }
 
+    // Write audit artifacts early into output directory so project generator packages them
+    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html) {
+        eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
+        std::process::exit(1);
+    }
+
     // 6. Content Packing (GPACK)
     println!("\nPacking game content (mode: {})...", content_mode);
     let pack_path = output.join("game.pack");
@@ -886,6 +892,26 @@ fn cmd_build(args: BuildArgs) {
         std::process::exit(1);
     }
     println!("Android project: {}", android_project_dir.display());
+
+    // Ensure asset-dependency-graph.json is packaged into APK assets
+    let target_graph = android_project_dir.join("app/src/main/assets/asset-dependency-graph.json");
+    if !target_graph.exists() {
+        let source_graph = output.join("asset-dependency-graph.json");
+        if source_graph.is_file() {
+            let _ = fs::copy(&source_graph, &target_graph);
+        } else {
+            let _ = fs::write(&target_graph, &audit_artifacts.graph_json);
+        }
+    }
+    let target_audit_report = android_project_dir.join("app/src/main/assets/asset-audit-report.json");
+    if !target_audit_report.exists() {
+        let source_report = output.join("asset-audit-report.json");
+        if source_report.is_file() {
+            let _ = fs::copy(&source_report, &target_audit_report);
+        } else {
+            let _ = fs::write(&target_audit_report, &audit_artifacts.report_json);
+        }
+    }
 
     // 9. Invoke Gradle compiler if toolchains are present
     let mut apk_hash = None;

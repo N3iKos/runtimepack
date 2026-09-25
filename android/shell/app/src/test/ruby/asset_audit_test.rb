@@ -26,6 +26,19 @@ end
 
 puts "Running RGSS Asset Audit Unit Tests..."
 
+# Define mock Cache so runtimepack_bootstrap can hook Cache.normal_bitmap
+module MockCache
+  class << self
+    def normal_bitmap(path)
+      Bitmap.new(path)
+    end
+    def tileset(name)
+      normal_bitmap("Graphics/Tilesets/" + name)
+    end
+  end
+end
+Cache = MockCache unless defined?(Cache)
+
 # Require bootstrap (which should initialize asset audit module and hooks)
 require_relative '../../main/assets/runtimepack_bootstrap'
 
@@ -120,6 +133,63 @@ puts "Test 6: Monotonic sequence IDs"
 seqs = parsed.map { |e| e["sequence_id"] }
 assert_equal(seqs, seqs.sort, "Sequence IDs must be monotonically increasing")
 assert(seqs.uniq.size == seqs.size, "Sequence IDs must be unique")
+
+# Test 7: Font probing
+puts "Test 7: Font probing"
+class MockFont
+  class << self
+    attr_accessor :existing_fonts
+    def default_name
+      "VL Gothic"
+    end
+    def exist?(name)
+      @existing_fonts ||= []
+      @existing_fonts.include?(name)
+    end
+  end
+end
+
+Object.const_set(:Font, MockFont) unless defined?(Font)
+MockFont.existing_fonts = []
+
+RuntimePackAssetAudit.probe_fonts!
+font_events = RuntimePackAssetAudit.events.select { |e| e["fallback_action"] == "FONT_FALLBACK_LIBERATION_SANS" }
+assert(font_events.size >= 1, "Font probe should record fallback event when fonts are missing")
+font_ev = font_events.last
+assert_equal("FILE_EXISTS", font_ev["stage"], "Font probe stage must be FILE_EXISTS")
+assert_equal("FAIL", font_ev["outcome"], "Font probe outcome must be FAIL")
+assert_equal("FONT_FALLBACK_LIBERATION_SANS", font_ev["fallback_action"])
+assert_equal("Font.exist?", font_ev["source_location"])
+
+# Now test when fonts exist
+MockFont.existing_fonts = ["VL Gothic", "UmePlus Gothic"]
+count_before_found = RuntimePackAssetAudit.events.size
+RuntimePackAssetAudit.probe_fonts!
+count_after_found = RuntimePackAssetAudit.events.size
+assert_equal(count_before_found, count_after_found, "Font probe should not record events when fonts exist")
+
+# Test 8: Missing tileset in Cache.normal_bitmap emits TILESET_FALLBACK_DUMMY and 512x384 checkered bitmap
+puts "Test 8: Cache.normal_bitmap missing tileset fallback"
+tileset_path = "Graphics/Tilesets/Missing_Tileset_A2.png"
+tileset_bmp = Cache.normal_bitmap(tileset_path)
+assert(!tileset_bmp.nil?, "Cache.normal_bitmap should return tileset fallback bitmap")
+assert_equal(512, tileset_bmp.width, "Tileset fallback bitmap width must be 512")
+assert_equal(384, tileset_bmp.height, "Tileset fallback bitmap height must be 384")
+ev = RuntimePackAssetAudit.events.last
+assert_equal("FILE_EXISTS", ev["stage"], "Tileset fallback stage must be FILE_EXISTS")
+assert_equal("FAIL", ev["outcome"], "Tileset fallback outcome must be FAIL")
+assert_equal("TILESET_FALLBACK_DUMMY", ev["fallback_action"], "Tileset fallback action must be TILESET_FALLBACK_DUMMY")
+assert_equal("RTP tileset missing; Layer 0/1 map tiles will render transparent/black", ev["error_message"])
+assert_equal(tileset_path, ev["asset_path"])
+
+# Also test Cache.tileset
+ts_bmp = Cache.tileset("Another_Missing_Tileset.png")
+assert(!ts_bmp.nil?, "Cache.tileset should return tileset fallback bitmap")
+assert_equal(512, ts_bmp.width, "Cache.tileset fallback bitmap width must be 512")
+assert_equal(384, ts_bmp.height, "Cache.tileset fallback bitmap height must be 384")
+ev2 = RuntimePackAssetAudit.events.last
+assert_equal("TILESET_FALLBACK_DUMMY", ev2["fallback_action"])
+assert_equal("RTP tileset missing; Layer 0/1 map tiles will render transparent/black", ev2["error_message"])
 
 # Cleanup
 [RuntimePackAssetAudit::EVENTS_FILE, "game/#{RuntimePackAssetAudit::EVENTS_FILE}"].each do |f|

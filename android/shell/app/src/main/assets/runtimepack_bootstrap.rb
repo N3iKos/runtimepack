@@ -424,7 +424,24 @@ class Bitmap
   def disposed?
     @disposed
   end
+
+  def fill_rect(*args)
+  end
 end unless defined?(Bitmap)
+
+class Color
+  attr_accessor :red, :green, :blue, :alpha
+  def initialize(r = 0, g = 0, b = 0, a = 255)
+    @red, @green, @blue, @alpha = r, g, b, a
+  end
+end unless defined?(Color)
+
+class Rect
+  attr_accessor :x, :y, :width, :height
+  def initialize(x = 0, y = 0, w = 0, h = 0)
+    @x, @y, @width, @height = x, y, w, h
+  end
+end unless defined?(Rect)
 
 module Audio
   class << self
@@ -491,6 +508,24 @@ module RuntimePackCompatibility
       candidate = value.dup.force_encoding(Encoding::UTF_8)
       mapping[key] = DIRECTION_LABELS[candidate] if DIRECTION_LABELS.key?(candidate)
     end
+  end
+
+  def self.create_tileset_fallback_bitmap
+    bmp = (Bitmap.new(512, 384) rescue nil)
+    return (Bitmap.new(32, 32) rescue nil) unless bmp
+    if bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
+      c1 = Color.new(24, 24, 28)
+      c2 = Color.new(40, 40, 46)
+      (0...12).each do |ty|
+        (0...16).each do |tx|
+          color = ((tx + ty) % 2 == 0) ? c1 : c2
+          bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
+        end
+      end
+    end
+    bmp
+  rescue
+    Bitmap.new(32, 32) rescue nil
   end
 end
 
@@ -707,19 +742,35 @@ module RuntimePackCheatRunner
             begin
               rp_orig_normal_bitmap(path)
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
-              puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path}, falling back to empty bitmap"
-              if defined?(RuntimePackAssetAudit)
-                RuntimePackAssetAudit.record_event(
-                  "FILE_EXISTS",
-                  path.to_s,
-                  "FAIL",
-                  fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                  error_message: "#{e.class}: #{e.message}",
-                  source_location: "#{cache_mod}.normal_bitmap"
-                )
+              if path.to_s.include?("Graphics/Tilesets/")
+                puts "[RuntimePack] Missing tileset in #{cache_mod}.normal_bitmap: #{path}, falling back to checkered dummy bitmap"
+                if defined?(RuntimePackAssetAudit)
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path.to_s,
+                    "FAIL",
+                    fallback_action: "TILESET_FALLBACK_DUMMY",
+                    error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                end
+                @cache ||= {}
+                @cache[path] = RuntimePackCompatibility.create_tileset_fallback_bitmap
+              else
+                puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path}, falling back to empty bitmap"
+                if defined?(RuntimePackAssetAudit)
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path.to_s,
+                    "FAIL",
+                    fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                    error_message: "#{e.class}: #{e.message}",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                end
+                @cache ||= {}
+                @cache[path] = (Bitmap.new(32, 32) rescue nil)
               end
-              @cache ||= {}
-              @cache[path] = (Bitmap.new(32, 32) rescue nil)
             end
           end
         end
@@ -750,21 +801,38 @@ module RuntimePackCheatRunner
               rp_orig_bitmap_new(*args)
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
               if args.size <= 1
-                puts "[RuntimePack] Bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting dummy bitmap"
-                if defined?(RuntimePackAssetAudit) && args[0].is_a?(String)
-                  RuntimePackAssetAudit.record_event(
-                    "FILE_EXISTS",
-                    args[0],
-                    "FAIL",
-                    fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                    error_message: "#{e.class}: #{e.message}",
-                    source_location: "Bitmap.new"
-                  )
-                end
-                if args[0].is_a?(String) && args[0].downcase.include?("save") && (File.exist?("Graphics/System/SaveNotFound.png") rescue false)
-                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
+                if args[0].is_a?(String) && args[0].include?("Graphics/Tilesets/")
+                  puts "[RuntimePack] Tileset bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting checkered dummy bitmap"
+                  if defined?(RuntimePackAssetAudit)
+                    RuntimePackAssetAudit.record_event(
+                      "FILE_EXISTS",
+                      args[0],
+                      "FAIL",
+                      fallback_action: "TILESET_FALLBACK_DUMMY",
+                      error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                      source_location: "Bitmap.new"
+                    )
+                  end
+                  (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                    RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                    (rp_orig_bitmap_new(512, 384) rescue rp_orig_bitmap_new(32, 32))
                 else
-                  rp_orig_bitmap_new(32, 32)
+                  puts "[RuntimePack] Bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting dummy bitmap"
+                  if defined?(RuntimePackAssetAudit) && args[0].is_a?(String)
+                    RuntimePackAssetAudit.record_event(
+                      "FILE_EXISTS",
+                      args[0],
+                      "FAIL",
+                      fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                      error_message: "#{e.class}: #{e.message}",
+                      source_location: "Bitmap.new"
+                    )
+                  end
+                  if args[0].is_a?(String) && args[0].downcase.include?("save") && (File.exist?("Graphics/System/SaveNotFound.png") rescue false)
+                    (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
+                  else
+                    rp_orig_bitmap_new(32, 32)
+                  end
                 end
               else
                 raise e

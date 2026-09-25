@@ -173,6 +173,32 @@ object GpackExtractor {
             Log.w(TAG, "Could not copy runtimepack_asset_audit.rb from assets: ${e.message}")
         }
 
+        val fontsDir = File(destDir, "Fonts")
+        val fontFiles = if (fontsDir.exists()) {
+            fontsDir.listFiles { _, name ->
+                val l = name.lowercase()
+                l.endsWith(".ttf") || l.endsWith(".otf") || l.endsWith(".ttc")
+            } ?: emptyArray()
+        } else {
+            emptyArray()
+        }
+
+        if (!fontsDir.exists() || fontFiles.isEmpty()) {
+            if (!fontsDir.exists()) {
+                fontsDir.mkdirs()
+            }
+            try {
+                context.assets.open("fonts/VL-Gothic-Regular.ttf").use { fontInput ->
+                    FileOutputStream(File(fontsDir, "VL-Gothic-Regular.ttf")).use { fontOutput ->
+                        fontInput.copyTo(fontOutput)
+                    }
+                }
+                Log.i(TAG, "Provisioned fallback CJK font VL-Gothic-Regular.ttf into Fonts/")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not copy fallback font from assets: ${e.message}")
+            }
+        }
+
         var detectedExecName: String? = null
         val rtpList = mutableListOf<String>()
         val extraFontSubs = mutableListOf<String>()
@@ -242,11 +268,10 @@ object GpackExtractor {
         }
 
         val defaultFontSubs = mutableListOf(
-            "VL Gothic>Noto Sans CJK TC",
-            "VL PGothic>Noto Sans CJK TC",
-            "UmePlus Gothic>Noto Sans CJK TC",
-            "MS Gothic>Noto Sans CJK TC",
-            "MS Mincho>Noto Sans CJK TC",
+            "UmePlus Gothic>VL Gothic",
+            "VL PGothic>VL Gothic",
+            "MS Gothic>VL Gothic",
+            "MS Mincho>VL Gothic",
             "Noto Sans CJK TC Black>Noto Sans CJK TC",
             "Noto Sans CJK TC Medium>Noto Sans CJK TC",
             "Source Han Sans Bold>Source Han Sans",

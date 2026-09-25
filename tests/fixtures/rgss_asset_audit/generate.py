@@ -27,6 +27,11 @@ class RubyObj:
         self.class_name = class_name
         self.ivars = ivars
 
+class RubyUserDefined:
+    def __init__(self, class_name: str, data: bytes):
+        self.class_name = class_name
+        self.data = data
+
 def encode_value(v) -> bytes:
     if v is None:
         return b'0'
@@ -52,6 +57,9 @@ def encode_value(v) -> bytes:
             res.extend(encode_value(k))
             res.extend(encode_value(val))
         return bytes(res)
+    elif isinstance(v, RubyUserDefined):
+        c_bytes = v.class_name.encode('utf-8')
+        return b'u:' + write_long(len(c_bytes)) + c_bytes + write_long(len(v.data)) + v.data
     elif isinstance(v, RubyObj):
         c_bytes = v.class_name.encode('utf-8')
         res = bytearray(b'o:' + write_long(len(c_bytes)) + c_bytes + write_long(len(v.ivars)))
@@ -624,6 +632,24 @@ def create_xp_missing_database_file(root: str):
         os.remove(p)
 
 
+def create_cjk_font_test(root: str):
+    create_vxace_valid(root)
+    # In Map001, command 401 has Japanese dialogue with 「 and 」
+    event_page = RubyObj("RPG::Event::Page", {
+        "@graphic": RubyObj("RPG::Event::Page::Graphic", { "@character_name": "" }),
+        "@move_route": RubyObj("RPG::MoveRoute", { "@list": [] }),
+        "@list": [
+            event_cmd(101, 0, ["", 0, 0, 2]),
+            event_cmd(401, 0, ["「テスト対話」"]),
+            event_cmd(0, 0, []),
+        ]
+    })
+    map_obj = RubyObj("RPG::Map", {
+        "@events": { 1: RubyObj("RPG::Event", { "@id": 1, "@pages": [event_page] }) },
+    })
+    make_file(os.path.join(root, "Data", "Map001.rvdata2"), dump_marshal(map_obj))
+
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fixtures = {
@@ -644,6 +670,7 @@ def main():
         "xp_missing_troop_se": create_xp_missing_troop_se,
         "xp_missing_database_file": create_xp_missing_database_file,
         "rgss3_encrypted_only": create_rgss3_encrypted_only,
+        "cjk_font_test": create_cjk_font_test,
     }
     for name, func in fixtures.items():
         fdir = os.path.join(base_dir, name)

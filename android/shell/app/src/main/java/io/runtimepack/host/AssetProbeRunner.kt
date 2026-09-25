@@ -1,5 +1,6 @@
 package io.runtimepack.host
 
+import android.content.Context
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -14,7 +15,8 @@ class AssetProbeRunner(
     val checkpointInterval: Int = 100,
     val timeoutMs: Long = 60000L,
     var bitmapDecoder: BitmapProbeDecoder = DefaultBitmapProbeDecoder,
-    var onAssetProbed: ((Int) -> Unit)? = null
+    var onAssetProbed: ((Int) -> Unit)? = null,
+    val context: Context? = null
 ) {
     private val isCancelled = AtomicBoolean(false)
 
@@ -180,44 +182,73 @@ class AssetProbeRunner(
             }
             stageCounts["INTEGRITY_VERIFIED"] = (stageCounts["INTEGRITY_VERIFIED"] ?: 0) + 1
 
-            // Stage 4: DECODE_SUCCESS
-            val decodeOk = try {
-                if (isImageExtension(relPath)) {
+            // Stage 4: DECODE_SUCCESS for images, FILE_READABLE for other resource files
+            if (isImageExtension(relPath)) {
+                val decodeOk = try {
                     bitmapDecoder.decodeAndVerify(fis)
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    try { fis.close() } catch (_: Exception) {}
+                }
+
+                stageCounts["DECODE_SUCCESS"] = (stageCounts["DECODE_SUCCESS"] ?: 0) + 1
+                if (decodeOk) {
+                    passedCount++
+                    val ev = RuntimeAuditEvent(
+                        sequence_id = 0L,
+                        stage = RuntimeAuditStage.DECODE_SUCCESS,
+                        asset_path = relPath,
+                        outcome = RuntimeAuditOutcome.PASS
+                    )
+                    val recorded = AssetAuditService.recordEvent(ev)
+                    recordedEvents.add(recorded)
                 } else {
-                    // For audio/font/video/data, verify that stream is readable
+                    failedCount++
+                    val ev = RuntimeAuditEvent(
+                        sequence_id = 0L,
+                        stage = RuntimeAuditStage.DECODE_SUCCESS,
+                        asset_path = relPath,
+                        outcome = RuntimeAuditOutcome.FAIL,
+                        error_message = "Asset decode verification failed: $relPath"
+                    )
+                    val recorded = AssetAuditService.recordEvent(ev)
+                    recordedEvents.add(recorded)
+                }
+            } else {
+                // For other resource files (audio, fonts, data), verify readability only
+                val readOk = try {
                     val buf = ByteArray(128)
                     val read = fis.read(buf)
                     read > 0
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    try { fis.close() } catch (_: Exception) {}
                 }
-            } catch (_: Exception) {
-                false
-            } finally {
-                try { fis.close() } catch (_: Exception) {}
-            }
 
-            stageCounts["DECODE_SUCCESS"] = (stageCounts["DECODE_SUCCESS"] ?: 0) + 1
-            if (decodeOk) {
-                passedCount++
-                val ev = RuntimeAuditEvent(
-                    sequence_id = 0L,
-                    stage = RuntimeAuditStage.DECODE_SUCCESS,
-                    asset_path = relPath,
-                    outcome = RuntimeAuditOutcome.PASS
-                )
-                val recorded = AssetAuditService.recordEvent(ev)
-                recordedEvents.add(recorded)
-            } else {
-                failedCount++
-                val ev = RuntimeAuditEvent(
-                    sequence_id = 0L,
-                    stage = RuntimeAuditStage.DECODE_SUCCESS,
-                    asset_path = relPath,
-                    outcome = RuntimeAuditOutcome.FAIL,
-                    error_message = "Asset decode verification failed: $relPath"
-                )
-                val recorded = AssetAuditService.recordEvent(ev)
-                recordedEvents.add(recorded)
+                if (readOk) {
+                    passedCount++
+                    val ev = RuntimeAuditEvent(
+                        sequence_id = 0L,
+                        stage = RuntimeAuditStage.FILE_READABLE,
+                        asset_path = relPath,
+                        outcome = RuntimeAuditOutcome.PASS
+                    )
+                    val recorded = AssetAuditService.recordEvent(ev)
+                    recordedEvents.add(recorded)
+                } else {
+                    failedCount++
+                    val ev = RuntimeAuditEvent(
+                        sequence_id = 0L,
+                        stage = RuntimeAuditStage.FILE_READABLE,
+                        asset_path = relPath,
+                        outcome = RuntimeAuditOutcome.FAIL,
+                        error_message = "Asset read verification failed: $relPath"
+                    )
+                    val recorded = AssetAuditService.recordEvent(ev)
+                    recordedEvents.add(recorded)
+                }
             }
 
             saveCheckpointIfNeeded(
@@ -343,8 +374,46 @@ class AssetProbeRunner(
         }
     }
 
+    companion object {
+        val VALID_FALLBACK_MEDIA_EXTENSIONS = setOf(
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "rpgmvp",
+            "ogg", "wav", "mp3", "m4a", "mid", "midi", "rpgmvo",
+            "webm", "mp4", "ogv",
+            "ttf", "otf", "woff", "woff2",
+            "efkefc",
+            "rxdata", "rvdata", "rvdata2"
+        )
+
+        val EXCLUDED_FALLBACK_EXTENSIONS = setOf(
+            "bin", "rb", "txt", "json", "tmp", "bak", "ds_store", "gitignore", "gpack_extracted"
+        )
+    }
+
     private fun discoverAssets(auditDir: File): List<String> {
-        // Look for asset-dependency-graph.json or asset-audit-report.json
+        // 1. Look for asset-dependency-graph.json or asset-audit-report.json in Android assets if context is provided
+        if (context != null) {
+            try {
+                context.assets.open("asset-dependency-graph.json").use { stream ->
+                    val text = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val parsed = parseLogicalPathsFromJson(text)
+                    if (parsed.isNotEmpty()) {
+                        return parsed.distinct().sorted()
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            try {
+                context.assets.open("asset-audit-report.json").use { stream ->
+                    val text = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val parsed = parseLogicalPathsFromJson(text)
+                    if (parsed.isNotEmpty()) {
+                        return parsed.distinct().sorted()
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 2. Look for asset-dependency-graph.json or asset-audit-report.json on disk
         val graphCandidates = listOfNotNull(
             File(gameDir, "asset-dependency-graph.json"),
             File(auditDir, "asset-dependency-graph.json"),
@@ -364,13 +433,13 @@ class AssetProbeRunner(
             }
         }
 
-        // Fallback: scan gameDir recursively
+        // 3. Fallback: scan gameDir recursively, strictly filtering out non-media files
         val results = mutableListOf<String>()
         if (gameDir.exists() && gameDir.isDirectory) {
             gameDir.walkTopDown().forEach { file ->
                 if (file.isFile) {
                     val rel = file.relativeTo(gameDir).path.replace('\\', '/')
-                    if (!isExcludedPath(rel)) {
+                    if (!isExcludedPath(rel) && isValidFallbackMediaExtension(rel)) {
                         results.add(rel)
                     }
                 }
@@ -398,7 +467,22 @@ class AssetProbeRunner(
                 lower.startsWith("save") ||
                 lower.endsWith(".tmp") ||
                 lower.endsWith(".bak") ||
-                lower.endsWith(".ds_store")
+                lower.endsWith(".ds_store") ||
+                lower.endsWith(".gitignore") ||
+                lower.endsWith(".gpack_extracted")
+    }
+
+    private fun isValidFallbackMediaExtension(path: String): Boolean {
+        val lower = path.lowercase()
+        val fileName = lower.substringAfterLast('/')
+        if (fileName.startsWith(".git") || fileName == ".ds_store" || fileName == ".gitignore" || fileName == ".gpack_extracted") {
+            return false
+        }
+        val ext = path.substringAfterLast('.', "").lowercase()
+        if (ext in EXCLUDED_FALLBACK_EXTENSIONS) {
+            return false
+        }
+        return ext in VALID_FALLBACK_MEDIA_EXTENSIONS
     }
 
     private fun selectSampledAssets(allAssets: List<String>, limitPerCategory: Int): List<String> {

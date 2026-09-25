@@ -18,6 +18,6 @@ class RuntimeApplication : Application() {
         saveService = InternalStorageSaveService(this)
         contentService = AssetContentService(this, manifest.contentMode)
         inputService = InputService()
-        AssetAuditService.init(filesDir, manifest.runtime.family)
+        AssetAuditService.init(filesDir, manifest.runtime.family, this)
     }
 }

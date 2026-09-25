@@ -452,3 +452,184 @@ fn test_standard_mode_encrypted_archive_without_data_yields_indeterminate() {
         .uncovered_reference_classes
         .contains(&"encrypted_archive".to_string()));
 }
+
+#[test]
+fn test_detecting_missing_font_cjk_glyphs() {
+    let root = fixture_dir("cjk_font_test");
+    let index = make_index(&root);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let font_finding = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Font 'VL Gothic' or CJK glyph coverage is missing")
+        })
+        .expect("Expected missing font / CJK glyph coverage finding");
+
+    assert!(font_finding.source_node_ids.iter().any(|id| id.contains("font:Fonts")));
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn test_cjk_dialogue_with_provisioned_font_passes() {
+    let temp_dir = std::env::temp_dir().join(format!("cjk_font_prov_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let root = fixture_dir("cjk_font_test");
+    copy_dir_recursive(&root, &temp_dir);
+
+    let fonts_dir = temp_dir.join("Fonts");
+    std::fs::create_dir_all(&fonts_dir).unwrap();
+    std::fs::write(fonts_dir.join("VL-Gothic-Regular.ttf"), b"mock font data").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS when font is provisioned in Fonts/, findings: {:?}",
+        report.findings
+    );
+    assert!(!report.findings.iter().any(|f| f.message.contains("Font 'VL Gothic'")));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_script_requesting_vl_gothic_without_fonts_fails() {
+    let temp_dir = std::env::temp_dir().join(format!("vl_gothic_script_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let root = fixture_dir("vxace_valid");
+    copy_dir_recursive(&root, &temp_dir);
+
+    let scripts_path = temp_dir.join("Data/Scripts.rvdata2");
+    std::fs::write(
+        &scripts_path,
+        b"\x04\x08[\x06[\x08i\x01I\"\tMain\x06:ETI\"(Font.default_name = ['VL Gothic']\x06:ET",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Font 'VL Gothic' or CJK glyph coverage is missing")
+        })
+        .expect("Expected missing font finding when script requests VL Gothic");
+
+    assert!(finding.message.contains("VL Gothic"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_map_layer0_missing_floor_tileset_emits_finding() {
+    let temp_dir = std::env::temp_dir().join(format!("map_floor_tileset_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let root = fixture_dir("vxace_valid");
+    copy_dir_recursive(&root, &temp_dir);
+
+    // Tilesets.rvdata2: Tileset 1 has slot 1 (A2) set to "Inside_A2"
+    let tilesets_path = temp_dir.join("Data/Tilesets.rvdata2");
+    let tilesets_bytes = b"\x04\x08[\x070o:\x11RPG::Tileset\x07:\x08@idi\x06:\x13@tileset_names[\x0eI\"\x00\x06:\x06ETI\"\x0eInside_A2\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ETI\"\x00\x06:\x06ET";
+    std::fs::write(&tilesets_path, tilesets_bytes).unwrap();
+
+    // Map001.rvdata2: Layer 0 has 4 tiles with ID 2816 (A2)
+    let map_path = temp_dir.join("Data/Map001.rvdata2");
+    let map_bytes = b"\x04\x08o:\rRPG::Map\x08:\x10@tileset_idi\x06:\n@datau:\nTable)\x03\x00\x00\x00\x02\x00\x00\x00\x02\x00\x00\x00\x02\x00\x00\x00\x08\x00\x00\x00\x00\x0b\x00\x0b\x00\x0b\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00:\x0c@events{\x00";
+    std::fs::write(&map_path, map_bytes).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Inside_A2")
+                && f.message.contains("floor/walls will render transparent/black")
+        })
+        .expect("Expected missing floor tileset finding for Inside_A2 on Layer 0");
+
+    assert!(finding.message.contains("Map 001 Layer 0"));
+    assert!(finding.message.contains("4 tiles"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_map_subtractive_fog_occlusion_emits_warning() {
+    let temp_dir = std::env::temp_dir().join(format!("map_subtractive_fog_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let root = fixture_dir("vxace_valid");
+    copy_dir_recursive(&root, &temp_dir);
+
+    // Map001.rvdata2 with note tag: ==マップフォグkurayami01[0,0,10,170,2]==
+    let map_path = temp_dir.join("Data/Map001.rvdata2");
+    let map_bytes = b"\x04\x08o:\rRPG::Map\x07:\x10@tileset_idi\x06:\n@noteI\"3==\xe3\x83\x9e\xe3\x83\x83\xe3\x83\x97\xe3\x83\x95\xe3\x82\xa9\xe3\x82\xb0kurayami01[0,0,10,170,2]==\x06:\x06ET:\x0c@events{\x00";
+    std::fs::write(&map_path, map_bytes).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    let warning = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED
+                && f.message.contains("subtractive fog Plane at Z=10")
+        })
+        .expect("Expected subtractive fog occlusion warning for Z=10");
+
+    assert!(warning.message.contains("Map 001"));
+    assert!(warning.message.contains("below character layer Z=32"));
+    assert!(warning.message.contains("black occlusion under OpenGL ES"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

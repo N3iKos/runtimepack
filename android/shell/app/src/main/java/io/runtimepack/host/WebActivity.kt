@@ -219,7 +219,7 @@ open class WebActivity : Activity() {
         )
 
         val gameDir = File(filesDir, "game")
-        AssetAuditService.init(filesDir, "rpgmaker_web")
+        AssetAuditService.init(filesDir, "rpgmaker_web", this)
         prepareGameContent(gameDir)
         setupVfs(gameDir)
         loadWebShims()
