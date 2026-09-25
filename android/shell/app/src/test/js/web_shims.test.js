@@ -453,6 +453,51 @@ function createSandbox(initialStorageManager) {
     assert.doesNotThrow(() => {
         sb.Graphics.playVideo("movies/Opening.webm");
     });
+
+    // 5. Test Asynchronous WebAudio._onError and _onXhrLoad
+    sb.WebAudio = function() {
+        this._url = "audio/bgm/AsyncTheme.ogg";
+    };
+    sb.WebAudio.prototype._onError = function() {};
+    sb.WebAudio.prototype._onXhrLoad = function(xhr) {};
+
+    sb.Html5Audio = {
+        _url: "audio/se/AsyncHtml5.ogg",
+        _onError: function() {}
+    };
+
+    // Re-install hooks for newly defined audio/video objects
+    vm.runInContext("window.RuntimePackAssetAudit.installHooks(window);", sb);
+
+    const waInstance = new sb.WebAudio();
+    waInstance._onError();
+    const waErrorEvent = postedEvents.find(e => e.asset_path && e.asset_path.includes("AsyncTheme.ogg"));
+    assert(waErrorEvent, "WebAudio._onError should emit an audit event");
+    assert.strictEqual(waErrorEvent.fallback_action, "AUDIO_LOAD_SUPPRESSED");
+    assert.strictEqual(waErrorEvent.outcome, "FAIL");
+
+    waInstance._url = "audio/bgm/Http404.ogg";
+    waInstance._onXhrLoad({ status: 404 });
+    const wa404Event = postedEvents.find(e => e.asset_path && e.asset_path.includes("Http404.ogg"));
+    assert(wa404Event, "WebAudio._onXhrLoad HTTP 404 should emit an audit event");
+    assert.strictEqual(wa404Event.fallback_action, "AUDIO_LOAD_SUPPRESSED");
+
+    // 6. Test Asynchronous Html5Audio._onError
+    sb.Html5Audio._onError();
+    const html5Event = postedEvents.find(e => e.asset_path && e.asset_path.includes("AsyncHtml5.ogg"));
+    assert(html5Event, "Html5Audio._onError should emit an audit event");
+    assert.strictEqual(html5Event.fallback_action, "AUDIO_LOAD_SUPPRESSED");
+
+    // 7. Test Asynchronous Graphics._onVideoError
+    sb.Graphics._onVideoError = function() {};
+    sb.Graphics._video = { src: "movies/AsyncIntro.webm" };
+    vm.runInContext("window.RuntimePackAssetAudit.installHooks(window);", sb);
+
+    sb.Graphics._onVideoError();
+    const videoEvent = postedEvents.find(e => e.asset_path && e.asset_path.includes("AsyncIntro.webm"));
+    assert(videoEvent, "Graphics._onVideoError should emit a VIDEO_PLAY_SUPPRESSED audit event");
+    assert.strictEqual(videoEvent.fallback_action, "VIDEO_PLAY_SUPPRESSED");
+    assert.strictEqual(videoEvent.outcome, "FAIL");
 }
 
 console.log("All Mobile Web Shims tests passed successfully!");

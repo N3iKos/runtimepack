@@ -32,13 +32,8 @@ object AssetAuditService {
 
     fun recordEvent(event: RuntimeAuditEvent): RuntimeAuditEvent {
         cachedReport = null
-        val finalEvent = if (event.sequence_id <= 0L) {
-            val nextSeq = sequenceIdGenerator.incrementAndGet()
-            event.copy(sequence_id = nextSeq)
-        } else {
-            sequenceIdGenerator.updateAndGet { current -> maxOf(current, event.sequence_id) }
-            event
-        }
+        val nextSeq = sequenceIdGenerator.incrementAndGet()
+        val finalEvent = event.copy(sequence_id = nextSeq)
 
         eventQueue.add(finalEvent)
         if (queueSize.incrementAndGet() > MAX_EVENTS) {

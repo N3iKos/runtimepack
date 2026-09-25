@@ -54,7 +54,8 @@ end
 
 assert(assert_nothing_raised, "Bitmap.new on missing path should not raise unhandled exception")
 assert(!dummy_bmp.nil?, "Bitmap.new on missing path should return dummy bitmap")
-assert(dummy_bmp.width > 0 && dummy_bmp.height > 0, "Dummy bitmap must have valid dimensions")
+assert_equal(32, dummy_bmp.width, "Dummy bitmap width must be 32")
+assert_equal(32, dummy_bmp.height, "Dummy bitmap height must be 32")
 
 events = RuntimePackAssetAudit.events
 assert(events.size >= 1, "At least one audit event should be recorded")
@@ -72,6 +73,8 @@ if defined?(Cache) && Cache.respond_to?(:normal_bitmap)
   cache_path = "Graphics/Pictures/MissingPic.png"
   cached_bmp = Cache.normal_bitmap(cache_path)
   assert(!cached_bmp.nil?, "Cache.normal_bitmap should return dummy bitmap")
+  assert_equal(32, cached_bmp.width, "Cached dummy bitmap width must be 32")
+  assert_equal(32, cached_bmp.height, "Cached dummy bitmap height must be 32")
   ev = RuntimePackAssetAudit.events.last
   assert_equal("PLACEHOLDER_SUBSTITUTED", ev["fallback_action"], "Fallback action should be PLACEHOLDER_SUBSTITUTED")
   assert_equal(cache_path, ev["asset_path"], "Asset path should match cache request")

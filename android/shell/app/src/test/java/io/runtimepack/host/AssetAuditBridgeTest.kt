@@ -77,11 +77,21 @@ class AssetAuditBridgeTest {
         assertTrue(reportJson.contains("PLACEHOLDER_SUBSTITUTED"))
         assertTrue(reportJson.contains("AUDIO_LOAD_SUPPRESSED"))
 
-        // 6. cancelAudit
+        // 6. Test File caching: calling getAuditEvents again without file change should not duplicate events
+        val countBefore = activity.getAuditEvents(0L).split("sequence_id").size
+        val countAfter = activity.getAuditEvents(0L).split("sequence_id").size
+        assertEquals("Unchanged file should not duplicate ingested events", countBefore, countAfter)
+
+        // 7. cancelAudit
         val cancelOk = activity.cancelAudit()
         assertTrue(cancelOk)
         val cancelledReport = activity.getAuditReport()
         assertTrue(cancelledReport.contains("Audit cancelled by user"))
+
+        // 8. startAudit resets file and removes rp_audit_events.json
+        assertTrue("Events file existed before startAudit", eventsFile.exists())
+        activity.startAudit()
+        assertFalse("startAudit must remove old rp_audit_events.json", eventsFile.exists())
     }
 
     @Test

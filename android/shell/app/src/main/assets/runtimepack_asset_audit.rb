@@ -7,6 +7,7 @@ require 'fileutils'
 
 module RuntimePackAssetAudit
   EVENTS_FILE = "rp_audit_events.json"
+  MAX_EVENTS = 1000
 
   @events = []
   @seq_id = 0
@@ -52,6 +53,9 @@ module RuntimePackAssetAudit
         }
         @events ||= []
         @events << event
+        if @events.size > MAX_EVENTS
+          @events.shift(@events.size - MAX_EVENTS)
+        end
         persist_events_atomic
       end
       event
@@ -105,7 +109,7 @@ module RuntimePackAssetAudit
                 error_message: "#{e.class}: #{e.message}",
                 source_location: "Bitmap.new"
               )
-              dummy = (rp_audit_orig_new(1, 1) rescue (rp_audit_orig_new(32, 32) rescue nil))
+              dummy = (rp_audit_orig_new(32, 32) rescue nil)
               dummy
             else
               raise e
@@ -142,7 +146,7 @@ module RuntimePackAssetAudit
                       error_message: "#{e.class}: #{e.message}",
                       source_location: "#{cache_mod}.#{m}"
                     )
-                    (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
+                    (Bitmap.new(32, 32) rescue nil)
                   end
                 end
               end
@@ -166,7 +170,7 @@ module RuntimePackAssetAudit
                   source_location: "#{cache_mod}.normal_bitmap"
                 )
                 @cache ||= {}
-                @cache[path] = (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
+                @cache[path] = (Bitmap.new(32, 32) rescue nil)
               end
             end
           end
@@ -206,3 +210,6 @@ module RuntimePackAssetAudit
     end
   end
 end
+
+# Auto-install hooks when loaded into RGSS runtime
+RuntimePackAssetAudit.install_hooks!

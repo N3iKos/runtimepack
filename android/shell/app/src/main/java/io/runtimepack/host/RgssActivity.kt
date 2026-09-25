@@ -696,8 +696,13 @@ open class RgssActivity : SDLActivity() {
         }
     }
 
-    private var lastIngestedRgssAuditSeq = 0L
+    private val lastIngestedRgssAuditSeq = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile
+    private var lastAuditFileModified = 0L
+    @Volatile
+    private var lastAuditFileLength = 0L
 
+    @Synchronized
     fun ingestRgssAuditEventsFromFile() {
         try {
             val dir = getInputStateDirectory()
@@ -706,15 +711,25 @@ open class RgssActivity : SDLActivity() {
                 val gameSub = File(dir, "game")
                 file = File(gameSub, "rp_audit_events.json")
             }
-            if (file.exists()) {
-                val content = file.readText(Charsets.UTF_8).trim()
-                if (content.startsWith("[")) {
-                    val events = RuntimeAuditEvent.fromJsonArray(content)
-                    for (ev in events) {
-                        if (ev.sequence_id > lastIngestedRgssAuditSeq) {
-                            AssetAuditService.recordEvent(ev)
-                            lastIngestedRgssAuditSeq = maxOf(lastIngestedRgssAuditSeq, ev.sequence_id)
-                        }
+            if (!file.exists()) return
+
+            val currentModified = file.lastModified()
+            val currentLength = file.length()
+            if (currentModified == lastAuditFileModified && currentLength == lastAuditFileLength) {
+                return
+            }
+
+            val content = file.readText(Charsets.UTF_8).trim()
+            lastAuditFileModified = currentModified
+            lastAuditFileLength = currentLength
+
+            if (content.startsWith("[")) {
+                val events = RuntimeAuditEvent.fromJsonArray(content)
+                for (ev in events) {
+                    val currentLastSeq = lastIngestedRgssAuditSeq.get()
+                    if (ev.sequence_id > currentLastSeq) {
+                        AssetAuditService.recordEvent(ev)
+                        lastIngestedRgssAuditSeq.updateAndGet { prev -> maxOf(prev, ev.sequence_id) }
                     }
                 }
             }
@@ -753,7 +768,16 @@ open class RgssActivity : SDLActivity() {
     }
 
     open fun startAudit(requestJson: String = ""): String {
-        lastIngestedRgssAuditSeq = 0L
+        lastIngestedRgssAuditSeq.set(0L)
+        lastAuditFileModified = 0L
+        lastAuditFileLength = 0L
+        try {
+            val dir = getInputStateDirectory()
+            val file = File(dir, "rp_audit_events.json")
+            if (file.exists()) file.delete()
+            val gameSub = File(File(dir, "game"), "rp_audit_events.json")
+            if (gameSub.exists()) gameSub.delete()
+        } catch (_: Exception) {}
         return AssetAuditService.startAudit(requestJson)
     }
 

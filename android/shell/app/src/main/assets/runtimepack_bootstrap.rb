@@ -688,7 +688,7 @@ module RuntimePackCheatRunner
                       source_location: "#{cache_mod}.#{m}"
                     )
                   end
-                  (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
+                  (Bitmap.new(32, 32) rescue nil)
                 end
               end
             end
@@ -715,7 +715,7 @@ module RuntimePackCheatRunner
                 )
               end
               @cache ||= {}
-              @cache[path] = (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
+              @cache[path] = (Bitmap.new(32, 32) rescue nil)
             end
           end
         end
@@ -758,9 +758,9 @@ module RuntimePackCheatRunner
                   )
                 end
                 if args[0].is_a?(String) && args[0].downcase.include?("save") && (File.exist?("Graphics/System/SaveNotFound.png") rescue false)
-                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue (rp_orig_bitmap_new(1, 1) rescue rp_orig_bitmap_new(32, 32)))
+                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
                 else
-                  (rp_orig_bitmap_new(1, 1) rescue rp_orig_bitmap_new(32, 32))
+                  rp_orig_bitmap_new(32, 32)
                 end
               else
                 raise e
