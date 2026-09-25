@@ -93,12 +93,20 @@ class AssetProbeRunnerTest {
     fun testExhaustiveModeCheckpointsEveryInterval() {
         createDummyAssets(110, "img/sprites", "png")
 
+        val checkpointExistedMidRun = AtomicBoolean(false)
+        val checkpointFile = File(stateDir, "audit/probe_checkpoint.json")
+
         val runner = AssetProbeRunner(
             gameDir = gameDir,
             stateDir = stateDir,
             engine = "rgss",
             mode = ProbeMode.EXHAUSTIVE,
-            checkpointInterval = 50
+            checkpointInterval = 50,
+            onAssetProbed = { count ->
+                if (count == 50 && checkpointFile.exists()) {
+                    checkpointExistedMidRun.set(true)
+                }
+            }
         )
 
         val report = runner.run()
@@ -107,12 +115,30 @@ class AssetProbeRunnerTest {
         assertEquals(110, report.total_probed)
         assertEquals(110, report.passed_count)
 
-        // Checkpoint file should have been written during execution
-        val checkpointFile = File(stateDir, "audit/probe_checkpoint.json")
+        assertTrue("Checkpoint must have been written at interval 50", checkpointExistedMidRun.get())
+        assertFalse("Checkpoint file must be deleted upon successful completion", checkpointFile.exists())
+
         val auditDir = File(stateDir, "audit")
         val reportFile = File(auditDir, "runtime-validation-report.json")
         assertTrue("Report file must exist", reportFile.exists())
-        assertTrue("Checkpoint or report must exist", checkpointFile.exists() || reportFile.exists())
+    }
+
+    @Test
+    fun testZeroAssetProbeOutcomeIsIndeterminate() {
+        val emptyGameDir = tempFolder.newFolder("empty_game")
+        val emptyStateDir = tempFolder.newFolder("empty_state")
+
+        val runner = AssetProbeRunner(
+            gameDir = emptyGameDir,
+            stateDir = emptyStateDir,
+            engine = "rpgmaker_web",
+            mode = ProbeMode.SAMPLED
+        )
+
+        val report = runner.run()
+        assertEquals(RuntimeAuditOutcome.INDETERMINATE, report.outcome)
+        assertEquals(0, report.total_probed)
+        assertTrue(report.events.last().error_message?.contains("zero assets") == true)
     }
 
     @Test

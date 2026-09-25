@@ -295,8 +295,14 @@ function createDOMContext() {
     assert(badge, "Badge element must exist");
     assert.notStrictEqual(badge.textContent, "COMPLETED", "Empty progress must NEVER set status to COMPLETED at poll count 8!");
 
-    // Advance to timeout (past 60 ticks)
+    // Advance to 65 ticks (sampled would timeout, but stress test allows up to 260 polls)
     for (let i = 8; i < 65; i++) {
+        if (intervalCallback) intervalCallback();
+    }
+    assert.strictEqual(badge.textContent, "SCANNING", "Exhaustive/Stress test must not prematurely timeout at 65 ticks (260 polls allowed)");
+
+    // Advance to timeout (past 260 ticks)
+    for (let i = 65; i < 265; i++) {
         if (intervalCallback) intervalCallback();
     }
 

@@ -963,7 +963,8 @@
             return modalOpen;
         },
         runProbe: function (mode) {
-            this.executeAuditOrProbe(mode || "sampled", "run_probe");
+            var actionName = (mode === "exhaustive") ? "run_exhaustive_probe" : "run_probe";
+            this.executeAuditOrProbe(mode || "sampled", actionName);
         },
         runStressTest: function () {
             this.executeAuditOrProbe("exhaustive", "run_stress_test");
@@ -973,13 +974,17 @@
             isStressTestRunning = true;
 
             var probeMode = mode || "sampled";
+            var resolvedAction = actionName || ((probeMode === "exhaustive") ? "run_exhaustive_probe" : "run_probe");
+            var maxPollCount = (resolvedAction === "run_exhaustive_probe" || resolvedAction === "run_stress_test" || probeMode === "exhaustive") ? 260 : 60;
+            var timeoutSec = Math.round(maxPollCount * 0.25);
+
             var stStatus = doc ? doc.getElementById("diag-stress-status") : null;
             var badge = doc ? doc.getElementById("diag-step-badge") : null;
             var pbar = doc ? doc.getElementById("diag-pbar-fill") : null;
 
             var initMsg = (probeMode === "sampled")
                 ? "Initializing Sampled Asset Probe..."
-                : (actionName === "run_stress_test" ? "Initializing Asset Graph & Database Audit..." : "Initializing Exhaustive Asset Probe...");
+                : (resolvedAction === "run_stress_test" ? "Initializing Asset Graph & Database Audit..." : "Initializing Exhaustive Asset Probe...");
 
             if (stStatus) stStatus.textContent = initMsg;
             if (badge) {
@@ -990,7 +995,7 @@
             if (pbar) pbar.style.width = "10%";
 
             addLogEntry("PROGRESS", initMsg);
-            dispatchCommand({ action: actionName || "run_probe", mode: probeMode });
+            dispatchCommand({ action: resolvedAction, mode: probeMode });
 
             if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.startAudit === "function") {
                 globalObj.RuntimePackVPad.startAudit(JSON.stringify({ mode: probeMode }));
@@ -1271,7 +1276,7 @@
                     }
                 }
 
-                if (pollCount > 60) { // 15s timeout
+                if (pollCount > maxPollCount) {
                     isStressTestRunning = false;
                     clearInterval(auditPollInterval);
                     auditPollInterval = null;
@@ -1286,7 +1291,7 @@
                             ? "Audit timed out with " + failureCount + " failure(s). Status: FAIL"
                             : "Audit timed out. Status: INDETERMINATE";
                     }
-                    addLogEntry("WARN", "Audit timed out after 15s with no completion signal. Status: " + (failureCount > 0 ? "FAIL" : "INDETERMINATE"));
+                    addLogEntry("WARN", "Audit timed out after " + timeoutSec + "s with no completion signal. Status: " + (failureCount > 0 ? "FAIL" : "INDETERMINATE"));
                 }
             }, 250);
         },

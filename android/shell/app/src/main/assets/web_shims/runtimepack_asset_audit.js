@@ -276,9 +276,11 @@
     RuntimePackAssetAudit.installHooks(root);
 
     if (typeof setInterval !== "undefined") {
+        var hookAttempts = 0;
         var hookTimer = setInterval(function() {
+            hookAttempts++;
             RuntimePackAssetAudit.installHooks(root);
-            if (root.ImageManager && root.AudioManager && root.Graphics) {
+            if ((root.ImageManager && root.AudioManager && root.Graphics) || hookAttempts >= 100) {
                 clearInterval(hookTimer);
             }
         }, 50);

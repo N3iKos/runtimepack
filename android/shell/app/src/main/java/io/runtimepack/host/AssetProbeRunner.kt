@@ -124,11 +124,11 @@ class AssetProbeRunner(
                 recordedEvents.add(recorded)
                 failedCount++
                 stageCounts["FILE_EXISTS"] = (stageCounts["FILE_EXISTS"] ?: 0) + 1
-                onAssetProbed?.invoke(i + 1)
                 saveCheckpointIfNeeded(
                     checkpointFile, auditId, i + 1, assetsToProbe.size, relPath,
                     stageCounts, passedCount, failedCount, warningCount, fallbacksDetected
                 )
+                onAssetProbed?.invoke(i + 1)
                 continue
             }
             stageCounts["FILE_EXISTS"] = (stageCounts["FILE_EXISTS"] ?: 0) + 1
@@ -149,11 +149,11 @@ class AssetProbeRunner(
                 val recorded = AssetAuditService.recordEvent(ev)
                 recordedEvents.add(recorded)
                 failedCount++
-                onAssetProbed?.invoke(i + 1)
                 saveCheckpointIfNeeded(
                     checkpointFile, auditId, i + 1, assetsToProbe.size, relPath,
                     stageCounts, passedCount, failedCount, warningCount, fallbacksDetected
                 )
+                onAssetProbed?.invoke(i + 1)
                 continue
             }
 
@@ -171,11 +171,11 @@ class AssetProbeRunner(
                 recordedEvents.add(recorded)
                 failedCount++
                 stageCounts["INTEGRITY_VERIFIED"] = (stageCounts["INTEGRITY_VERIFIED"] ?: 0) + 1
-                onAssetProbed?.invoke(i + 1)
                 saveCheckpointIfNeeded(
                     checkpointFile, auditId, i + 1, assetsToProbe.size, relPath,
                     stageCounts, passedCount, failedCount, warningCount, fallbacksDetected
                 )
+                onAssetProbed?.invoke(i + 1)
                 continue
             }
             stageCounts["INTEGRITY_VERIFIED"] = (stageCounts["INTEGRITY_VERIFIED"] ?: 0) + 1
@@ -220,25 +220,36 @@ class AssetProbeRunner(
                 recordedEvents.add(recorded)
             }
 
-            onAssetProbed?.invoke(i + 1)
             saveCheckpointIfNeeded(
                 checkpointFile, auditId, i + 1, assetsToProbe.size, relPath,
                 stageCounts, passedCount, failedCount, warningCount, fallbacksDetected
             )
+            onAssetProbed?.invoke(i + 1)
         }
 
         val duration = System.currentTimeMillis() - startTime
         val finalOutcome = when {
             isCancelled.get() || duration > timeoutMs -> RuntimeAuditOutcome.INDETERMINATE
+            assetsToProbe.isEmpty() -> RuntimeAuditOutcome.INDETERMINATE
             failedCount > 0 -> RuntimeAuditOutcome.FAIL
             warningCount > 0 -> RuntimeAuditOutcome.WARNING
             else -> RuntimeAuditOutcome.PASS
+        }
+
+        // Delete checkpoint file upon successful probe completion
+        if (!isCancelled.get() && duration <= timeoutMs && assetsToProbe.isNotEmpty()) {
+            try {
+                if (checkpointFile.exists()) {
+                    checkpointFile.delete()
+                }
+            } catch (_: Exception) {}
         }
 
         // Emitting final completion event
         val doneMsg = when {
             isCancelled.get() -> "DONE: Probe cancelled"
             duration > timeoutMs -> "DONE: Probe timed out"
+            assetsToProbe.isEmpty() -> "DONE: Probe completed with zero assets (INDETERMINATE)"
             finalOutcome == RuntimeAuditOutcome.FAIL -> "DONE: Probe failed ($failedCount failures)"
             finalOutcome == RuntimeAuditOutcome.WARNING -> "DONE: Probe completed with warnings ($warningCount warnings)"
             else -> "DONE: Probe completed"
