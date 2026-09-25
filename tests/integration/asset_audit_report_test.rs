@@ -1564,3 +1564,35 @@ fn test_regression_build_preserves_clean_audit_cache_without_ephemeral_overrides
     let _ = fs::remove_dir_all(working_dir);
     let _ = fs::remove_dir_all(dist_dir);
 }
+
+#[test]
+fn test_runtime_validation_report_and_combined_summary_schemas() {
+    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+
+    // 1. Runtime validation report schema
+    let runtime_schema_path = workspace_root.join("schemas/runtime-validation-report.schema.json");
+    assert!(runtime_schema_path.exists());
+    let runtime_schema_str = fs::read_to_string(&runtime_schema_path).unwrap();
+    let runtime_schema: serde_json::Value = serde_json::from_str(&runtime_schema_str).unwrap();
+
+    assert_eq!(runtime_schema["title"], "RuntimeValidationReport");
+    let event_props = &runtime_schema["properties"]["events"]["items"]["properties"];
+    assert!(
+        event_props["is_complete"].is_object(),
+        "is_complete must be defined in events item properties"
+    );
+    assert_eq!(event_props["is_complete"]["type"], "boolean");
+
+    // 2. Combined validation summary schema
+    let summary_schema_path = workspace_root.join("schemas/combined-validation-summary.schema.json");
+    assert!(summary_schema_path.exists());
+    let summary_schema_str = fs::read_to_string(&summary_schema_path).unwrap();
+    let summary_schema: serde_json::Value = serde_json::from_str(&summary_schema_str).unwrap();
+
+    assert_eq!(summary_schema["title"], "CombinedValidationSummary");
+    assert!(summary_schema["properties"]["combined_outcome"].is_object());
+    assert!(summary_schema["properties"]["discrepancies"].is_object());
+}

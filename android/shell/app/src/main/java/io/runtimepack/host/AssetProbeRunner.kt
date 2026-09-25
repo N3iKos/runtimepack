@@ -28,7 +28,11 @@ class AssetProbeRunner(
         val startTime = System.currentTimeMillis()
         val auditId = "runtime-probe-" + startTime
         val auditDir = when {
-            stateDir != null -> File(stateDir, "audit")
+            stateDir != null -> {
+                if (stateDir.name == "audit") stateDir
+                else if (stateDir.name == "runtime-state") File(stateDir, "audit")
+                else File(stateDir, "runtime-state/audit")
+            }
             else -> File(gameDir, "runtime-state/audit")
         }
         if (!auditDir.exists()) {
@@ -86,8 +90,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.INDETERMINATE,
                     error_message = "Probe cancelled by user"
                 )
-                AssetAuditService.recordEvent(cancelEv)
-                recordedEvents.add(cancelEv)
+                val recorded = AssetAuditService.recordEvent(cancelEv)
+                recordedEvents.add(recorded)
                 break
             }
 
@@ -99,8 +103,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.INDETERMINATE,
                     error_message = "Probe timed out after ${timeoutMs}ms"
                 )
-                AssetAuditService.recordEvent(timeoutEv)
-                recordedEvents.add(timeoutEv)
+                val recorded = AssetAuditService.recordEvent(timeoutEv)
+                recordedEvents.add(recorded)
                 break
             }
 
@@ -116,8 +120,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.FAIL,
                     error_message = "File not found: $relPath"
                 )
-                AssetAuditService.recordEvent(ev)
-                recordedEvents.add(ev)
+                val recorded = AssetAuditService.recordEvent(ev)
+                recordedEvents.add(recorded)
                 failedCount++
                 stageCounts["FILE_EXISTS"] = (stageCounts["FILE_EXISTS"] ?: 0) + 1
                 onAssetProbed?.invoke(i + 1)
@@ -142,8 +146,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.FAIL,
                     error_message = "File unreadable: ${e.message}"
                 )
-                AssetAuditService.recordEvent(ev)
-                recordedEvents.add(ev)
+                val recorded = AssetAuditService.recordEvent(ev)
+                recordedEvents.add(recorded)
                 failedCount++
                 onAssetProbed?.invoke(i + 1)
                 saveCheckpointIfNeeded(
@@ -163,8 +167,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.FAIL,
                     error_message = "File integrity error: zero length"
                 )
-                AssetAuditService.recordEvent(ev)
-                recordedEvents.add(ev)
+                val recorded = AssetAuditService.recordEvent(ev)
+                recordedEvents.add(recorded)
                 failedCount++
                 stageCounts["INTEGRITY_VERIFIED"] = (stageCounts["INTEGRITY_VERIFIED"] ?: 0) + 1
                 onAssetProbed?.invoke(i + 1)
@@ -201,8 +205,8 @@ class AssetProbeRunner(
                     asset_path = relPath,
                     outcome = RuntimeAuditOutcome.PASS
                 )
-                AssetAuditService.recordEvent(ev)
-                recordedEvents.add(ev)
+                val recorded = AssetAuditService.recordEvent(ev)
+                recordedEvents.add(recorded)
             } else {
                 failedCount++
                 val ev = RuntimeAuditEvent(
@@ -212,8 +216,8 @@ class AssetProbeRunner(
                     outcome = RuntimeAuditOutcome.FAIL,
                     error_message = "Asset decode verification failed: $relPath"
                 )
-                AssetAuditService.recordEvent(ev)
-                recordedEvents.add(ev)
+                val recorded = AssetAuditService.recordEvent(ev)
+                recordedEvents.add(recorded)
             }
 
             onAssetProbed?.invoke(i + 1)
@@ -232,17 +236,24 @@ class AssetProbeRunner(
         }
 
         // Emitting final completion event
+        val doneMsg = when {
+            isCancelled.get() -> "DONE: Probe cancelled"
+            duration > timeoutMs -> "DONE: Probe timed out"
+            finalOutcome == RuntimeAuditOutcome.FAIL -> "DONE: Probe failed ($failedCount failures)"
+            finalOutcome == RuntimeAuditOutcome.WARNING -> "DONE: Probe completed with warnings ($warningCount warnings)"
+            else -> "DONE: Probe completed"
+        }
         val doneEv = RuntimeAuditEvent(
             sequence_id = 0L,
             stage = RuntimeAuditStage.RUNTIME_USE_SUCCESS,
             asset_path = "all",
             outcome = finalOutcome,
-            error_message = if (finalOutcome == RuntimeAuditOutcome.FAIL) "Probe completed with $failedCount failure(s)" else "DONE: Probe completed",
+            error_message = doneMsg,
             source_location = "DONE",
             is_complete = true
         )
-        AssetAuditService.recordEvent(doneEv)
-        recordedEvents.add(doneEv)
+        val recordedDone = AssetAuditService.recordEvent(doneEv)
+        recordedEvents.add(recordedDone)
 
         // 5. Generate and persist RuntimeValidationReport
         val runtimeReport = RuntimeValidationReport(
@@ -323,11 +334,15 @@ class AssetProbeRunner(
 
     private fun discoverAssets(auditDir: File): List<String> {
         // Look for asset-dependency-graph.json or asset-audit-report.json
-        val graphCandidates = listOf(
+        val graphCandidates = listOfNotNull(
             File(gameDir, "asset-dependency-graph.json"),
             File(auditDir, "asset-dependency-graph.json"),
             File(gameDir, "asset-audit-report.json"),
-            File(auditDir, "asset-audit-report.json")
+            File(auditDir, "asset-audit-report.json"),
+            stateDir?.let { File(it, "asset-dependency-graph.json") },
+            stateDir?.let { File(it, "asset-audit-report.json") },
+            gameDir.parentFile?.let { File(it, "asset-dependency-graph.json") },
+            gameDir.parentFile?.let { File(it, "asset-audit-report.json") }
         )
         for (candidate in graphCandidates) {
             if (candidate.exists()) {
@@ -439,9 +454,11 @@ class AssetProbeRunner(
     }
 
     private fun buildCombinedSummary(auditDir: File, runtimeReport: RuntimeValidationReport): CombinedValidationSummary {
-        val staticCandidates = listOf(
+        val staticCandidates = listOfNotNull(
             File(gameDir, "asset-audit-report.json"),
-            File(auditDir, "asset-audit-report.json")
+            File(auditDir, "asset-audit-report.json"),
+            stateDir?.let { File(it, "asset-audit-report.json") },
+            gameDir.parentFile?.let { File(it, "asset-audit-report.json") }
         )
 
         var staticOutcome = "NOT_RUN"

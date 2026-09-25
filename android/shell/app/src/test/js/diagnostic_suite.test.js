@@ -537,6 +537,7 @@ function createDOMContext() {
         },
         getAuditEvents: function () {
             return JSON.stringify([
+                { sequence_id: 0, stage: "REFERENCE_FOUND", outcome: "PASS", asset_path: "root", source_location: "audit_start" },
                 { sequence_id: 1, stage: "FILE_EXISTS", outcome: "PASS", asset_path: "img/1.png" },
                 { sequence_id: 2, stage: "DECODE_SUCCESS", outcome: "PASS", asset_path: "img/1.png" },
                 { sequence_id: 3, stage: "FILE_EXISTS", outcome: "FAIL", asset_path: "img/missing.png", error_message: "Not found" },
@@ -566,7 +567,8 @@ function createDOMContext() {
     assert(cntMissing, "diag-cnt-missing must exist");
     assert(cntFallback, "diag-cnt-fallback must exist");
 
-    assert.strictEqual(cntValid.textContent, "2", "Valid count should be 2");
+    assert.strictEqual(cntScanned.textContent, "4", "Scanned count should be 4 (ignoring root)");
+    assert.strictEqual(cntValid.textContent, "2", "Valid count should be 2 (ignoring root)");
     assert.strictEqual(cntMissing.textContent, "1", "Missing count should be 1");
     assert.strictEqual(cntFallback.textContent, "1", "Fallback count should be 1");
 }

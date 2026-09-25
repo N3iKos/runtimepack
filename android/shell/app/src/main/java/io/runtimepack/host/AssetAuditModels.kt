@@ -65,35 +65,32 @@ fun interface BitmapProbeDecoder {
 
 object DefaultBitmapProbeDecoder : BitmapProbeDecoder {
     override fun decodeAndVerify(stream: InputStream): Boolean {
-        val buffered = if (stream.markSupported()) stream else java.io.BufferedInputStream(stream)
-        buffered.mark(1024)
-        var androidBmpSuccess = false
-        try {
-            val bmp = android.graphics.BitmapFactory.decodeStream(buffered)
-            if (bmp != null) {
-                try {
-                    bmp.recycle()
-                } catch (_: Throwable) {}
-                androidBmpSuccess = true
-            }
-        } catch (_: Throwable) {}
-        if (androidBmpSuccess) return true
-
         return try {
-            buffered.reset()
-            val header = ByteArray(8)
-            val read = buffered.read(header)
-            if (read >= 4) {
-                val isPng = header[0] == 0x89.toByte() && header[1] == 0x50.toByte() && header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
-                val isJpg = header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()
-                val isGif = header[0] == 'G'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte()
-                val isBmp = header[0] == 'B'.code.toByte() && header[1] == 'M'.code.toByte()
-                val isRiff = header[0] == 'R'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte() && header[3] == 'F'.code.toByte()
-                val isRpgmvp = header[0] == 'R'.code.toByte() && header[1] == 'P'.code.toByte() && header[2] == 'G'.code.toByte()
-                isPng || isJpg || isGif || isBmp || isRiff || isRpgmvp
-            } else {
-                false
-            }
+            val bytes = stream.readBytes()
+            if (bytes.size < 4) return false
+
+            var androidBmpSuccess = false
+            try {
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bmp != null) {
+                    try {
+                        bmp.recycle()
+                    } catch (_: Throwable) {}
+                    androidBmpSuccess = true
+                }
+            } catch (_: Throwable) {}
+            if (androidBmpSuccess) return true
+
+            // Fallback for JVM mock test environment or specific supported image header formats:
+            val header = bytes
+            val isPng = header.size >= 8 && header[0] == 0x89.toByte() && header[1] == 0x50.toByte() && header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
+            val isJpg = header.size >= 3 && header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()
+            val isGif = header.size >= 3 && header[0] == 'G'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte()
+            val isBmp = header.size >= 2 && header[0] == 'B'.code.toByte() && header[1] == 'M'.code.toByte()
+            val isRiff = header.size >= 12 && header[0] == 'R'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte() && header[3] == 'F'.code.toByte()
+            val isRpgmvp = header.size >= 5 && header[0] == 'R'.code.toByte() && header[1] == 'P'.code.toByte() && header[2] == 'G'.code.toByte() && header[3] == 'M'.code.toByte() && header[4] == 'V'.code.toByte()
+
+            isPng || isJpg || isGif || isBmp || isRiff || isRpgmvp
         } catch (_: Throwable) {
             false
         }

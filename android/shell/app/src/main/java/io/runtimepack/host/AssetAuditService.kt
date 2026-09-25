@@ -116,12 +116,20 @@ object AssetAuditService {
         )
     }
 
-    fun persistReport(baseDir: File? = null): File {
-        val auditDir = when {
-            baseDir != null -> File(baseDir, "runtime-state/audit")
+    private fun resolveAuditDir(baseDir: File? = null): File {
+        return when {
+            baseDir != null -> {
+                if (baseDir.name == "audit") baseDir
+                else if (baseDir.name == "runtime-state") File(baseDir, "audit")
+                else File(baseDir, "runtime-state/audit")
+            }
             baseFilesDir != null -> File(baseFilesDir, "runtime-state/audit")
             else -> File("runtime-state/audit")
         }
+    }
+
+    fun persistReport(baseDir: File? = null): File {
+        val auditDir = resolveAuditDir(baseDir)
         if (!auditDir.exists()) {
             auditDir.mkdirs()
         }
@@ -145,6 +153,15 @@ object AssetAuditService {
 
     @Volatile
     private var activeRunner: AssetProbeRunner? = null
+
+    private val probeExecutor: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "RuntimePack-AssetProbe").apply {
+            isDaemon = true
+            setUncaughtExceptionHandler { t, e ->
+                android.util.Log.e("AssetAuditService", "Uncaught exception in probe thread ${t.name}: ${e.message}", e)
+            }
+        }
+    }
 
     fun reset() {
         activeRunner?.cancel()
@@ -173,18 +190,22 @@ object AssetAuditService {
         }
 
         if (requestedMode != null && baseFilesDir != null) {
+            val gameSub = File(baseFilesDir, "game")
+            val gameDir = if (gameSub.exists() && gameSub.isDirectory) gameSub else baseFilesDir!!
             val runner = AssetProbeRunner(
-                gameDir = baseFilesDir!!,
+                gameDir = gameDir,
                 stateDir = baseFilesDir,
                 engine = currentEngine,
                 mode = requestedMode
             )
             activeRunner = runner
-            Thread {
+            probeExecutor.submit {
                 try {
                     runner.run()
-                } catch (_: Exception) {}
-            }.start()
+                } catch (e: Throwable) {
+                    android.util.Log.e("AssetAuditService", "Probe execution failed: ${e.message}", e)
+                }
+            }
         }
 
         return """{"status":"STARTED"}"""
@@ -200,11 +221,7 @@ object AssetAuditService {
     }
 
     fun getCombinedSummary(baseDir: File? = null): String {
-        val auditDir = when {
-            baseDir != null -> File(baseDir, "runtime-state/audit")
-            baseFilesDir != null -> File(baseFilesDir, "runtime-state/audit")
-            else -> File("runtime-state/audit")
-        }
+        val auditDir = resolveAuditDir(baseDir)
         val file = File(auditDir, "combined-validation-summary.json")
         return if (file.exists()) {
             file.readText(Charsets.UTF_8)
@@ -233,7 +250,10 @@ object AssetAuditService {
         checkpointInterval: Int = 100,
         timeoutMs: Long = 60000L
     ): RuntimeValidationReport {
-        val gDir = gameDir ?: baseFilesDir ?: File(".")
+        val gDir = gameDir ?: run {
+            val gameSub = baseFilesDir?.let { File(it, "game") }
+            if (gameSub != null && gameSub.exists() && gameSub.isDirectory) gameSub else (baseFilesDir ?: File("."))
+        }
         val sDir = stateDir ?: baseFilesDir
         val runner = AssetProbeRunner(
             gameDir = gDir,

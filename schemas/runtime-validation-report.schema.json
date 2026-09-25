@@ -115,6 +115,9 @@
           },
           "source_location": {
             "type": ["string", "null"]
+          },
+          "is_complete": {
+            "type": "boolean"
           }
         }
       }

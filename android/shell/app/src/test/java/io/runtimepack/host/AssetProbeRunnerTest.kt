@@ -277,5 +277,46 @@ class AssetProbeRunnerTest {
         assertTrue(summaryText.contains("\"static_outcome\":\"PASS\"") || summaryText.contains("\"static_outcome\": \"PASS\""))
         assertTrue(summaryText.contains("\"runtime_outcome\":\"FAIL\"") || summaryText.contains("\"runtime_outcome\": \"FAIL\""))
         assertTrue(summaryText.contains("\"combined_outcome\":\"FAIL\"") || summaryText.contains("\"combined_outcome\": \"FAIL\""))
+
+        // Check assigned monotonic sequence IDs in report events
+        assertTrue(report.events.isNotEmpty())
+        for (ev in report.events) {
+            assertTrue("Sequence ID must be assigned (> 0)", ev.sequence_id > 0L)
+        }
+
+        // Check done event message reflects outcome
+        val doneEv = report.events.last()
+        assertTrue("Done event must have is_complete = true", doneEv.is_complete == true)
+        assertTrue("Done event message should reflect failure count", doneEv.error_message?.contains("DONE: Probe failed") == true)
+    }
+
+    @Test
+    fun testAssetAuditServiceProbePathStandardizationAndGameSubdirectory() {
+        val filesDir = tempFolder.newFolder("files_dir")
+        val gameSub = File(filesDir, "game")
+        gameSub.mkdirs()
+        val imgDir = File(gameSub, "img/pictures")
+        imgDir.mkdirs()
+        File(imgDir, "hero.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+
+        AssetAuditService.init(filesDir, "rpg-maker-mv")
+        val rep = AssetAuditService.runProbe(
+            mode = ProbeMode.SAMPLED,
+            sampleLimitPerCategory = 5
+        )
+
+        assertEquals(RuntimeAuditOutcome.PASS, rep.outcome)
+        assertEquals(1, rep.total_probed)
+
+        val auditDir = File(filesDir, "runtime-state/audit")
+        assertTrue("Audit dir must be filesDir/runtime-state/audit", auditDir.exists())
+        val probeRepFile = File(auditDir, "runtime-validation-report.json")
+        val combinedFile = File(auditDir, "combined-validation-summary.json")
+
+        assertTrue("runtime-validation-report.json must exist in standardized path", probeRepFile.exists())
+        assertTrue("combined-validation-summary.json must exist in standardized path", combinedFile.exists())
+
+        val summaryJson = AssetAuditService.getCombinedSummary()
+        assertTrue("getCombinedSummary must return valid JSON summary", summaryJson.contains("\"combined_outcome\":\"PASS\""))
     }
 }

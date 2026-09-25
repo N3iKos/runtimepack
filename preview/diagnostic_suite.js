@@ -1068,6 +1068,7 @@
                     var isMissing = !isFallback && (ev.stage === "FILE_EXISTS" && (evOutcome === "FAIL" || evOutcome === "FAILED" || (evMsg && evMsg.toLowerCase().indexOf("not found") !== -1)));
                     var isFailure = (evOutcome === "FAIL" || evOutcome === "FAILED" || isFallback || evType === "FAIL" || evType === "ERROR");
                     var isDone = (evType === "DONE" || ev.is_complete === true || ev.isComplete === true);
+                    var isSynthetic = (targetPath === "root" || targetPath === "all" || evType === "START");
 
                     if (isDone) {
                         var doneMsg = evMsg || (failureCount > 0
@@ -1097,18 +1098,20 @@
                         return;
                     }
 
-                    if (ev.stage || targetPath) {
+                    if (!isSynthetic && (ev.stage || targetPath)) {
                         scannedCount++;
                     }
-                    if (isMissing) {
+                    if (!isSynthetic && isMissing) {
                         missingCount++;
                     }
-                    if (isFallback) {
+                    if (!isSynthetic && isFallback) {
                         fallbackCount++;
                     }
 
                     if (isFailure) {
-                        failureCount++;
+                        if (!isSynthetic) {
+                            failureCount++;
+                        }
                         var note = fallbackAct ? " [" + fallbackAct + "]" : "";
                         var desc = targetPath ? targetPath + note + (evMsg ? ": " + evMsg : "") : (evMsg || "Asset verification failure");
                         addLogEntry("ERROR", desc);
@@ -1133,7 +1136,9 @@
                         if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
                     } else if (evType === "STAGE" || evType === "AUDIT" || ev.stage) {
                         totalPassedCount++;
-                        validCount++;
+                        if (!isSynthetic) {
+                            validCount++;
+                        }
                         var stageDesc = STAGE_LABELS[ev.stage] || ev.stage || evType;
                         var displayMsg = targetPath ? stageDesc + ": " + targetPath : (evMsg || stageDesc);
                         addLogEntry("AUDIT", displayMsg);
@@ -1141,7 +1146,9 @@
                         if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
                     } else {
                         totalPassedCount++;
-                        validCount++;
+                        if (!isSynthetic) {
+                            validCount++;
+                        }
                         if (targetPath) {
                             var stageDesc2 = STAGE_LABELS[ev.stage] || ev.stage || "Verified";
                             addLogEntry("AUDIT", stageDesc2 + ": " + targetPath);
