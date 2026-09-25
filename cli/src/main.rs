@@ -3,7 +3,8 @@ mod audit_command;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use runtimepack_core::asset_audit::{
-    AssetAuditOptions, AssetAuditorRegistry, AuditMode, AuditOutcome,
+    render_canonical_artifacts, write_audit_artifacts, AssetAuditOptions, AssetAuditorRegistry,
+    AuditMode, AuditOutcome,
 };
 use runtimepack_core::build_plan::{
     evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
@@ -615,11 +616,14 @@ fn cmd_build(args: BuildArgs) {
             rationale: record.rationale.clone(),
         })
         .collect();
-    let audit_json = serde_json::to_vec_pretty(&audit_report).unwrap_or_else(|error| {
-        eprintln!("[CMP-AUD-010] Failed to serialize asset audit report: {error}");
-        std::process::exit(1);
-    });
-    let audit_hash = format!("{:x}", Sha256::digest(&audit_json));
+    let audit_artifacts = match render_canonical_artifacts(&audit_report) {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            eprintln!("[CMP-AUD-010] Failed to render canonical asset audit report: {error}");
+            std::process::exit(1);
+        }
+    };
+    let audit_hash = audit_artifacts.report_sha256.clone();
     let runtime = runtimes[0];
     println!(
         "Audit:         {:?} ({:?})",
@@ -903,7 +907,10 @@ fn cmd_build(args: BuildArgs) {
 
     let report_json = serde_json::to_string_pretty(&report).unwrap();
     fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
-    fs::write(output.join("asset-audit-report.json"), &audit_json).unwrap();
+    if let Err(error) = write_audit_artifacts(output, &audit_artifacts) {
+        eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
+        std::process::exit(1);
+    }
 
     // Checksums
     let mut checksums = format!(

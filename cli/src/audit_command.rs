@@ -97,19 +97,73 @@ pub fn run(
         allow_network: request.allow_network,
         ..AssetAuditOptions::default()
     };
-    let report =
-        crate::create_default_asset_auditor_registry().audit(&source_index, &descriptor, &options);
-    let json = serde_json::to_vec_pretty(&report)
-        .map_err(|error| format!("[CMP-AUD-010] Failed to serialize audit report: {error}"))?;
-    context.write_report(&output, &json).map_err(|error| {
-        format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
-    })?;
+
+    let cache_key = runtimepack_core::asset_audit::AuditCacheKey::new(
+        &source_index.source_hash,
+        descriptor.id,
+        mode,
+        runtimepack_core::asset_audit::CURRENT_AUDIT_RULESET_VERSION,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .with_limits(options.limits.clone());
+
+    let cache = runtimepack_core::asset_audit::AuditCache::new(
+        runtimepack_core::asset_audit::AuditCache::default_dir(),
+    );
+    let cache_usable = cache.validate_outside_source(&source_root).is_ok();
+
+    let (artifacts, outcome) = if cache_usable {
+        if let Some(cached) = cache.get(&cache_key) {
+            let outcome = serde_json::from_slice::<serde_json::Value>(&cached.report_json)
+                .ok()
+                .and_then(|val| {
+                    val.get("outcome")
+                        .and_then(|o| serde_json::from_value(o.clone()).ok())
+                })
+                .unwrap_or(AuditOutcome::Pass);
+            (cached, outcome)
+        } else {
+            let report = crate::create_default_asset_auditor_registry().audit(
+                &source_index,
+                &descriptor,
+                &options,
+            );
+            let rendered = runtimepack_core::asset_audit::render_canonical_artifacts(&report)
+                .map_err(|e| {
+                    format!("[CMP-AUD-010] Failed to render canonical audit artifacts: {e}")
+                })?;
+            let _ = cache.put(&cache_key, &rendered);
+            (rendered, report.outcome)
+        }
+    } else {
+        let report = crate::create_default_asset_auditor_registry().audit(
+            &source_index,
+            &descriptor,
+            &options,
+        );
+        let rendered =
+            runtimepack_core::asset_audit::render_canonical_artifacts(&report).map_err(|e| {
+                format!("[CMP-AUD-010] Failed to render canonical audit artifacts: {e}")
+            })?;
+        (rendered, report.outcome)
+    };
+
+    context
+        .write_report(&output, &artifacts.report_json)
+        .map_err(|error| {
+            format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
+        })?;
+
+    let graph_output = output.with_file_name("asset-dependency-graph.json");
+    if graph_output != output {
+        let _ = context.write_report(&graph_output, &artifacts.graph_json);
+    }
 
     Ok(AuditSummary {
         engine: descriptor.id,
         mode,
         allow_network: request.allow_network,
-        outcome: report.outcome,
+        outcome,
         output,
     })
 }
@@ -169,7 +223,9 @@ fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let (temporary, mut file) = create_unique_sibling(path)?;
     let result = (|| {
         file.write_all(contents)?;
-        file.write_all(b"\n")?;
+        if !contents.ends_with(b"\n") {
+            file.write_all(b"\n")?;
+        }
         file.flush()?;
         file.sync_all()?;
         drop(file);

@@ -1,7 +1,11 @@
+mod cache;
 mod graph;
+mod report;
 mod resolver;
 
+pub use cache::*;
 pub use graph::*;
+pub use report::*;
 pub use resolver::*;
 
 use crate::detection::EngineDescriptor;
