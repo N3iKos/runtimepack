@@ -31,6 +31,7 @@ object AssetAuditService {
     }
 
     fun recordEvent(event: RuntimeAuditEvent): RuntimeAuditEvent {
+        cachedReport = null
         val finalEvent = if (event.sequence_id <= 0L) {
             val nextSeq = sequenceIdGenerator.incrementAndGet()
             event.copy(sequence_id = nextSeq)
@@ -56,6 +57,7 @@ object AssetAuditService {
         errorMessage: String? = null,
         sourceLocation: String? = null
     ): RuntimeAuditEvent {
+        cachedReport = null
         val nextSeq = sequenceIdGenerator.incrementAndGet()
         val event = RuntimeAuditEvent(
             sequence_id = nextSeq,
@@ -120,8 +122,11 @@ object AssetAuditService {
     }
 
     fun persistReport(baseDir: File? = null): File {
-        val targetBase = baseDir ?: baseFilesDir ?: File("runtime-state")
-        val auditDir = File(targetBase, "runtime-state/audit")
+        val auditDir = when {
+            baseDir != null -> File(baseDir, "runtime-state/audit")
+            baseFilesDir != null -> File(baseFilesDir, "runtime-state/audit")
+            else -> File("runtime-state/audit")
+        }
         if (!auditDir.exists()) {
             auditDir.mkdirs()
         }
@@ -165,6 +170,10 @@ object AssetAuditService {
     fun getAuditEvents(afterSeq: Long): String {
         val events = getEvents(afterSeq)
         return "[" + events.joinToString(",") { it.toJson() } + "]"
+    }
+
+    fun getAuditReport(): String {
+        return getReport()?.toJson() ?: "{}"
     }
 
     fun cancelAudit(): Boolean {

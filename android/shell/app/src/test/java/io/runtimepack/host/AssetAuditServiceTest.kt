@@ -158,4 +158,47 @@ class AssetAuditServiceTest {
         )
         assertEquals(1L, newEv.sequence_id)
     }
+
+    @Test
+    fun testGetAuditReportReturnsJson() {
+        assertEquals("{}", AssetAuditService.getAuditReport())
+
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_EXISTS,
+            assetPath = "audio/bgm/Theme.ogg",
+            outcome = RuntimeAuditOutcome.PASS
+        )
+
+        val reportJson = AssetAuditService.getAuditReport()
+        assertTrue("Report JSON should contain audit_id", reportJson.contains("\"audit_id\""))
+        assertTrue("Report JSON should contain outcome PASS", reportJson.contains("\"outcome\":\"PASS\""))
+        assertTrue("Report JSON should contain total_events: 1", reportJson.contains("\"total_events\":1"))
+    }
+
+    @Test
+    fun testRecordEventInvalidatesCachedReport() {
+        val rootDir = tempFolder.newFolder("cache_invalidation_test")
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_EXISTS,
+            assetPath = "asset1.png",
+            outcome = RuntimeAuditOutcome.PASS
+        )
+
+        // Persist report caches the current report
+        AssetAuditService.persistReport(rootDir)
+        val initialReport = AssetAuditService.getReport()
+        assertNotNull(initialReport)
+        assertEquals(1, initialReport?.total_events)
+
+        // Record a second event - must invalidate cached report
+        AssetAuditService.recordEvent(
+            stage = RuntimeAuditStage.FILE_READABLE,
+            assetPath = "asset2.png",
+            outcome = RuntimeAuditOutcome.PASS
+        )
+
+        val updatedReport = AssetAuditService.getReport()
+        assertNotNull(updatedReport)
+        assertEquals("New event must invalidate cache and update total_events", 2, updatedReport?.total_events)
+    }
 }

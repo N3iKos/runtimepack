@@ -963,17 +963,131 @@
 
             var pollCount = 0;
             var lastSeenLine = "";
+            var lastEventSeq = 0;
+            var failureCount = 0;
+            var totalPassedCount = 0;
+
+            var STAGE_LABELS = {
+                "REFERENCE_FOUND": "Reference Found",
+                "PATH_RESOLVED": "Path Resolved",
+                "FILE_EXISTS": "VFS File Exists",
+                "FILE_READABLE": "File Readable",
+                "INTEGRITY_VERIFIED": "Integrity Verified",
+                "DECODE_SUCCESS": "Decode Succeeded",
+                "ENGINE_LOAD_SUCCESS": "Engine Load Succeeded",
+                "RUNTIME_USE_SUCCESS": "Runtime Use Verified"
+            };
 
             if (auditPollInterval) clearInterval(auditPollInterval);
 
             auditPollInterval = setInterval(function () {
                 pollCount++;
+                var rawEvents = null;
                 var rawProgress = "";
 
-                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditProgress === "function") {
-                    rawProgress = globalObj.RuntimePackVPad.getAuditProgress() || "";
-                } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditProgress === "function") {
-                    rawProgress = globalObj.RuntimePackWeb.getAuditProgress() || "";
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditEvents === "function") {
+                    rawEvents = globalObj.RuntimePackVPad.getAuditEvents(lastEventSeq);
+                } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditEvents === "function") {
+                    rawEvents = globalObj.RuntimePackWeb.getAuditEvents(lastEventSeq);
+                }
+
+                if (!rawEvents || rawEvents === "[]" || rawEvents.length === 0) {
+                    if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditProgress === "function") {
+                        rawProgress = globalObj.RuntimePackVPad.getAuditProgress() || "";
+                    } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditProgress === "function") {
+                        rawProgress = globalObj.RuntimePackWeb.getAuditProgress() || "";
+                    }
+                }
+
+                function handleEventItem(ev) {
+                    var seq = ev.sequence_id || ev.sequenceId || 0;
+                    if (seq > lastEventSeq) lastEventSeq = seq;
+
+                    var evType = (ev.type || ev.event || ev.stage || "").toUpperCase();
+                    var evOutcome = (ev.outcome || ev.status || "").toUpperCase();
+                    var evMsg = ev.message || ev.error_message || ev.errorMessage || ev.text || "";
+                    var targetPath = ev.asset_path || ev.assetPath || "";
+                    var fallbackAct = ev.fallback_action || ev.fallbackAction || "";
+
+                    var isFailure = (evOutcome === "FAIL" || evOutcome === "FAILED" || !!fallbackAct || evType === "FAIL" || evType === "ERROR");
+                    var isDone = (evType === "DONE" || ev.is_complete === true || ev.isComplete === true);
+
+                    if (isDone) {
+                        var doneMsg = evMsg || (failureCount > 0
+                            ? "Audit Complete: " + failureCount + " issue(s) detected."
+                            : "Audit Complete: All references verified.");
+                        if (failureCount > 0) {
+                            addLogEntry("WARN", doneMsg);
+                            if (stStatus) stStatus.textContent = "Audit Complete with " + failureCount + " failure(s).";
+                            if (badge) {
+                                badge.textContent = "FAILED";
+                                badge.style.background = "#dc2626";
+                                badge.style.color = "#ffffff";
+                            }
+                        } else {
+                            addLogEntry("SUCCESS", doneMsg);
+                            if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
+                            if (badge) {
+                                badge.textContent = "COMPLETED";
+                                badge.style.background = "#16a34a";
+                                badge.style.color = "#ffffff";
+                            }
+                        }
+                        if (pbar) pbar.style.width = "100%";
+                        isStressTestRunning = false;
+                        clearInterval(auditPollInterval);
+                        auditPollInterval = null;
+                        return;
+                    }
+
+                    if (isFailure) {
+                        failureCount++;
+                        var note = fallbackAct ? " [" + fallbackAct + "]" : "";
+                        var desc = targetPath ? targetPath + note + (evMsg ? ": " + evMsg : "") : (evMsg || "Asset verification failure");
+                        addLogEntry("ERROR", desc);
+                        if (stStatus) {
+                            stStatus.textContent = "Scanning... (" + failureCount + " failure" + (failureCount > 1 ? "s" : "") + " detected)";
+                        }
+                        if (badge) {
+                            badge.textContent = "ISSUES (" + failureCount + ")";
+                            badge.style.background = "#dc2626";
+                            badge.style.color = "#ffffff";
+                        }
+                        return;
+                    }
+
+                    if (evType === "START") {
+                        addLogEntry("PROGRESS", evMsg || "Audit started");
+                        if (pbar) pbar.style.width = (ev.pct ? ev.pct + "%" : "15%");
+                    } else if (evType === "PROGRESS" || evType === "SCAN") {
+                        addLogEntry("SCAN", evMsg || "Scanning project assets...");
+                        if (stStatus && failureCount === 0) stStatus.textContent = evMsg || "Scanning project assets...";
+                        if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
+                    } else if (evType === "STAGE" || evType === "AUDIT" || ev.stage) {
+                        totalPassedCount++;
+                        var stageDesc = STAGE_LABELS[ev.stage] || ev.stage || evType;
+                        var displayMsg = targetPath ? stageDesc + ": " + targetPath : (evMsg || stageDesc);
+                        addLogEntry("AUDIT", displayMsg);
+                        if (stStatus && failureCount === 0) stStatus.textContent = displayMsg;
+                        if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
+                    } else {
+                        totalPassedCount++;
+                        if (targetPath) {
+                            var stageDesc2 = STAGE_LABELS[ev.stage] || ev.stage || "Verified";
+                            addLogEntry("AUDIT", stageDesc2 + ": " + targetPath);
+                        }
+                    }
+                }
+
+                if (rawEvents && rawEvents.trim().length > 0 && rawEvents.trim() !== "[]") {
+                    try {
+                        var parsedEvents = JSON.parse(rawEvents.trim());
+                        var evList = Array.isArray(parsedEvents) ? parsedEvents : [parsedEvents];
+                        evList.forEach(function (ev) {
+                            handleEventItem(ev);
+                        });
+                    } catch (e) {
+                    }
                 }
 
                 if (rawProgress && rawProgress.trim().length > 0) {
@@ -985,45 +1099,7 @@
                             var parsed = JSON.parse(trimmed);
                             var events = Array.isArray(parsed) ? parsed : [parsed];
                             events.forEach(function (ev) {
-                                var evType = (ev.type || ev.event || ev.stage || "").toUpperCase();
-                                var evOutcome = (ev.outcome || ev.status || "").toUpperCase();
-                                var evMsg = ev.message || ev.error_message || ev.text || ev.asset_path || "";
-
-                                if (evOutcome === "FAIL" || evOutcome === "FAILED" || evType === "FAIL" || evType === "ERROR" || evType === "FAILED") {
-                                    addLogEntry("ERROR", evMsg || "Audit failed with errors.");
-                                    if (stStatus) stStatus.textContent = "Audit Failed: " + (evMsg || "Errors detected");
-                                    if (badge) {
-                                        badge.textContent = "FAILED";
-                                        badge.style.background = "#dc2626";
-                                        badge.style.color = "#ffffff";
-                                    }
-                                    isStressTestRunning = false;
-                                    clearInterval(auditPollInterval);
-                                    auditPollInterval = null;
-                                } else if (evType === "START") {
-                                    addLogEntry("PROGRESS", evMsg || "Audit started");
-                                    if (pbar) pbar.style.width = (ev.pct ? ev.pct + "%" : "15%");
-                                } else if (evType === "PROGRESS" || evType === "SCAN") {
-                                    addLogEntry("SCAN", evMsg || "Scanning project assets...");
-                                    if (stStatus) stStatus.textContent = evMsg || "Scanning project assets...";
-                                    if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
-                                } else if (evType === "STAGE" || evType === "AUDIT") {
-                                    addLogEntry("AUDIT", evMsg || ("Validating stage " + evType));
-                                    if (stStatus) stStatus.textContent = evMsg || ("Validating: " + evType);
-                                    if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
-                                } else if (evType === "DONE" || evOutcome === "PASS" || evOutcome === "COMPLETED") {
-                                    addLogEntry("SUCCESS", evMsg || "Audit completed successfully.");
-                                    if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
-                                    if (badge) {
-                                        badge.textContent = "COMPLETED";
-                                        badge.style.background = "#16a34a";
-                                        badge.style.color = "#ffffff";
-                                    }
-                                    if (pbar) pbar.style.width = "100%";
-                                    isStressTestRunning = false;
-                                    clearInterval(auditPollInterval);
-                                    auditPollInterval = null;
-                                }
+                                handleEventItem(ev);
                             });
                         } catch (e) {
                             isJson = false;
@@ -1042,15 +1118,15 @@
                             } else if (line.indexOf("PROGRESS:") === 0) {
                                 var progText = line.replace(/^PROGRESS:\s*/, "");
                                 addLogEntry("SCAN", progText);
-                                if (stStatus) stStatus.textContent = progText;
+                                if (stStatus && failureCount === 0) stStatus.textContent = progText;
                             } else if (line.indexOf("STAGE:") === 0) {
                                 var stageText = line.replace(/^STAGE:\s*/, "");
                                 addLogEntry("AUDIT", stageText);
-                                if (stStatus) stStatus.textContent = stageText;
+                                if (stStatus && failureCount === 0) stStatus.textContent = stageText;
                             } else if (line.indexOf("MAP:") === 0) {
                                 var mapText = line.replace(/^MAP:\s*/, "");
                                 addLogEntry("SCAN", mapText);
-                                if (stStatus) stStatus.textContent = mapText;
+                                if (stStatus && failureCount === 0) stStatus.textContent = mapText;
                                 var m = line.match(/\((\d+)\/(\d+)\)/);
                                 if (m && pbar) {
                                     var cur = parseInt(m[1], 10);
@@ -1061,28 +1137,38 @@
                             } else if (line.indexOf("DATABASE:") === 0) {
                                 var dbText = line.replace(/^DATABASE:\s*/, "");
                                 addLogEntry("AUDIT", dbText);
-                                if (stStatus) stStatus.textContent = dbText;
+                                if (stStatus && failureCount === 0) stStatus.textContent = dbText;
                                 if (pbar) pbar.style.width = "85%";
                             } else if (line.indexOf("FAIL:") === 0 || line.indexOf("ERROR:") === 0) {
+                                failureCount++;
                                 var errText = line.replace(/^(FAIL|ERROR):\s*/, "");
                                 addLogEntry("ERROR", errText);
-                                if (stStatus) stStatus.textContent = "Audit Failed: " + errText;
+                                if (stStatus) {
+                                    stStatus.textContent = "Scanning... (" + failureCount + " failure" + (failureCount > 1 ? "s" : "") + " detected)";
+                                }
                                 if (badge) {
-                                    badge.textContent = "FAILED";
+                                    badge.textContent = "ISSUES (" + failureCount + ")";
                                     badge.style.background = "#dc2626";
                                     badge.style.color = "#ffffff";
                                 }
-                                isStressTestRunning = false;
-                                clearInterval(auditPollInterval);
-                                auditPollInterval = null;
                             } else if (line.indexOf("DONE:") === 0) {
                                 var doneText = line.replace(/^DONE:\s*/, "");
-                                addLogEntry("SUCCESS", doneText);
-                                if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
-                                if (badge) {
-                                    badge.textContent = "COMPLETED";
-                                    badge.style.background = "#16a34a";
-                                    badge.style.color = "#ffffff";
+                                if (failureCount > 0) {
+                                    addLogEntry("WARN", "Audit Complete: " + failureCount + " failure(s) detected. " + doneText);
+                                    if (stStatus) stStatus.textContent = "Audit Complete with " + failureCount + " failure(s).";
+                                    if (badge) {
+                                        badge.textContent = "FAILED";
+                                        badge.style.background = "#dc2626";
+                                        badge.style.color = "#ffffff";
+                                    }
+                                } else {
+                                    addLogEntry("SUCCESS", doneText);
+                                    if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
+                                    if (badge) {
+                                        badge.textContent = "COMPLETED";
+                                        badge.style.background = "#16a34a";
+                                        badge.style.color = "#ffffff";
+                                    }
                                 }
                                 if (pbar) pbar.style.width = "100%";
                                 isStressTestRunning = false;
@@ -1099,14 +1185,16 @@
                     auditPollInterval = null;
                     if (pbar) pbar.style.width = "100%";
                     if (badge && badge.textContent !== "COMPLETED" && badge.textContent !== "FAILED") {
-                        badge.textContent = "TIMEOUT";
-                        badge.style.background = "#eab308";
-                        badge.style.color = "#000000";
+                        badge.textContent = failureCount > 0 ? "FAILED" : "TIMEOUT";
+                        badge.style.background = failureCount > 0 ? "#dc2626" : "#eab308";
+                        badge.style.color = failureCount > 0 ? "#ffffff" : "#000000";
                     }
                     if (stStatus && stStatus.textContent !== "Audit Completed Successfully.") {
-                        stStatus.textContent = "Audit timed out. Status: INDETERMINATE";
+                        stStatus.textContent = failureCount > 0
+                            ? "Audit timed out with " + failureCount + " failure(s). Status: FAIL"
+                            : "Audit timed out. Status: INDETERMINATE";
                     }
-                    addLogEntry("WARN", "Audit timed out after 15s with no completion signal. Status: INDETERMINATE");
+                    addLogEntry("WARN", "Audit timed out after 15s with no completion signal. Status: " + (failureCount > 0 ? "FAIL" : "INDETERMINATE"));
                 }
             }, 250);
         },

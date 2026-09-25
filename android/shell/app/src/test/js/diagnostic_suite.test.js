@@ -304,9 +304,9 @@ function createDOMContext() {
     assert(badge.textContent === "TIMEOUT" || badge.textContent === "INDETERMINATE", `Badge should be TIMEOUT or INDETERMINATE on timeout, got: ${badge.textContent}`);
 }
 
-// Test 6: Structured JSON Events Parsing & Error Handling
+// Test 6: Structured JSON Events Parsing & Error Handling (Continues Scanning on Failure)
 {
-    console.log("Test 6: Structured JSON Events Parsing & Error Handling");
+    console.log("Test 6: Structured JSON Events Parsing & Error Handling (Continues Scanning on Failure)");
     const { sandbox } = createDOMContext();
 
     let intervalCallback = null;
@@ -336,10 +336,22 @@ function createDOMContext() {
     intervalCallback();
     assert.strictEqual(pbar.style.width, "15%");
 
-    // Step 2: FAIL event
-    mockProgress = JSON.stringify([{ type: "FAIL", message: "Corrupted audio chunk", outcome: "FAIL" }]);
+    // Step 2: Asset FAIL event - should increment issues but NOT abort interval
+    mockProgress = JSON.stringify([{ outcome: "FAIL", asset_path: "audio/se/Crash.ogg", error_message: "Corrupted audio chunk" }]);
     intervalCallback();
-    assert.strictEqual(badge.textContent, "FAILED", "Badge must be FAILED on error event");
+    assert.strictEqual(badge.textContent, "ISSUES (1)", "Badge must show ISSUES (1)");
+    assert.notStrictEqual(intervalCallback, null, "Audit must NOT abort on individual asset failure");
+
+    // Step 3: Subsequent PASS event - should continue scanning
+    mockProgress = JSON.stringify([{ stage: "FILE_READABLE", outcome: "PASS", asset_path: "audio/bgm/Theme.ogg" }]);
+    intervalCallback();
+    assert.notStrictEqual(intervalCallback, null, "Audit must still be scanning");
+
+    // Step 4: DONE event - should complete and mark overall outcome as FAILED due to earlier issue
+    mockProgress = JSON.stringify([{ type: "DONE", message: "All maps scanned" }]);
+    intervalCallback();
+    assert.strictEqual(badge.textContent, "FAILED", "Final badge must be FAILED due to earlier issue");
+    assert.strictEqual(intervalCallback, null, "Interval must be cleared on DONE");
 }
 
 // Test 7: Structured Line Events (START, STAGE, DONE)
@@ -377,6 +389,101 @@ function createDOMContext() {
 
     assert.strictEqual(badge.textContent, "COMPLETED", "Badge must be COMPLETED on DONE");
     assert.strictEqual(pbar.style.width, "100%", "Progress bar should reach 100% on DONE");
+}
+
+// Test 8: Stream of Passing Events Does NOT Prematurely Stop Audit
+{
+    console.log("Test 8: Stream of Passing Events Does NOT Prematurely Stop Audit");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 101;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    let mockProgress = "";
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditProgress: function () { return mockProgress; }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    const badge = sandbox.document.getElementById("diag-step-badge");
+
+    // Feed multiple PASS events
+    for (let i = 1; i <= 5; i++) {
+        mockProgress = JSON.stringify([{
+            stage: "FILE_READABLE",
+            outcome: "PASS",
+            asset_path: `img/characters/Hero_${i}.png`
+        }]);
+        intervalCallback();
+        assert.notStrictEqual(intervalCallback, null, `Passing event ${i} must not stop audit`);
+        assert.notStrictEqual(badge.textContent, "COMPLETED", `Passing event ${i} must not mark COMPLETED`);
+    }
+
+    // Now send explicit DONE
+    mockProgress = JSON.stringify([{ type: "DONE", message: "Audit complete" }]);
+    intervalCallback();
+    assert.strictEqual(badge.textContent, "COMPLETED", "Badge must be COMPLETED only on DONE");
+    assert.strictEqual(intervalCallback, null, "Audit should stop after DONE");
+}
+
+// Test 9: getAuditEvents Bridge Queries with lastEventSeq
+{
+    console.log("Test 9: getAuditEvents Bridge Queries with lastEventSeq");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 202;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    let requestedSeq = -1;
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditEvents: function (afterSeq) {
+            requestedSeq = afterSeq;
+            if (afterSeq === 0) {
+                return JSON.stringify([
+                    { sequence_id: 1, stage: "FILE_EXISTS", outcome: "PASS", asset_path: "data/System.json" },
+                    { sequence_id: 2, stage: "FILE_READABLE", outcome: "PASS", asset_path: "data/System.json" }
+                ]);
+            } else if (afterSeq === 2) {
+                return JSON.stringify([
+                    { sequence_id: 3, type: "DONE", message: "Finished" }
+                ]);
+            }
+            return "[]";
+        }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    const badge = sandbox.document.getElementById("diag-step-badge");
+
+    // First poll (afterSeq = 0)
+    intervalCallback();
+    assert.strictEqual(requestedSeq, 0);
+    assert.notStrictEqual(badge.textContent, "COMPLETED");
+
+    // Second poll (afterSeq should now be 2)
+    intervalCallback();
+    assert.strictEqual(requestedSeq, 2);
+    assert.strictEqual(badge.textContent, "COMPLETED");
 }
 
 console.log("All Diagnostic Suite JS unit tests passed successfully!");
