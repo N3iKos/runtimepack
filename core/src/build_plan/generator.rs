@@ -356,7 +356,7 @@ dependencies {{
         if vpad_path.exists() {
             let mut vpad_content = fs::read_to_string(&vpad_path)?;
             if is_beta {
-                // 1. In vpad.js HTML template:
+                // In vpad.js HTML template:
                 if let Some(start_idx) = vpad_content.find("<div id=\"fnh-watermark\">") {
                     if let Some(outer_end) = vpad_content[start_idx..].find("<!-- Top Left") {
                         let before = &vpad_content[..start_idx];
@@ -371,16 +371,6 @@ dependencies {{
                             before = &vpad_content[..start_idx],
                             after = &vpad_content[end_idx..]
                         );
-                    }
-                }
-
-                // 2. In vpad.js CSS:
-                let beta_css = "\n            #fnh-watermark { display: block !important; opacity: 0.8 !important; pointer-events: none; }\n";
-                if !vpad_content.contains("opacity: 0.8 !important") {
-                    if let Some(style_idx) = vpad_content.find("/* Watermark Top-Right") {
-                        vpad_content.insert_str(style_idx, beta_css);
-                    } else {
-                        vpad_content.push_str(beta_css);
                     }
                 }
             } else {
@@ -401,15 +391,23 @@ dependencies {{
                         );
                     }
                 }
-
-                let release_css = "\n            #fnh-watermark { display: none !important; }\n            #fnh-watermark * { display: none !important; }\n";
-                if let Some(style_idx) = vpad_content.find("/* Watermark Top-Right") {
-                    vpad_content.insert_str(style_idx, release_css);
-                } else {
-                    vpad_content.push_str(release_css);
-                }
             }
             fs::write(&vpad_path, vpad_content)?;
+        }
+
+        let vpad_css_path = overlay_dir.join("vpad.css");
+        if vpad_css_path.exists() {
+            let mut css_content = fs::read_to_string(&vpad_css_path)?;
+            if is_beta {
+                let beta_wm_css = "\n#fnh-watermark { display: block !important; opacity: 0.8 !important; pointer-events: none; }\n";
+                if !css_content.contains("opacity: 0.8 !important") {
+                    css_content.push_str(beta_wm_css);
+                }
+            } else {
+                let release_wm_css = "\n#fnh-watermark { display: none !important; }\n#fnh-watermark * { display: none !important; }\n";
+                css_content.push_str(release_wm_css);
+            }
+            fs::write(&vpad_css_path, css_content)?;
         }
 
         if index_path.exists() {

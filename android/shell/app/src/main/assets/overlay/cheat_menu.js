@@ -193,6 +193,8 @@
                 overflow: hidden;
                 user-select: none;
                 -webkit-user-select: none;
+                pointer-events: auto !important;
+                touch-action: none !important;
             }
 
             /* Header */
@@ -205,6 +207,8 @@
                 border-bottom: 1px solid #27272a;
                 cursor: grab;
                 flex-shrink: 0;
+                pointer-events: auto !important;
+                touch-action: none !important;
             }
             .fnh-cheat-title {
                 font-size: 13px;
@@ -245,12 +249,14 @@
                 border-bottom: 1px solid #27272a;
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
+                touch-action: pan-x;
                 scrollbar-width: none;
                 flex-shrink: 0;
             }
             #fnh-cheat-tabs::-webkit-scrollbar { display: none; }
             .fnh-cheat-tab {
                 flex: 1;
+                flex-shrink: 0;
                 min-width: 78px;
                 padding: 10px 4px;
                 text-align: center;
@@ -444,6 +450,7 @@
                 border-bottom: 1px solid #27272a;
                 margin-bottom: 8px;
                 -webkit-overflow-scrolling: touch;
+                touch-action: pan-x;
             }
             .fnh-cat-btn {
                 display: inline-flex;
@@ -459,6 +466,7 @@
                 cursor: pointer;
                 white-space: nowrap;
                 transition: all 0.15s ease;
+                flex-shrink: 0;
             }
             .fnh-cat-btn svg {
                 width: 13px;
@@ -1166,7 +1174,13 @@
         overlay.style.display = "flex";
         isMenuOpen = true;
 
-        if (globalObj.RuntimePackVPad && globalObj.RuntimePackVPad.setOverlayModalOpen) {
+        if (typeof globalObj.setModalState === "function") {
+            globalObj.setModalState("cheat", true);
+        } else if (typeof globalObj.registerModal === "function") {
+            globalObj.registerModal("cheat", true);
+        } else if (globalObj.RuntimePackOverlayPanels) {
+            globalObj.RuntimePackOverlayPanels.open("cheat");
+        } else if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.setOverlayModalOpen === "function") {
             globalObj.RuntimePackVPad.setOverlayModalOpen(true);
         }
 
@@ -1181,7 +1195,13 @@
         overlay.style.display = "none";
         isMenuOpen = false;
 
-        if (globalObj.RuntimePackVPad && globalObj.RuntimePackVPad.setOverlayModalOpen) {
+        if (typeof globalObj.setModalState === "function") {
+            globalObj.setModalState("cheat", false);
+        } else if (typeof globalObj.registerModal === "function") {
+            globalObj.registerModal("cheat", false);
+        } else if (globalObj.RuntimePackOverlayPanels) {
+            globalObj.RuntimePackOverlayPanels.close("cheat");
+        } else if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.setOverlayModalOpen === "function") {
             globalObj.RuntimePackVPad.setOverlayModalOpen(false);
         }
 
@@ -1189,16 +1209,32 @@
         if (cheatBtn) cheatBtn.classList.remove("active");
     }
 
+    const THEME_CYCLE = ["clean", "retro", "matte"];
+
     function toggleTheme() {
         if (typeof document === "undefined") return;
-        const isRetro = document.body.classList.contains("vpad-theme-retro");
-        const nextTheme = isRetro ? "clean" : "retro";
+        let current = "clean";
+        if (document.body.classList.contains("vpad-theme-retro")) current = "retro";
+        else if (document.body.classList.contains("vpad-theme-matte")) current = "matte";
+        else if (document.body.classList.contains("vpad-theme-clean")) current = "clean";
+
+        const nextIdx = (THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length;
+        const nextTheme = THEME_CYCLE[nextIdx];
+
         if (typeof globalObj.applyVpadTheme === "function") {
             globalObj.applyVpadTheme(nextTheme);
         } else {
+            document.body.classList.remove("vpad-theme-clean", "vpad-theme-matte", "vpad-theme-retro");
+            document.body.classList.add("vpad-theme-" + nextTheme);
             document.body.classList.toggle("vpad-theme-retro", nextTheme === "retro");
         }
-        showToast("UI Theme: " + (nextTheme === "retro" ? "Retro OSD (Orange)" : "Clean Slate"));
+
+        const themeLabels = {
+            clean: "Minimalist Glass",
+            matte: "Minimalist Matte",
+            retro: "Retro OSD"
+        };
+        showToast("UI Theme: " + (themeLabels[nextTheme] || nextTheme));
     }
 
     // ------------------------------------------------------------------------
@@ -1206,6 +1242,7 @@
     // ------------------------------------------------------------------------
     function initCheatDOM() {
         if (typeof document === "undefined") return;
+        if (document.getElementById("fnh-cheat-overlay")) return;
         injectStyles();
 
         let topBar = document.getElementById("vpad-topbar");
@@ -1239,11 +1276,7 @@
             cheatBtn.innerHTML = `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
             attachTap(cheatBtn, function () { CheatMenu.toggle(); });
             topBar.appendChild(cheatBtn);
-        } else {
-            attachTap(cheatBtn, function () { CheatMenu.toggle(); });
         }
-
-        if (document.getElementById("fnh-cheat-overlay")) return;
 
         const modal = document.createElement("div");
         modal.id = "fnh-cheat-overlay";
@@ -1351,6 +1384,8 @@
             </div>
         `;
         document.body.appendChild(modal);
+        modal.addEventListener("pointerdown", (e) => e.stopPropagation());
+        modal.addEventListener("pointerup", (e) => e.stopPropagation());
 
         // Header and Modal Buttons
         const closeBtn = document.getElementById("fnh-cheat-close-btn");
@@ -1627,26 +1662,72 @@
         }
 
         if (header) {
+            header.style.touchAction = "none";
+
+            const isIgnoredTarget = (target) => {
+                return target.id === "fnh-cheat-close-btn" ||
+                       target.id === "btn-cheat-theme-toggle" ||
+                       target.id === "btn-cheat-mode-toggle" ||
+                       (target.closest && (target.closest("#fnh-cheat-close-btn") || target.closest("#btn-cheat-theme-toggle") || target.closest("#btn-cheat-mode-toggle")));
+            };
+
+            header.addEventListener("pointerdown", (e) => {
+                if (isIgnoredTarget(e.target)) return;
+                try {
+                    if (header.setPointerCapture) {
+                        header.setPointerCapture(e.pointerId);
+                    }
+                } catch (err) {}
+                startDrag(e.clientX, e.clientY);
+            });
+
+            header.addEventListener("pointermove", (e) => {
+                if (isDragging) {
+                    moveDrag(e.clientX, e.clientY);
+                }
+            });
+
+            const onPointerUp = (e) => {
+                if (isDragging) {
+                    try {
+                        if (header.releasePointerCapture) {
+                            header.releasePointerCapture(e.pointerId);
+                        }
+                    } catch (err) {}
+                    isDragging = false;
+                }
+            };
+            header.addEventListener("pointerup", onPointerUp);
+            header.addEventListener("pointercancel", onPointerUp);
+
             header.addEventListener("mousedown", (e) => {
-                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle" || e.target.id === "btn-cheat-mode-toggle") return;
+                if (globalObj.PointerEvent) return;
+                if (isIgnoredTarget(e.target)) return;
+                e.preventDefault();
                 startDrag(e.clientX, e.clientY);
             });
             header.addEventListener("touchstart", (e) => {
-                if (e.target.id === "fnh-cheat-close-btn" || e.target.id === "btn-cheat-theme-toggle" || e.target.id === "btn-cheat-mode-toggle") return;
+                if (globalObj.PointerEvent) return;
+                if (isIgnoredTarget(e.target)) return;
                 if (e.touches && e.touches.length === 1) {
+                    e.preventDefault();
                     startDrag(e.touches[0].clientX, e.touches[0].clientY);
                 }
-            }, { passive: true });
+            }, { passive: false });
         }
 
         document.addEventListener("mousemove", (e) => {
-            if (isDragging) moveDrag(e.clientX, e.clientY);
+            if (!globalObj.PointerEvent && isDragging) {
+                e.preventDefault();
+                moveDrag(e.clientX, e.clientY);
+            }
         });
         document.addEventListener("touchmove", (e) => {
-            if (isDragging && e.touches && e.touches.length === 1) {
+            if (!globalObj.PointerEvent && isDragging && e.touches && e.touches.length === 1) {
+                e.preventDefault();
                 moveDrag(e.touches[0].clientX, e.touches[0].clientY);
             }
-        }, { passive: true });
+        }, { passive: false });
 
         const endDrag = () => { isDragging = false; };
         document.addEventListener("mouseup", endDrag);

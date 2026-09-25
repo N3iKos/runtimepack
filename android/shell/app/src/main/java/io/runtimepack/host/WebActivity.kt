@@ -127,10 +127,10 @@ open class WebActivity : Activity() {
             isGamepadHidden: Boolean,
             isOverlayModalOpen: Boolean
         ): Boolean {
-            if (isTouchInsideToolbar(x, y, density)) {
+            if (isOverlayModalOpen) {
                 return true
             }
-            if (isOverlayModalOpen && isTouchInsideModal(x, y, screenWidth, screenHeight, density)) {
+            if (isTouchInsideToolbar(x, y, density)) {
                 return true
             }
             if (!isGamepadHidden && isTouchInsideVirtualGamepad(x, y, screenWidth, screenHeight, density)) {
@@ -149,9 +149,33 @@ open class WebActivity : Activity() {
             isGamepadHidden: Boolean,
             isOverlayModalOpen: Boolean
         ): Boolean {
+            if (isOverlayModalOpen) {
+                return false
+            }
             return !isTouchOnActiveControls(
                 x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen
             )
+        }
+
+        @JvmStatic
+        fun resolveGestureCapturedByGame(
+            actionMasked: Int,
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float,
+            isGamepadHidden: Boolean,
+            isOverlayModalOpen: Boolean,
+            wasCapturedByGame: Boolean
+        ): Boolean {
+            return if (actionMasked == MotionEvent.ACTION_DOWN) {
+                shouldForwardTouchToGame(
+                    x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen
+                )
+            } else {
+                wasCapturedByGame
+            }
         }
     }
 
@@ -536,6 +560,9 @@ open class WebActivity : Activity() {
             @JavascriptInterface
             fun setOverlayModalOpen(open: Boolean) {
                 this@WebActivity.isOverlayModalOpen = open
+                if (open) {
+                    isTouchCapturedByGame = false
+                }
                 if (!open) {
                     runOnUiThread { gameWebView?.requestFocus() }
                 }
@@ -642,17 +669,17 @@ open class WebActivity : Activity() {
         val screenHeight = resources.displayMetrics.heightPixels.toFloat()
 
         val action = event.actionMasked
-        if (action == MotionEvent.ACTION_DOWN) {
-            isTouchCapturedByGame = shouldForwardTouchToGame(
-                event.x,
-                event.y,
-                screenWidth,
-                screenHeight,
-                density,
-                isGamepadHidden,
-                isOverlayModalOpen
-            )
-        }
+        isTouchCapturedByGame = resolveGestureCapturedByGame(
+            action,
+            event.x,
+            event.y,
+            screenWidth,
+            screenHeight,
+            density,
+            isGamepadHidden,
+            isOverlayModalOpen,
+            isTouchCapturedByGame
+        )
 
         if (isTouchCapturedByGame) {
             try {

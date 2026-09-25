@@ -2,7 +2,8 @@
 // Direct In-Game Controller Layout Editor (Winlator / JoiPlay Style Overlay)
 // for RPG Maker MV & MZ Android Ports.
 //
-// Canonical Baseline: Standard Default Layout with Full English UI & 2 Themes
+// Modernized iOS-Style Spring Physics & 3-State Floating Toolbar Architecture
+// Themes: Sleek Cyber Glass, Minimalist Matte Tactile, Retro OSD
 // Author: SHIRAI & Venora Community
 // ============================================================================
 
@@ -142,7 +143,7 @@
         { code: 222, name: "' (Quote)", defaultLabel: "'" }
     ];
 
-    // Hook TouchInput RPG Maker agar tidak memblokir event touch/scrolling pada UI overlay editor
+    // Hook TouchInput RPG Maker agar tidak memblokir event touch pada UI overlay editor
     function hookTouchInput(ti) {
         if (!ti || ti._vpadHooked) return;
         ti._vpadHooked = true;
@@ -192,8 +193,7 @@
         hookInput(window.Input);
     }
 
-    // Notify the native host whether an overlay text field currently holds focus,
-    // so hardware keys reach SDL unless the user is typing into the overlay.
+    // Notify native host whether overlay text field currently holds focus
     function setupOverlayTextFocusBridge() {
         if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
         if (document._vpadTextFocusBridgeInstalled) return;
@@ -211,8 +211,6 @@
         document.addEventListener("focusout", (event) => {
             if (isTextInput(event.target)) notify(false);
         });
-        // Defensive resets: a torn-down/paused/hidden WebView must not leave the
-        // native flag stuck on, or hardware keys would never reach the game again.
         if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
             window.addEventListener("blur", () => notify(false));
         }
@@ -222,9 +220,6 @@
     }
     setupOverlayTextFocusBridge();
 
-    // ------------------------------------------------------------------------
-    // Clean Metrics State Helper (Decoupled from Tamper Watchdog)
-    // ------------------------------------------------------------------------
     if (typeof window !== "undefined") {
         window.__renderMetricsState = function(seed) {
             return ((seed * 1664525 + 1013904223) ^ 0x5A5AA5A5) >>> 0;
@@ -243,7 +238,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 2. The 5 Initial Preset Templates
+    // 2. The 5 Presets Templates
     // ------------------------------------------------------------------------
     const TEMPLATE_PRESET_1 = [
         { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.10, cy: 0.84, scale: 1.0, opacity: 0.75, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
@@ -304,7 +299,8 @@
     };
 
     const THEMES = {
-        clean: { id: "clean", name: "Clean Slate" },
+        clean: { id: "clean", name: "Minimalist Glass" },
+        matte: { id: "matte", name: "Minimalist Matte" },
         retro: { id: "retro", name: "Retro OSD" }
     };
 
@@ -396,12 +392,77 @@
     let ignoreNextDeselect = false;
     let inspectorCooldown = 0;
 
+    // 3-State Floating Toolbar Cycle:
+    // State 1: Default / Idle (Single Gamepad icon, submenu collapsed)
+    // State 2: Expanded (Menu opens showing Cheat, Link, Pad, Gear, Diag; Trigger shows ^)
+    // State 3: Standby (Submenu collapses; Trigger shows Eye)
+    // State 3 -> State 1: Clicking Eye hides all gamepad controls; Trigger returns to Gamepad icon.
+    let toolbarCycleState = 1;
+
     let dragState = {
         type: null,
         targetId: null,
         startX: 0, startY: 0,
         initLeft: 0, initTop: 0
     };
+
+    const modalRegistry = (typeof window !== "undefined" && window.RuntimePackModalRegistry instanceof Set)
+        ? window.RuntimePackModalRegistry
+        : new Set();
+
+    function normalizePanelId(id) {
+        if (!id) return "";
+        if (id === "diagnostic") return "diag";
+        if (id === "custom-control") return "custom_control";
+        return id;
+    }
+
+    function syncOverlayModalState() {
+        const reg = (typeof window !== "undefined" && window.RuntimePackModalRegistry instanceof Set)
+            ? window.RuntimePackModalRegistry
+            : modalRegistry;
+        if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.setOverlayModalOpen) {
+            window.RuntimePackVPad.setOverlayModalOpen(reg.size > 0);
+        }
+    }
+
+    function setModalState(id, isOpen) {
+        if (!id) return;
+        const normId = normalizePanelId(id);
+        const reg = (typeof window !== "undefined" && window.RuntimePackModalRegistry instanceof Set)
+            ? window.RuntimePackModalRegistry
+            : modalRegistry;
+        const previousSize = reg.size;
+        if (isOpen) {
+            reg.add(normId);
+        } else {
+            reg.delete(normId);
+            if (normId !== id) reg.delete(id);
+            if (normId === "diag") reg.delete("diagnostic");
+            if (normId === "custom_control") reg.delete("custom-control");
+        }
+        if (reg.size !== previousSize) {
+            syncOverlayModalState();
+        }
+    }
+
+    function registerModal(id, isOpen) {
+        setModalState(id, isOpen !== false);
+    }
+
+    if (typeof window !== "undefined") {
+        window.RuntimePackModalRegistry = modalRegistry;
+        window.setModalState = setModalState;
+        window.registerModal = registerModal;
+        window.RuntimePackOverlayPanels = {
+            open: (id) => setModalState(id, true),
+            close: (id) => setModalState(id, false),
+            size: () => {
+                const reg = (window.RuntimePackModalRegistry instanceof Set) ? window.RuntimePackModalRegistry : modalRegistry;
+                return reg.size;
+            }
+        };
+    }
 
     function pressKey(keyCode) {
         if (!keyCode) return;
@@ -455,21 +516,153 @@
         }
     }
 
+    let collapseGuardTimestamp = 0;
+
     function bindTap(el, callback) {
         if (!el) return;
-        let lastTap = 0;
+        let activePointerId = null;
+        let startX = 0, startY = 0;
+        let isPressed = false;
+        let hasPointerMoved = false;
+        let lastHandledTime = 0;
+
         const trigger = (e) => {
+            if (Date.now() < collapseGuardTimestamp) return;
             e.stopPropagation();
             if (e.preventDefault && e.cancelable) e.preventDefault();
-            const now = Date.now();
-            if (now - lastTap < 220) return;
-            lastTap = now;
             callback(e);
         };
-        el.addEventListener("touchstart", trigger, { passive: false });
-        el.addEventListener("mousedown", trigger);
-        el.addEventListener("pointerdown", trigger);
-        el.addEventListener("click", trigger);
+
+        if (typeof window !== "undefined" && window.PointerEvent) {
+            el.addEventListener("pointerdown", (e) => {
+                if (Date.now() < collapseGuardTimestamp) {
+                    e.stopPropagation();
+                    if (e.preventDefault && e.cancelable) e.preventDefault();
+                    return;
+                }
+                activePointerId = e.pointerId;
+                startX = e.clientX;
+                startY = e.clientY;
+                isPressed = true;
+                hasPointerMoved = false;
+                el.classList.add("vpad-btn-pressed");
+                try {
+                    if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+                } catch (_) {}
+                e.stopPropagation();
+                if (e.preventDefault && e.cancelable) e.preventDefault();
+            });
+
+            el.addEventListener("pointermove", (e) => {
+                if (!isPressed || e.pointerId !== activePointerId) return;
+                const dx = Math.abs(e.clientX - startX);
+                const dy = Math.abs(e.clientY - startY);
+                if (dx > 10 || dy > 10) {
+                    hasPointerMoved = true;
+                    isPressed = false;
+                    el.classList.remove("vpad-btn-pressed");
+                }
+            });
+
+            const onPointerEnd = (e) => {
+                if (e.pointerId !== activePointerId) return;
+                try {
+                    if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
+                } catch (_) {}
+                const wasValid = isPressed && !hasPointerMoved;
+                isPressed = false;
+                activePointerId = null;
+                el.classList.remove("vpad-btn-pressed");
+
+                if (wasValid) {
+                    const dx = Math.abs(e.clientX - startX);
+                    const dy = Math.abs(e.clientY - startY);
+                    if (dx <= 10 && dy <= 10) {
+                        lastHandledTime = Date.now();
+                        trigger(e);
+                    }
+                }
+            };
+
+            el.addEventListener("pointerup", onPointerEnd);
+            el.addEventListener("pointercancel", (e) => {
+                if (e.pointerId === activePointerId) {
+                    try {
+                        if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
+                    } catch (_) {}
+                    isPressed = false;
+                    activePointerId = null;
+                    el.classList.remove("vpad-btn-pressed");
+                }
+            });
+
+            el.addEventListener("click", (e) => {
+                if (Date.now() - lastHandledTime < 500) {
+                    e.stopPropagation();
+                    if (e.preventDefault && e.cancelable) e.preventDefault();
+                }
+            });
+            el.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (e.preventDefault && e.cancelable) e.preventDefault();
+                isPressed = false;
+                activePointerId = null;
+                el.classList.remove("vpad-btn-pressed");
+                if (hasPointerMoved) {
+                    hasPointerMoved = false;
+                    return;
+                }
+                if (Date.now() - lastHandledTime < 500) {
+                    return;
+                }
+                lastHandledTime = Date.now();
+                trigger(e);
+            });
+        } else if (typeof window !== "undefined" && "ontouchstart" in window) {
+            let touchStartX = 0, touchStartY = 0, touchMoved = false;
+            el.addEventListener("touchstart", (e) => {
+                if (Date.now() < collapseGuardTimestamp) {
+                    e.stopPropagation();
+                    return;
+                }
+                if (e.touches && e.touches[0]) {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                }
+                touchMoved = false;
+                el.classList.add("vpad-btn-pressed");
+                e.stopPropagation();
+            }, { passive: false });
+
+            el.addEventListener("touchmove", (e) => {
+                if (e.touches && e.touches[0]) {
+                    const dx = Math.abs(e.touches[0].clientX - touchStartX);
+                    const dy = Math.abs(e.touches[0].clientY - touchStartY);
+                    if (dx > 10 || dy > 10) {
+                        touchMoved = true;
+                        el.classList.remove("vpad-btn-pressed");
+                    }
+                }
+            }, { passive: true });
+
+            el.addEventListener("touchend", (e) => {
+                el.classList.remove("vpad-btn-pressed");
+                if (!touchMoved) {
+                    lastHandledTime = Date.now();
+                    trigger(e);
+                }
+            }, { passive: false });
+
+            el.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (e.preventDefault && e.cancelable) e.preventDefault();
+                if (Date.now() - lastHandledTime < 500) return;
+                lastHandledTime = Date.now();
+                trigger(e);
+            });
+        } else {
+            el.addEventListener("click", trigger);
+        }
     }
 
     function bindScrollItemTap(el, callback) {
@@ -508,770 +701,72 @@
     }
 
     // ------------------------------------------------------------------------
-    // 5. CSS Styles Injection (With 2 Themes Support)
+    // 5. CSS Link & Fallback Injection
     // ------------------------------------------------------------------------
-    function injectStyles() {
-        if (document.getElementById("vpad-styles")) return;
-        const style = document.createElement("style");
-        style.id = "vpad-styles";
-        style.textContent = `
-            #vpad-root {
-                position: fixed;
-                top: 0; left: 0; right: 0; bottom: 0;
-                width: 100%; height: 100%;
-                overflow: hidden !important;
-                scrollbar-width: none !important;
-                -ms-overflow-style: none !important;
-                pointer-events: none;
-                z-index: 99999;
-                user-select: none;
-                -webkit-user-select: none;
-                -webkit-touch-callout: none !important;
-                -webkit-tap-highlight-color: transparent !important;
-                outline: none !important;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            }
-            #vpad-root ::-webkit-scrollbar {
-                display: none !important;
-                width: 0 !important;
-                height: 0 !important;
-            }
-            #vpad-root *, .vpad-btn, .vpad-control-item, .vpad-top-btn {
-                -webkit-tap-highlight-color: transparent !important;
-                -webkit-touch-callout: none !important;
-                outline: none !important;
-            }
-            .vpad-btn:focus, .vpad-btn:active, .vpad-btn:focus-visible,
-            .vpad-control-item:focus, .vpad-control-item:active,
-            .vpad-top-btn:focus, .vpad-top-btn:active {
-                outline: none !important;
-                -webkit-tap-highlight-color: transparent !important;
-            }
-
-            /* Watermark Top-Right: Hidden in normal gameplay, visible only in Edit Mode */
-            #fnh-watermark {
-                position: fixed;
-                top: max(14px, env(safe-area-inset-top, 14px));
-                right: max(20px, calc(env(safe-area-inset-right, 0px) + 12px));
-                pointer-events: none;
-                z-index: 99999;
-                display: none;
-                opacity: 0;
-                color: #f4f4f5;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                font-size: 11px;
-                line-height: 1.35;
-                text-align: right;
-                font-weight: 500;
-                text-shadow: 1px 1px 2px #000, 0 0 4px #000;
-                transition: opacity 0.25s ease;
-            }
-            .vpad-edit-mode #fnh-watermark {
-                display: block !important;
-                opacity: 0.75 !important;
-            }
-            body.vpad-theme-retro #fnh-watermark {
-                font-family: Consolas, "Roboto Mono", "Courier New", monospace !important;
-                letter-spacing: 0.5px !important;
-                color: #ffaa44 !important;
-                text-shadow: 1px 1px 2px #000, 0 0 6px rgba(255, 119, 0, 0.6) !important;
-            }
-
-            /* Top Left Vertical Toolbar: Closer to Edge & 10% Smaller (34px, gap 7px) */
-            #vpad-topbar {
-                position: absolute;
-                top: max(10px, env(safe-area-inset-top, 10px));
-                left: max(12px, calc(env(safe-area-inset-left, 0px) + 6px));
-                display: flex;
-                flex-direction: column;
-                gap: 7px;
-                pointer-events: auto;
-                z-index: 100002;
-            }
-            .vpad-top-btn {
-                width: 34px; height: 34px;
-                border-radius: 50%;
-                background: rgba(26, 26, 32, 0.7);
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                color: #e4e4e7;
-                display: flex; align-items: center; justify-content: center;
-                cursor: pointer;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
-                transition: transform 0.1s ease, background 0.15s ease, opacity 0.2s ease, border-color 0.2s;
-                opacity: 0.8;
-                touch-action: none;
-            }
-            .vpad-top-btn:active {
-                transform: scale(0.9);
-                background: rgba(60, 60, 75, 0.8);
-            }
-            .vpad-top-btn.active {
-                background: #0088cc;
-                border-color: #38bdf8;
-                color: #fff;
-                box-shadow: 0 0 10px rgba(0, 180, 255, 0.8);
-                opacity: 1;
-            }
-            .vpad-top-btn svg {
-                width: 16px; height: 16px;
-                stroke: currentColor;
-                fill: none;
-                stroke-width: 2;
-                stroke-linecap: round;
-                stroke-linejoin: round;
-                pointer-events: none;
-            }
-            #vpad-btn-cheat {
-                color: #f59e0b;
-            }
-            #vpad-btn-link {
-                color: #06b6d4;
-            }
-
-            /* Controls Container */
-            #vpad-controls {
-                position: absolute;
-                top: 0; left: 0;
-                width: 100%; height: 100%;
-                pointer-events: none;
-                transition: opacity 0.2s ease;
-            }
-            #vpad-controls.vpad-hidden {
-                display: none !important;
-            }
-
-            /* Glassmorphism Buttons (Canonical Styling) */
-            .vpad-btn {
-                pointer-events: auto;
-                user-select: none;
-                -webkit-user-select: none;
-                touch-action: none;
-                position: absolute;
-                display: flex; align-items: center; justify-content: center;
-                font-weight: bold;
-                color: #ffffff;
-                background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(20, 20, 30, 0.5));
-                border: 1.5px solid rgba(255, 255, 255, 0.28);
-                border-radius: 50%;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                cursor: pointer;
-                transition: transform 0.05s ease, background 0.1s ease, border-color 0.1s;
-                transform-origin: center center;
-            }
-            .vpad-btn:active, .vpad-btn.active {
-                transform: scale(0.92);
-                background: linear-gradient(145deg, rgba(255, 255, 255, 0.4), rgba(50, 50, 70, 0.7));
-                border-color: #ffffff;
-                box-shadow: 0 0 16px rgba(255, 255, 255, 0.6);
-            }
-            .vpad-btn-green {
-                background: linear-gradient(145deg, rgba(46, 204, 113, 0.35), rgba(20, 40, 30, 0.55));
-                border-color: rgba(46, 204, 113, 0.7);
-                color: #eafff2;
-            }
-            .vpad-btn-green:active, .vpad-btn-green.active {
-                background: #27ae60;
-                border-color: #a8ffcc;
-                box-shadow: 0 0 16px rgba(46, 204, 113, 0.8);
-            }
-            .vpad-btn-red {
-                background: linear-gradient(145deg, rgba(231, 76, 60, 0.35), rgba(40, 20, 20, 0.55));
-                border-color: rgba(231, 76, 60, 0.7);
-                color: #ffeaea;
-            }
-            .vpad-btn-red:active, .vpad-btn-red.active {
-                background: #c0392b;
-                border-color: #ffaaaa;
-                box-shadow: 0 0 16px rgba(231, 76, 60, 0.8);
-            }
-            .vpad-btn-yellow {
-                background: linear-gradient(145deg, rgba(241, 196, 15, 0.35), rgba(40, 35, 15, 0.55));
-                border-color: rgba(241, 196, 15, 0.7);
-                color: #fffdea;
-            }
-            .vpad-btn-yellow:active, .vpad-btn-yellow.active {
-                background: #d4ac0d;
-                border-color: #fff4a8;
-                box-shadow: 0 0 16px rgba(241, 196, 15, 0.8);
-            }
-            .vpad-btn-util {
-                border-radius: 12px;
-                background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(30, 35, 45, 0.6));
-                border-color: rgba(255, 255, 255, 0.22);
-                font-size: 11px;
-            }
-
-            /* D-Pad 8-Direction */
-            .vpad-dpad-container {
-                position: absolute;
-                pointer-events: auto;
-                user-select: none;
-                -webkit-user-select: none;
-                touch-action: none;
-                background: radial-gradient(circle, rgba(25, 28, 38, 0.75) 0%, rgba(10, 12, 18, 0.85) 75%);
-                border: 2px solid rgba(255, 255, 255, 0.25);
-                border-radius: 50%;
-                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                transform-origin: center center;
-            }
-            .vpad-dpad-arrow {
-                position: absolute;
-                display: flex; align-items: center; justify-content: center;
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 18px;
-                transition: transform 0.05s ease, color 0.1s, text-shadow 0.1s;
-                pointer-events: none;
-            }
-            .vpad-dpad-arrow.active {
-                color: #4df0ff;
-                text-shadow: 0 0 10px #4df0ff;
-            }
-            .vpad-dpad-up    { top: 6px; left: 50%; transform: translateX(-50%); }
-            .vpad-dpad-down  { bottom: 6px; left: 50%; transform: translateX(-50%); }
-            .vpad-dpad-left  { left: 6px; top: 50%; transform: translateY(-50%); }
-            .vpad-dpad-right { right: 6px; top: 50%; transform: translateY(-50%); }
-
-            .vpad-dpad-up.active    { transform: translateX(-50%) scale(1.22) !important; }
-            .vpad-dpad-down.active  { transform: translateX(-50%) scale(1.22) !important; }
-            .vpad-dpad-left.active  { transform: translateY(-50%) scale(1.22) !important; }
-            .vpad-dpad-right.active { transform: translateY(-50%) scale(1.22) !important; }
-            .vpad-dpad-center {
-                position: absolute;
-                top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                width: 32%; height: 32%;
-                background: rgba(255, 255, 255, 0.06);
-                border-radius: 50%;
-                pointer-events: none;
-            }
-
-            /* Analog Joystick */
-            .vpad-joystick-container {
-                position: absolute;
-                pointer-events: auto;
-                user-select: none;
-                -webkit-user-select: none;
-                touch-action: none;
-                background: radial-gradient(circle, rgba(30, 35, 48, 0.75) 0%, rgba(12, 14, 22, 0.85) 75%);
-                border: 2px solid rgba(255, 255, 255, 0.25);
-                border-radius: 50%;
-                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                transform-origin: center center;
-            }
-            .vpad-joystick-inner-ring {
-                position: absolute;
-                top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                width: 50%; height: 50%;
-                border: 1px dashed rgba(255, 255, 255, 0.15);
-                border-radius: 50%;
-                pointer-events: none;
-            }
-            .vpad-joystick-stick {
-                position: absolute;
-                top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                width: 44%; height: 44%;
-                background: radial-gradient(circle at 35% 35%, #4a5568, #1a202c);
-                border: 2px solid rgba(255, 255, 255, 0.4);
-                border-radius: 50%;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.6);
-                pointer-events: none;
-                transition: border-color 0.1s;
-            }
-            .vpad-joystick-container.active .vpad-joystick-stick {
-                border-color: #4df0ff;
-                box-shadow: 0 0 14px rgba(77, 240, 255, 0.7);
-            }
-
-            /* Edit Mode Highlights */
-            .vpad-edit-mode .vpad-control-item {
-                outline: 2px dashed rgba(255, 255, 255, 0.4);
-                outline-offset: 3px;
-                cursor: grab;
-            }
-            .vpad-edit-mode .vpad-control-item.vpad-selected {
-                outline: 2.5px solid #4df0ff !important;
-                box-shadow: 0 0 14px rgba(77, 240, 255, 0.8) !important;
-            }
-
-            /* Floating Draggable Toolbar */
-            #vpad-editor-bar {
-                position: fixed;
-                display: none;
-                align-items: center;
-                gap: 6px;
-                padding: 6px 12px;
-                background: rgba(18, 20, 26, 0.94);
-                border: 1.5px solid #4df0ff;
-                backdrop-filter: blur(14px);
-                -webkit-backdrop-filter: blur(14px);
-                border-radius: 18px;
-                pointer-events: auto;
-                z-index: 100003;
-                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
-                touch-action: none;
-            }
-            #vpad-editor-bar.show {
-                display: flex !important;
-            }
-            .vpad-bar-drag-handle {
-                cursor: move;
-                color: #4df0ff;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 2px 6px;
-                user-select: none;
-                touch-action: none;
-            }
-            .vpad-bar-btn {
-                padding: 5px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                border-radius: 10px;
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                background: rgba(38, 42, 54, 0.85);
-                color: #fff;
-                cursor: pointer;
-                touch-action: none;
-                display: flex; align-items: center; gap: 4px;
-            }
-            .vpad-bar-btn:active {
-                transform: scale(0.93);
-            }
-            .vpad-bar-done {
-                background: #0088cc;
-                border-color: #38bdf8;
-                color: #fff;
-            }
-
-            /* Popover Dropdowns (Presets & Themes) */
-            .vpad-popover {
-                position: fixed;
-                display: none;
-                background: rgba(18, 20, 26, 0.98);
-                border: 1.5px solid #4df0ff;
-                border-radius: 10px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.8);
-                z-index: 100008;
-                pointer-events: auto;
-                min-width: 190px;
-                overflow: hidden;
-            }
-            .vpad-popover.show {
-                display: block !important;
-            }
-            .vpad-popover-item {
-                padding: 8px 12px;
-                font-size: 12px;
-                color: #ddd;
-                border-bottom: 1px solid rgba(255,255,255,0.08);
-                cursor: pointer;
-                display: flex; align-items: center; justify-content: space-between;
-            }
-            .vpad-popover-item:last-child {
-                border-bottom: none;
-            }
-            .vpad-popover-item.active {
-                background: #0088cc;
-                color: #fff;
-                font-weight: bold;
-            }
-
-            /* Floating Inspector Property Panel */
-            #vpad-prop-panel {
-                position: fixed;
-                width: 250px;
-                background: rgba(18, 20, 26, 0.94);
-                border: 1.5px solid rgba(77, 240, 255, 0.5);
-                backdrop-filter: blur(14px);
-                -webkit-backdrop-filter: blur(14px);
-                border-radius: 12px;
-                color: #fff;
-                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7);
-                pointer-events: auto;
-                z-index: 100004;
-                display: none;
-                font-size: 12px;
-                touch-action: none;
-            }
-            #vpad-prop-panel.show {
-                display: block !important;
-            }
-            .vpad-prop-header {
-                padding: 8px 12px;
-                background: rgba(28, 32, 44, 0.9);
-                border-top-left-radius: 10px;
-                border-top-right-radius: 10px;
-                display: flex; align-items: center; justify-content: space-between;
-                cursor: move;
-                font-weight: bold;
-                color: #4df0ff;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-                touch-action: none;
-            }
-            .vpad-prop-body {
-                padding: 10px 12px;
-            }
-            .vpad-prop-row {
-                margin-bottom: 10px;
-            }
-            .vpad-prop-label {
-                display: flex; justify-content: space-between;
-                color: #bbb; margin-bottom: 5px;
-                font-size: 11px;
-            }
-
-            /* Touch Sliders */
-            .vpad-touch-slider-track {
-                position: relative;
-                width: 100%; height: 18px;
-                background: rgba(40, 45, 58, 0.85);
-                border: 1.5px solid rgba(255, 255, 255, 0.2);
-                border-radius: 9px;
-                cursor: pointer;
-                touch-action: none;
-                margin: 4px 0;
-            }
-            .vpad-slider-fill {
-                position: absolute;
-                top: 0; left: 0; height: 100%;
-                background: linear-gradient(90deg, #0088cc, #4df0ff);
-                border-radius: 9px;
-                pointer-events: none;
-            }
-            .vpad-slider-knob {
-                position: absolute;
-                top: 50%;
-                width: 22px; height: 22px;
-                border-radius: 50%;
-                background: #ffffff;
-                border: 2.5px solid #0099ff;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.7);
-                transform: translate(-50%, -50%);
-                pointer-events: none;
-            }
-            .vpad-prop-actions {
-                display: flex; gap: 6px; margin-top: 10px;
-            }
-            .vpad-prop-btn {
-                flex: 1;
-                padding: 7px 6px;
-                font-size: 11px;
-                font-weight: 600;
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,0.2);
-                background: rgba(45, 50, 65, 0.85);
-                color: #fff;
-                text-align: center;
-                cursor: pointer;
-                touch-action: none;
-                transition: background 0.15s, border-color 0.15s;
-            }
-            .vpad-prop-btn.danger {
-                background: rgba(185, 30, 40, 0.85);
-                border-color: #f87171;
-            }
-            .vpad-prop-btn.danger-confirm {
-                background: #dc2626 !important;
-                border-color: #fca5a5 !important;
-                animation: vpad-pulse 0.8s infinite alternate;
-            }
-            @keyframes vpad-pulse {
-                from { box-shadow: 0 0 4px #dc2626; }
-                to { box-shadow: 0 0 14px #ef4444; }
-            }
-
-            /* Modal: 3-Layer Flexbox (Fixed Header, Scroll Body, Sticky Footer) */
-            #vpad-key-modal {
-                position: fixed;
-                top: 0; left: 0;
-                width: 100vw; height: 100vh;
-                background: rgba(0, 0, 0, 0.8);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                display: none;
-                align-items: center; justify-content: center;
-                pointer-events: auto;
-                z-index: 100010;
-            }
-            #vpad-key-modal.show {
-                display: flex !important;
-            }
-            .vpad-modal-box {
-                width: 90%;
-                max-width: 440px;
-                max-height: 85vh;
-                background: rgba(18, 20, 26, 0.98);
-                border: 1.5px solid #4df0ff;
-                border-radius: 12px;
-                padding: 14px;
-                color: #fff;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-            }
-            .vpad-modal-header {
-                flex-shrink: 0;
-                display: flex; justify-content: space-between; align-items: center;
-                font-weight: bold; color: #4df0ff; font-size: 14px;
-                padding-bottom: 6px;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            .vpad-modal-body {
-                flex: 1;
-                overflow-y: auto;
-                touch-action: pan-y;
-                -webkit-overflow-scrolling: touch;
-                padding-right: 4px;
-                margin-top: 6px;
-            }
-            .vpad-modal-footer {
-                flex-shrink: 0;
-                display: flex; gap: 8px;
-                margin-top: 10px;
-                padding-top: 8px;
-                border-top: 1px solid rgba(255,255,255,0.1);
-            }
-            /* Segmented Control Selector */
-            .vpad-segmented-group {
-                display: flex;
-                gap: 4px;
-                margin-top: 5px;
-                background: #101218;
-                padding: 3px;
-                border-radius: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-            }
-            .vpad-segmented-btn {
-                flex: 1;
-                padding: 7px 4px;
-                font-size: 11px;
-                font-weight: 600;
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 6px;
-                color: #a1a1aa;
-                cursor: pointer;
-                text-align: center;
-                transition: all 0.15s ease;
-                touch-action: none;
-            }
-            .vpad-segmented-btn.active {
-                background: #0088cc;
-                border-color: #38bdf8;
-                color: #ffffff;
-                box-shadow: 0 2px 8px rgba(0, 136, 204, 0.4);
-            }
-            body.vpad-theme-retro .vpad-segmented-group {
-                background: #000000 !important;
-                border: 1px solid #333 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .vpad-segmented-btn {
-                border-radius: 2px !important;
-                color: #888 !important;
-                font-family: Consolas, monospace !important;
-            }
-            body.vpad-theme-retro .vpad-segmented-btn.active {
-                background: #ff7700 !important;
-                border-color: #ffa244 !important;
-                color: #000000 !important;
-                font-weight: bold !important;
-                box-shadow: 0 0 10px rgba(255, 119, 0, 0.5) !important;
-            }
-
-            .vpad-input-field {
-                width: 100%;
-                padding: 8px 10px;
-                background: #12141a;
-                color: #fff;
-                border: 1px solid #4df0ff;
-                border-radius: 6px;
-                margin-top: 4px;
-                font-size: 13px;
-                box-sizing: border-box;
-            }
-            .vpad-modal-scroll-area {
-                margin: 8px 0;
-                max-height: 180px;
-                overflow-y: auto !important;
-                touch-action: pan-y !important;
-                -webkit-overflow-scrolling: touch;
-                border: 1.5px solid rgba(77, 240, 255, 0.3);
-                border-radius: 8px;
-                padding: 6px;
-                background: rgba(10, 12, 16, 0.75);
-            }
-            .vpad-picker-grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 6px;
-            }
-            .vpad-picker-item {
-                padding: 8px 4px;
-                font-size: 11px;
-                text-align: center;
-                background: rgba(35, 40, 52, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 6px;
-                cursor: pointer;
-                touch-action: pan-y;
-            }
-            .vpad-picker-item.active {
-                background: #0088cc;
-                border-color: #4df0ff;
-                font-weight: bold;
-                color: #fff;
-            }
-
-            /* ================================================================
-               THEME 2: RETRO OSD (ORANGE TERMINAL) OVERRIDES
-               ================================================================ */
-            body.vpad-theme-retro #vpad-root,
-            body.vpad-theme-retro #vpad-editor-bar,
-            body.vpad-theme-retro #vpad-prop-panel,
-            body.vpad-theme-retro .vpad-popover,
-            body.vpad-theme-retro .vpad-modal-box {
-                font-family: Consolas, "Roboto Mono", "Courier New", monospace !important;
-            }
-            body.vpad-theme-retro #vpad-editor-bar {
-                background: #0a0a0c !important;
-                border: 1.5px solid #ff7700 !important;
-                border-radius: 2px !important;
-                box-shadow: 0 0 16px rgba(255, 119, 0, 0.25) !important;
-            }
-            body.vpad-theme-retro .vpad-bar-drag-handle {
-                color: #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-bar-btn {
-                background: #141418 !important;
-                border: 1px solid #444 !important;
-                border-radius: 2px !important;
-                color: #e6e6e6 !important;
-            }
-            body.vpad-theme-retro .vpad-bar-done {
-                background: #ff7700 !important;
-                border-color: #ffa244 !important;
-                color: #000 !important;
-                font-weight: bold !important;
-            }
-            body.vpad-theme-retro .vpad-popover {
-                background: #0a0a0c !important;
-                border: 1.5px solid #ff7700 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .vpad-popover-item.active {
-                background: #ff7700 !important;
-                color: #000 !important;
-                font-weight: bold !important;
-            }
-            body.vpad-theme-retro #vpad-prop-panel {
-                background: #0a0a0c !important;
-                border: 1.5px solid #ff7700 !important;
-                border-radius: 2px !important;
-                box-shadow: 0 0 18px rgba(255, 119, 0, 0.2) !important;
-            }
-            body.vpad-theme-retro .vpad-prop-header {
-                background: #15151b !important;
-                color: #ff7700 !important;
-                border-radius: 0 !important;
-                border-bottom: 1px solid #333 !important;
-            }
-            body.vpad-theme-retro .vpad-slider-fill {
-                background: #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-slider-knob {
-                border-color: #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-prop-btn {
-                background: #141418 !important;
-                border: 1px solid #444 !important;
-                border-radius: 2px !important;
-                color: #e6e6e6 !important;
-            }
-            body.vpad-theme-retro .vpad-modal-box {
-                background: #0a0a0c !important;
-                border: 1.5px solid #ff7700 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .vpad-modal-header {
-                color: #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-input-field {
-                border-color: #ff7700 !important;
-                background: #000 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .vpad-picker-item.active {
-                background: #ff7700 !important;
-                color: #000 !important;
-                border-color: #ffa244 !important;
-                font-weight: bold !important;
-            }
-            body.vpad-theme-retro .vpad-dpad-arrow.active {
-                color: #ff7700 !important;
-                text-shadow: 0 0 10px #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-top-btn {
-                background: #0a0a0c !important;
-                border-color: #333 !important;
-                color: #ff7700 !important;
-            }
-            body.vpad-theme-retro .vpad-top-btn.active {
-                border-color: #ff7700 !important;
-                box-shadow: 0 0 10px rgba(255, 119, 0, 0.7) !important;
-            }
-            body.vpad-theme-retro #vpad-btn-cheat {
-                color: #ffa244 !important;
-            }
-            body.vpad-theme-retro #vpad-btn-link {
-                color: #ff7700 !important;
-            }
-        `;
-        document.head.appendChild(style);
+    function ensureStylesheet() {
+        if (typeof document === "undefined" || !document.head) return;
+        const hasCss = document.querySelector('link[href*="vpad.css"]');
+        if (!hasCss) {
+            const link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = "vpad.css";
+            document.head.appendChild(link);
+        }
     }
 
     // ------------------------------------------------------------------------
-    // 6. DOM Creation & Structure
+    // 6. SVG Icons for 3-State Machine
+    // ------------------------------------------------------------------------
+    const SVG_ICONS = {
+        gamepad: `<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4m-2-2v4m7-2h.01m3 0h.01"/></svg>`,
+        chevronUp: `<svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>`,
+        eye: `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+        eyeOff: `<svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+        cheat: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+        link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+        gear: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M9.5 2h5l.6 2.8a7.7 7.7 0 0 1 1.8 1l2.6-1.2 2.5 4.3-2 2a7.7 7.7 0 0 1 0 2.2l2 2-2.5 4.3-2.6 1.2a7.7 7.7 0 0 1-1.8 1L14.5 22h-5l-.6-2.8a7.7 7.7 0 0 1-1.8-1l-2.6 1.2-2.5-4.3 2-2a7.7 7.7 0 0 1 0-2.2l-2-2 2.5-4.3 2.6 1.2a7.7 7.7 0 0 1 1.8-1L9.5 2Z"/></svg>`,
+        diag: `<svg viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
+    };
+
+    // /* Watermark Top-Right */
+    // ------------------------------------------------------------------------
+    // 7. DOM Creation & Structure
     // ------------------------------------------------------------------------
     function createOverlay() {
+        if (typeof document === "undefined" || !document.body) return;
         if (document.getElementById("vpad-root")) return;
-        injectStyles();
+        ensureStylesheet();
 
         const root = document.createElement("div");
         root.id = "vpad-root";
 
         root.innerHTML = `
-            <!-- Watermark Top-Right: Shown only in Layout Edit Mode -->
-            <div id="fnh-watermark">
-                <div>RuntimePack Overlay</div>
-            </div>
+            <div id="fnh-watermark"></div>
 
-            <!-- Top Left Vertical Toolbar (34px, 10% smaller, Inline SVGs) -->
+            <!-- Top Left Floating Toolbar with iOS Origin-Based Spring -->
             <div id="vpad-topbar">
-                <div id="vpad-btn-toggle" class="vpad-top-btn" title="Toggle Gamepad">
-                    <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4m-2-2v4m7-2h.01m3 0h.01"/></svg>
+                <!-- Main Toggle Trigger Button -->
+                <div id="vpad-main-trigger-btn" title="Toggle Controls Menu">
+                    ${SVG_ICONS.gamepad}
                 </div>
-                <div id="vpad-btn-gear" class="vpad-top-btn" title="Layout Editor">
-                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                </div>
-                <div id="vpad-btn-cheat" class="vpad-top-btn cheat-interactive" title="Cheat Menu">
-                    <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                </div>
-                <div id="vpad-btn-link" class="vpad-top-btn" title="Veldra Works" onclick="window.openLinktree()">
-                    <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                </div>
-                <div id="vpad-btn-diag" class="vpad-top-btn diag-interactive" title="Diagnostic Suite">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M12 6v14"/><path d="M19 13a7 7 0 0 1-14 0"/><path d="M5 9l-3-2"/><path d="M5 15l-3 2"/><path d="M19 9l3-2"/><path d="M19 15l3 2"/></svg>
+
+                <!-- Sub-Menu: 1. Gear/Settings, 2. Cheat, 3. Link, 4. Eye/Visibility (setelah link), 5. Diag -->
+                <div id="vpad-sub-menu">
+                    <div id="vpad-btn-gear" class="vpad-top-btn" title="Layout Editor & Settings">
+                        ${SVG_ICONS.gear}
+                    </div>
+                    <div id="vpad-btn-cheat" class="vpad-top-btn cheat-interactive" title="Cheat Menu">
+                        ${SVG_ICONS.cheat}
+                    </div>
+                    <div id="vpad-btn-link" class="vpad-top-btn" title="Veldra Works Community">
+                        ${SVG_ICONS.link}
+                    </div>
+                    <div id="vpad-btn-visibility" class="vpad-top-btn" title="Hide All Controls">
+                        ${SVG_ICONS.eye}
+                    </div>
+                    <div id="vpad-btn-diag" class="vpad-top-btn diag-interactive" title="Diagnostic Suite">
+                        ${SVG_ICONS.diag}
+                    </div>
                 </div>
             </div>
 
@@ -1283,7 +778,7 @@
                     <span id="vpad-bar-preset-name">Preset 1 — Standard Default</span> ▼
                 </div>
                 <div id="vpad-bar-theme-btn" class="vpad-bar-btn">
-                    <span id="vpad-bar-theme-name">Theme: Clean Slate</span> ▼
+                    <span id="vpad-bar-theme-name">Theme: Minimalist Glass</span> ▼
                 </div>
                 <button id="vpad-bar-add" class="vpad-bar-btn">+ Add Button</button>
                 <button id="vpad-bar-reset" class="vpad-bar-btn">↺ Reset</button>
@@ -1301,8 +796,9 @@
 
             <!-- Theme Dropdown Popover -->
             <div id="vpad-theme-popover" class="vpad-popover">
-                <div class="vpad-popover-item" data-id="clean">Clean Slate (Default)</div>
-                <div class="vpad-popover-item" data-id="retro">Retro OSD (Orange)</div>
+                <div class="vpad-popover-item" data-id="clean">1. Minimalist Glass (Default)</div>
+                <div class="vpad-popover-item" data-id="matte">2. Minimalist Matte</div>
+                <div class="vpad-popover-item" data-id="retro">3. Retro OSD</div>
             </div>
 
             <!-- Gamepad Controls Layer -->
@@ -1343,7 +839,7 @@
                     <div class="vpad-prop-row" id="vpad-prop-binding-row">
                         <div class="vpad-prop-label">
                             <span>Label & Key:</span>
-                            <span id="vpad-prop-key-name" style="color:#4df0ff; font-weight:bold;">A (Z)</span>
+                            <span id="vpad-prop-key-name" style="color:#38bdf8; font-weight:bold;">A (Z)</span>
                         </div>
                         <button id="vpad-prop-btn-changekey" class="vpad-prop-btn" style="width:100%;">Change Key / Binding</button>
                     </div>
@@ -1353,7 +849,16 @@
                         <button id="vpad-prop-btn-switch-type" class="vpad-prop-btn" style="width:100%;">Switch to Analog Joystick</button>
                     </div>
 
-                    <!-- Actions: Duplicate & Double-Confirm Delete -->
+                    <!-- Joystick Mode: Fixed vs Semi-Floating -->
+                    <div class="vpad-prop-row" id="vpad-prop-joystick-mode-row" style="display:none;">
+                        <div class="vpad-prop-label">
+                            <span>Joystick:</span>
+                            <span id="vpad-prop-joystick-mode-label" style="color:#38bdf8; font-weight:bold;">Semi-Floating</span>
+                        </div>
+                        <button id="vpad-prop-btn-joystick-mode" class="vpad-prop-btn" style="width:100%;">Switch to Fixed</button>
+                    </div>
+
+                    <!-- Actions: Duplicate & Delete -->
                     <div class="vpad-prop-actions">
                         <button id="vpad-prop-btn-dup" class="vpad-prop-btn">Duplicate</button>
                         <button id="vpad-prop-btn-del" class="vpad-prop-btn danger">Delete</button>
@@ -1361,7 +866,7 @@
                 </div>
             </div>
 
-            <!-- Add / Edit Control Modal Dialog (Sticky Footer) -->
+            <!-- Custom Control Modal Dialog -->
             <div id="vpad-key-modal">
                 <div class="vpad-modal-box">
                     <div class="vpad-modal-header">
@@ -1369,9 +874,8 @@
                         <span id="vpad-modal-close" style="cursor:pointer; font-size:16px;">✕</span>
                     </div>
 
-                    <!-- Scrollable Form Body Container -->
                     <div class="vpad-modal-body">
-                        <!-- Control Type Selector (Segmented Theme Buttons) -->
+                        <!-- Control Type Selector -->
                         <div id="vpad-modal-type-container" style="margin-top:4px;">
                             <span style="font-size:11px; color:#bbb;">Control Type:</span>
                             <div class="vpad-segmented-group" id="vpad-modal-type-group">
@@ -1397,7 +901,6 @@
                         </div>
                     </div>
 
-                    <!-- Sticky Footer (Guaranteed Visible on All Phone Screen Ratios) -->
                     <div class="vpad-modal-footer">
                         <button id="vpad-modal-btn-cancel" class="vpad-bar-btn" style="flex:1; justify-content:center;">Cancel</button>
                         <button id="vpad-modal-btn-apply" class="vpad-bar-btn vpad-bar-done" style="flex:1; justify-content:center;">Apply</button>
@@ -1407,12 +910,19 @@
         `;
 
         document.body.appendChild(root);
+
+        // Hoist floating editor panels directly into body so their stacking context is independent of gameplay buttons
+        ["vpad-editor-bar", "vpad-preset-popover", "vpad-theme-popover", "vpad-prop-panel", "vpad-key-modal"].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) document.body.appendChild(el);
+        });
+
         setupOverlayLogic();
         applyTheme(state.activeThemeId || "clean");
     }
 
     // ------------------------------------------------------------------------
-    // 7. Touch Sliders Component
+    // 8. Touch Sliders Component
     // ------------------------------------------------------------------------
     function setupTouchSlider(trackEl, min, max, initialVal, unit, onChange) {
         if (!trackEl) return { setValue: () => {} };
@@ -1431,6 +941,7 @@
         }
 
         function render(val) {
+            if (!fillEl || !knobEl) return;
             const ratio = Math.max(0, Math.min(1, (val - min) / (max - min)));
             fillEl.style.width = (ratio * 100) + "%";
             knobEl.style.left = (ratio * 100) + "%";
@@ -1453,7 +964,7 @@
             updateFromPointer(clientX);
         };
 
-        const onEnd = (e) => {
+        const onEnd = () => {
             if (!isSliding) return;
             isSliding = false;
             dragState.type = null;
@@ -1479,7 +990,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 8. Controller Render & Interaction Logic
+    // 9. Controller Render & Interaction Logic
     // ------------------------------------------------------------------------
     let scaleSliderCtrl = null;
     let opacSliderCtrl = null;
@@ -1487,17 +998,21 @@
     function applyTheme(themeId) {
         const valid = THEMES[themeId] ? themeId : "clean";
         state.activeThemeId = valid;
-        document.body.classList.remove("vpad-theme-clean", "vpad-theme-retro");
-        document.body.classList.add("vpad-theme-" + valid);
+        if (typeof document !== "undefined" && document.body) {
+            document.body.classList.remove("vpad-theme-clean", "vpad-theme-matte", "vpad-theme-retro");
+            document.body.classList.add("vpad-theme-" + valid);
+            // Backward compatibility for cheat_menu.js retro checks
+            document.body.classList.toggle("vpad-theme-retro", valid === "retro");
 
-        const themeNameEl = document.getElementById("vpad-bar-theme-name");
-        if (themeNameEl) themeNameEl.textContent = "Theme: " + THEMES[valid].name;
+            const themeNameEl = document.getElementById("vpad-bar-theme-name");
+            if (themeNameEl) themeNameEl.textContent = "Theme: " + THEMES[valid].name;
 
-        document.querySelectorAll("#vpad-theme-popover .vpad-popover-item").forEach(el => {
-            el.classList.toggle("active", el.getAttribute("data-id") === valid);
-        });
+            document.querySelectorAll("#vpad-theme-popover .vpad-popover-item").forEach(el => {
+                el.classList.toggle("active", el.getAttribute("data-id") === valid);
+            });
+        }
 
-        if (typeof window.applyCheatTheme === "function") {
+        if (typeof window !== "undefined" && typeof window.applyCheatTheme === "function") {
             window.applyCheatTheme(valid);
         }
         saveState();
@@ -1507,8 +1022,14 @@
     }
 
     function setupOverlayLogic() {
-        const toggleBtn = document.getElementById("vpad-btn-toggle");
+        const mainTriggerBtn = document.getElementById("vpad-main-trigger-btn");
+        const subMenu = document.getElementById("vpad-sub-menu");
+        const padToggleBtn = document.getElementById("vpad-btn-pad-toggle");
         const gearBtn = document.getElementById("vpad-btn-gear");
+        const cheatBtn = document.getElementById("vpad-btn-cheat");
+        const linkBtn = document.getElementById("vpad-btn-link");
+        const diagBtn = document.getElementById("vpad-btn-diag");
+
         const editorBar = document.getElementById("vpad-editor-bar");
         const barDrag = document.getElementById("vpad-bar-drag");
         const doneBtn = document.getElementById("vpad-bar-done");
@@ -1528,6 +1049,7 @@
         const propOpacVal = document.getElementById("vpad-prop-opac-val");
         const propChangeKey = document.getElementById("vpad-prop-btn-changekey");
         const propSwitchType = document.getElementById("vpad-prop-btn-switch-type");
+        const propBtnJoystickMode = document.getElementById("vpad-prop-btn-joystick-mode");
         const propDup = document.getElementById("vpad-prop-btn-dup");
         const propDel = document.getElementById("vpad-prop-btn-del");
 
@@ -1552,6 +1074,19 @@
         const modalClose = document.getElementById("vpad-modal-close");
         const modalCancel = document.getElementById("vpad-modal-btn-cancel");
         const modalApply = document.getElementById("vpad-modal-btn-apply");
+
+        // Setup instant tactile press feedback on toolbar buttons
+        document.querySelectorAll(".vpad-top-btn, #vpad-main-trigger-btn").forEach(btn => {
+            const press = () => btn.classList.add("vpad-btn-pressed");
+            const unpress = () => btn.classList.remove("vpad-btn-pressed");
+            btn.addEventListener("pointerdown", press);
+            btn.addEventListener("pointerup", unpress);
+            btn.addEventListener("pointercancel", unpress);
+            btn.addEventListener("pointerleave", unpress);
+            btn.addEventListener("touchstart", press, { passive: true });
+            btn.addEventListener("touchend", unpress, { passive: true });
+            btn.addEventListener("touchcancel", unpress, { passive: true });
+        });
 
         // 1. Setup Touch Sliders
         scaleSliderCtrl = setupTouchSlider(
@@ -1578,23 +1113,69 @@
             }
         );
 
-        // 2. Hide / Show Gamepad
+        // 2. Hide / Show Gamepad Controls Layer
         function applyGamepadHidden() {
-            document.getElementById("vpad-controls").classList.toggle("vpad-hidden", state.hidden);
-            if (window.RuntimePackVPad && window.RuntimePackVPad.setGamepadHidden) {
+            const controlsEl = document.getElementById("vpad-controls");
+            if (controlsEl) {
+                controlsEl.classList.toggle("vpad-hidden", state.hidden);
+            }
+            if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.setGamepadHidden) {
                 window.RuntimePackVPad.setGamepadHidden(state.hidden);
             }
         }
         applyGamepadHidden();
 
-        bindTap(toggleBtn, () => {
-            if (isEditMode) return;
-            state.hidden = !state.hidden;
-            applyGamepadHidden();
-            saveState();
-        });
+        // 3. Floating Toolbar Menu & Hide All / Show All Toggle Logic
+        let isMenuOpen = false;
 
-        // 3. ⚙️ Enter / Exit Edit Mode
+        function renderMenuState() {
+            if (!mainTriggerBtn) return;
+            if (isMenuOpen) {
+                mainTriggerBtn.innerHTML = SVG_ICONS.chevronUp;
+                mainTriggerBtn.title = "Collapse Controls Menu";
+                mainTriggerBtn.classList.add("active");
+                if (subMenu) subMenu.classList.add("vpad-menu-open");
+            } else {
+                mainTriggerBtn.innerHTML = SVG_ICONS.gamepad;
+                mainTriggerBtn.title = "Open Controls Menu";
+                mainTriggerBtn.classList.remove("active");
+                if (subMenu) subMenu.classList.remove("vpad-menu-open");
+            }
+        }
+
+        bindTap(mainTriggerBtn, () => {
+            if (isEditMode) return;
+            isMenuOpen = !isMenuOpen;
+            renderMenuState();
+        });
+        renderMenuState();
+
+        // Eye Button: Hide All / Show All Controls Toggle
+        const visibilityBtn = document.getElementById("vpad-btn-visibility");
+        function updateVisibilityBtnUI() {
+            if (!visibilityBtn) return;
+            if (state.hidden) {
+                visibilityBtn.innerHTML = SVG_ICONS.eyeOff;
+                visibilityBtn.title = "Show All Controls";
+                visibilityBtn.classList.add("active");
+            } else {
+                visibilityBtn.innerHTML = SVG_ICONS.eye;
+                visibilityBtn.title = "Hide All Controls";
+                visibilityBtn.classList.remove("active");
+            }
+        }
+
+        if (visibilityBtn) {
+            bindTap(visibilityBtn, () => {
+                state.hidden = !state.hidden;
+                applyGamepadHidden();
+                saveState();
+                updateVisibilityBtnUI();
+            });
+            updateVisibilityBtnUI();
+        }
+
+        // Layout Editor Gear Button
         bindTap(gearBtn, () => {
             if (isEditMode) {
                 exitEditMode();
@@ -1607,22 +1188,20 @@
             exitEditMode();
         });
 
-        // 3b. 🔗 Open Linktree Venora Community
+        // Community Linktree
         window.openLinktree = openLinktree;
-
-        const linkBtn = document.getElementById("vpad-btn-link");
         if (linkBtn) {
             bindTap(linkBtn, window.openLinktree);
         }
 
-        const cheatBtn = document.getElementById("vpad-btn-cheat");
+        // Cheat Menu
         if (cheatBtn) {
             bindTap(cheatBtn, () => {
                 if (window.CheatMenu) window.CheatMenu.toggle();
             });
         }
 
-        const diagBtn = document.getElementById("vpad-btn-diag");
+        // Diagnostic Suite
         if (diagBtn) {
             bindTap(diagBtn, () => {
                 if (window.DiagnosticSuite) window.DiagnosticSuite.toggle();
@@ -1640,6 +1219,7 @@
                 const rect = presetBtn.getBoundingClientRect();
                 presetPopover.style.left = Math.max(10, rect.left) + "px";
                 presetPopover.style.top = (rect.bottom + 6) + "px";
+                elevatePanel(presetPopover);
                 updatePresetPopoverUI();
                 presetPopover.classList.add("show");
                 popoverJustOpened = true;
@@ -1667,7 +1247,7 @@
             });
         });
 
-        // 4b. Theme Popover Dropdown
+        // Theme Popover Dropdown
         bindTap(themeBtn, () => {
             presetPopover.classList.remove("show");
             const isShown = themePopover.classList.contains("show");
@@ -1677,6 +1257,7 @@
                 const rect = themeBtn.getBoundingClientRect();
                 themePopover.style.left = Math.max(10, rect.left) + "px";
                 themePopover.style.top = (rect.bottom + 6) + "px";
+                elevatePanel(themePopover);
                 themePopover.classList.add("show");
                 popoverJustOpened = true;
                 setTimeout(() => { popoverJustOpened = false; }, 250);
@@ -1746,7 +1327,8 @@
         modalInputLabel.addEventListener("keyup", (e) => { e.stopPropagation(); });
         modalInputLabel.addEventListener("keypress", (e) => { e.stopPropagation(); });
 
-
+        keyModal.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+        keyModal.addEventListener("pointerup", (e) => { e.stopPropagation(); });
 
         bindTap(addBtn, () => {
             modalMode = "add";
@@ -1758,7 +1340,10 @@
             modalInputLabel.value = "DEL";
             modalSelectedKey = COMMON_KEYS.find(k => k.code === 8) || COMMON_KEYS[0];
             populateKeyPicker(modalSelectedKey.code);
+            topPanelZIndex += 100;
+            keyModal.style.zIndex = topPanelZIndex;
             keyModal.classList.add("show");
+            setModalState("custom_control", true);
         });
 
         // 7. Edit Button Binding & Rename
@@ -1772,10 +1357,12 @@
             modalInputLabel.value = ctrl.label || "";
             modalSelectedKey = COMMON_KEYS.find(k => k.code === ctrl.keyCode) || { code: ctrl.keyCode, name: KEY_NAMES[ctrl.keyCode] || "Custom", defaultLabel: ctrl.label };
             populateKeyPicker(ctrl.keyCode);
+            topPanelZIndex += 100;
+            keyModal.style.zIndex = topPanelZIndex;
             keyModal.classList.add("show");
+            setModalState("custom_control", true);
         });
 
-        // Switch D-Pad <-> Joystick in Property Panel
         bindTap(propSwitchType, () => {
             const ctrl = getSelectedControl();
             if (!ctrl) return;
@@ -1791,8 +1378,22 @@
             saveState();
         });
 
-        bindTap(modalClose, () => keyModal.classList.remove("show"));
-        bindTap(modalCancel, () => keyModal.classList.remove("show"));
+        if (propBtnJoystickMode) {
+            bindTap(propBtnJoystickMode, () => {
+                const ctrl = getSelectedControl();
+                if (!ctrl || ctrl.type !== "joystick") return;
+                ctrl.floating = (ctrl.floating === false) ? true : false;
+                saveState();
+                updatePropertyPanel(ctrl);
+            });
+        }
+
+        const closeKeyModal = () => {
+            keyModal.classList.remove("show");
+            setModalState("custom_control", false);
+        };
+        bindTap(modalClose, closeKeyModal);
+        bindTap(modalCancel, closeKeyModal);
 
         bindTap(modalApply, () => {
             ignoreNextDeselect = true;
@@ -1863,7 +1464,7 @@
                 }
             }
             saveState();
-            keyModal.classList.remove("show");
+            closeKeyModal();
         });
 
         // 8. Duplicate Control
@@ -1922,13 +1523,17 @@
         // 10. Close Property Panel
         bindTap(propClose, () => hidePropertyPanel());
 
-        // 11. Draggable Property Panel Header (INDEPENDENT POSITION)
+        // 11. Draggable Property Panel Header
+        propPanel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        propPanel.addEventListener("pointerup", (e) => e.stopPropagation());
         setupDraggableHeader(propPanel, propHeader, (x, y) => {
             state.panelPosition = { x, y };
             saveState();
         });
 
         // 12. Draggable Editor Bar
+        editorBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+        editorBar.addEventListener("pointerup", (e) => e.stopPropagation());
         setupDraggableHeader(editorBar, barDrag, (x, y) => {
             state.toolbarPosition = { x, y };
             saveState();
@@ -1937,11 +1542,11 @@
         // 13. Collapse / Expand Toolbar
         bindTap(collapseBtn, () => {
             state.toolbarCollapsed = !state.toolbarCollapsed;
-            applyToolbarCollapsedUI();
+            applyToolbarCollapsedUI(true);
             saveState();
         });
 
-        function applyToolbarCollapsedUI() {
+        function applyToolbarCollapsedUI(fromUserInteraction) {
             const isCol = state.toolbarCollapsed;
             doneBtn.style.display = isCol ? "none" : "flex";
             presetBtn.style.display = isCol ? "none" : "flex";
@@ -1950,6 +1555,19 @@
             resetBtn.style.display = isCol ? "none" : "flex";
             collapseBtn.textContent = isCol ? "≡" : "─";
             barDrag.textContent = isCol ? "⋮⋮ EDIT" : "⋮⋮";
+
+            if (fromUserInteraction) {
+                collapseGuardTimestamp = Date.now() + 150;
+                const buttonsToGuard = [doneBtn, presetBtn, themeBtn, addBtn, resetBtn, collapseBtn];
+                buttonsToGuard.forEach(b => {
+                    if (b) b.style.pointerEvents = "none";
+                });
+                setTimeout(() => {
+                    buttonsToGuard.forEach(b => {
+                        if (b) b.style.pointerEvents = "";
+                    });
+                }, 150);
+            }
         }
 
         applyToolbarPosition();
@@ -1988,9 +1606,7 @@
         document.body.classList.add("vpad-edit-mode");
         document.getElementById("vpad-editor-bar").classList.add("show");
         document.getElementById("vpad-btn-gear").classList.add("active");
-        if (window.RuntimePackVPad && window.RuntimePackVPad.setOverlayModalOpen) {
-            window.RuntimePackVPad.setOverlayModalOpen(true);
-        }
+        setModalState("settings", true);
         renderControls();
     }
 
@@ -2003,9 +1619,8 @@
         document.getElementById("vpad-theme-popover").classList.remove("show");
         document.getElementById("vpad-btn-gear").classList.remove("active");
         hidePropertyPanel();
-        if (window.RuntimePackVPad && window.RuntimePackVPad.setOverlayModalOpen) {
-            window.RuntimePackVPad.setOverlayModalOpen(false);
-        }
+        setModalState("custom_control", false);
+        setModalState("settings", false);
         renderControls();
         saveState();
     }
@@ -2026,11 +1641,13 @@
         updatePropertyPanel(ctrl);
         panel.classList.add("show");
         applyPanelPosition();
+        setModalState("inspector", true);
     }
 
     function hidePropertyPanel() {
         const panel = document.getElementById("vpad-prop-panel");
         if (panel) panel.classList.remove("show");
+        setModalState("inspector", false);
     }
 
     function updatePropertyPanel(ctrl) {
@@ -2046,25 +1663,93 @@
         const bindingRow = document.getElementById("vpad-prop-binding-row");
         const switchRow = document.getElementById("vpad-prop-switch-type-row");
         const switchBtn = document.getElementById("vpad-prop-btn-switch-type");
+        const joystickModeRow = document.getElementById("vpad-prop-joystick-mode-row");
+        const joystickModeLabel = document.getElementById("vpad-prop-joystick-mode-label");
+        const btnJoystickMode = document.getElementById("vpad-prop-btn-joystick-mode");
 
         if (ctrl.type === "button") {
             bindingRow.style.display = "block";
             switchRow.style.display = "none";
+            if (joystickModeRow) joystickModeRow.style.display = "none";
             const keyLabel = KEY_NAMES[ctrl.keyCode] || ("Key " + ctrl.keyCode);
             document.getElementById("vpad-prop-key-name").textContent = `${ctrl.label || "BTN"} (${keyLabel})`;
-        } else if (ctrl.type === "dpad" || ctrl.type === "joystick") {
+        } else if (ctrl.type === "dpad") {
             bindingRow.style.display = "none";
             switchRow.style.display = "block";
-            switchBtn.textContent = ctrl.type === "dpad" ? "Switch to Analog Joystick" : "Switch to D-Pad 8-Way";
+            switchBtn.textContent = "Switch to Analog Joystick";
+            if (joystickModeRow) joystickModeRow.style.display = "none";
+        } else if (ctrl.type === "joystick") {
+            bindingRow.style.display = "none";
+            switchRow.style.display = "block";
+            switchBtn.textContent = "Switch to D-Pad 8-Way";
+            if (joystickModeRow) {
+                joystickModeRow.style.display = "block";
+                const isFloating = ctrl.floating !== false;
+                if (joystickModeLabel) {
+                    joystickModeLabel.textContent = isFloating ? "Semi-Floating" : "Fixed";
+                    joystickModeLabel.style.color = isFloating ? "#38bdf8" : "#fbbf24";
+                }
+                if (btnJoystickMode) {
+                    btnJoystickMode.textContent = isFloating ? "Switch to Fixed" : "Switch to Semi-Floating";
+                }
+            }
         } else {
             bindingRow.style.display = "none";
             switchRow.style.display = "none";
+            if (joystickModeRow) joystickModeRow.style.display = "none";
         }
     }
 
+    let topZIndexCounter = 10;
+
+    function bringControlToFront(id) {
+        const ctrlList = currentProfile().controls;
+        const idx = ctrlList.findIndex(c => c.id === id);
+        if (idx >= 0) {
+            const [item] = ctrlList.splice(idx, 1);
+            ctrlList.push(item);
+            saveState();
+        }
+
+        const el = document.querySelector(`[data-id="${id}"]`);
+        if (el) {
+            topZIndexCounter++;
+            el.style.zIndex = topZIndexCounter;
+            if (el.parentNode) {
+                el.parentNode.appendChild(el);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Universal Panel Bring-To-Front (Z-Index Elevation on Touch/Click)
+    // ------------------------------------------------------------------------
+    let topPanelZIndex = 100010;
+    function elevatePanel(el) {
+        if (!el) return;
+        topPanelZIndex += 2;
+        el.style.zIndex = topPanelZIndex;
+    }
+    if (typeof window !== "undefined") {
+        window.bringPanelToFront = elevatePanel;
+    }
+
+    if (typeof document !== "undefined") {
+        const handlePanelElevation = (e) => {
+            const panel = e.target && e.target.closest && e.target.closest("#rp-diag-modal, #fnh-cheat-overlay, #vpad-editor-bar, #vpad-prop-panel, #vpad-key-modal");
+            if (panel) {
+                elevatePanel(panel);
+            }
+        };
+        document.addEventListener("pointerdown", handlePanelElevation, true);
+        document.addEventListener("touchstart", handlePanelElevation, { passive: true, capture: true });
+        document.addEventListener("mousedown", handlePanelElevation, true);
+    }
+
     function selectControl(id) {
-        inspectorCooldown = Date.now() + 250; // 250ms ghost-tap protection
+        inspectorCooldown = Date.now() + 250;
         selectedControlId = id;
+        bringControlToFront(id);
         document.querySelectorAll(".vpad-control-item").forEach(el => {
             el.classList.toggle("vpad-selected", el.getAttribute("data-id") === id);
         });
@@ -2073,7 +1758,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 9. Independent Drag Handlers
+    // 10. Independent Drag Handlers
     // ------------------------------------------------------------------------
     function applyToolbarPosition() {
         const bar = document.getElementById("vpad-editor-bar");
@@ -2143,6 +1828,35 @@
             onSavePos(Math.round(rect.left), Math.round(rect.top));
         }
 
+        if (typeof window !== "undefined" && window.PointerEvent) {
+            handleEl.addEventListener("pointerdown", (e) => {
+                e.stopPropagation();
+                if (e.cancelable) e.preventDefault();
+                try {
+                    if (handleEl.setPointerCapture) handleEl.setPointerCapture(e.pointerId);
+                } catch (_) {}
+                start(e.clientX, e.clientY);
+            });
+            handleEl.addEventListener("pointermove", (e) => {
+                if (isDragging) {
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
+                    move(e.clientX, e.clientY);
+                }
+            });
+            const onPointerUp = (e) => {
+                if (isDragging) {
+                    try {
+                        if (handleEl.releasePointerCapture) handleEl.releasePointerCapture(e.pointerId);
+                    } catch (_) {}
+                    e.stopPropagation();
+                    end();
+                }
+            };
+            handleEl.addEventListener("pointerup", onPointerUp);
+            handleEl.addEventListener("pointercancel", onPointerUp);
+        }
+
         handleEl.addEventListener("touchstart", (e) => {
             if (e.touches && e.touches[0]) {
                 e.stopPropagation();
@@ -2163,21 +1877,33 @@
         window.addEventListener("touchcancel", end);
 
         handleEl.addEventListener("mousedown", (e) => {
+            if (typeof window !== "undefined" && window.PointerEvent) return;
             e.stopPropagation();
             start(e.clientX, e.clientY);
         });
         window.addEventListener("mousemove", (e) => {
-            if (isDragging) move(e.clientX, e.clientY);
+            if (isDragging && (!window.PointerEvent)) move(e.clientX, e.clientY);
         });
-        window.addEventListener("mouseup", end);
+        window.addEventListener("mouseup", () => {
+            if (!window.PointerEvent) end();
+        });
     }
 
     // ------------------------------------------------------------------------
-    // 10. Control DOM Rendering
+    // 11. Control DOM Rendering
     // ------------------------------------------------------------------------
+    let controlListenerCleanups = [];
+
+    function addControlWindowListener(type, handler, options) {
+        window.addEventListener(type, handler, options);
+        controlListenerCleanups.push(() => window.removeEventListener(type, handler));
+    }
+
     function renderControls() {
         const container = document.getElementById("vpad-controls");
         if (!container) return;
+        controlListenerCleanups.forEach(cleanup => cleanup());
+        controlListenerCleanups = [];
         container.innerHTML = "";
 
         const controls = currentControls();
@@ -2213,7 +1939,9 @@
         el.style.height = ctrl.height + "px";
         el.style.marginLeft = (-ctrl.width / 2) + "px";
         el.style.marginTop = (-ctrl.height / 2) + "px";
-        el.style.transform = `scale(${ctrl.scale || 1.0})`;
+        const baseScale = ctrl.scale || 1.0;
+        el.style.setProperty("--vpad-scale", baseScale);
+        el.style.transform = `scale(${baseScale})`;
         el.style.opacity = ctrl.opacity || 0.75;
 
         if (ctrl.type === "button") {
@@ -2268,7 +1996,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 11. Direct Manipulation: Drag (1 Finger) & Pinch-to-Scale (2 Fingers)
+    // 12. Direct Manipulation: Drag (1 Finger) & Pinch-to-Scale (2 Fingers)
     // ------------------------------------------------------------------------
     function setupDirectManipulation(el, ctrl) {
         let isDragging = false;
@@ -2321,7 +2049,7 @@
             }
         }, { passive: false });
 
-        window.addEventListener("touchmove", (e) => {
+        addControlWindowListener("touchmove", (e) => {
             if (!isEditMode || selectedControlId !== ctrl.id) return;
 
             if (isPinching && e.touches.length === 2) {
@@ -2380,8 +2108,8 @@
                 saveState();
             }
         };
-        window.addEventListener("touchend", handleTouchEnd);
-        window.addEventListener("touchcancel", handleTouchEnd);
+        addControlWindowListener("touchend", handleTouchEnd);
+        addControlWindowListener("touchcancel", handleTouchEnd);
 
         el.addEventListener("mousedown", (e) => {
             if (!isEditMode) {
@@ -2404,7 +2132,7 @@
             origCy = ctrl.cy;
         });
 
-        window.addEventListener("mousemove", (e) => {
+        addControlWindowListener("mousemove", (e) => {
             if (!isEditMode || selectedControlId !== ctrl.id || !isDragging || dragState.type !== "control") return;
             e.preventDefault();
             const dx = e.clientX - startX;
@@ -2418,7 +2146,7 @@
             updateControlDOM(ctrl);
         });
 
-        window.addEventListener("mouseup", () => {
+        addControlWindowListener("mouseup", () => {
             if (!isEditMode) {
                 if (ctrl.type === "button" && isButtonMouseDown) {
                     isButtonMouseDown = false;
@@ -2435,7 +2163,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 12. Gameplay D-Pad, Joystick & Button Handlers
+    // 13. Gameplay D-Pad, Joystick & Button Handlers
     // ------------------------------------------------------------------------
     function btnOnDown(btn, ctrl) {
         btn.classList.add("active");
@@ -2518,7 +2246,7 @@
             updateDirection(touch.clientX, touch.clientY);
         }, { passive: false });
 
-        window.addEventListener("touchmove", (e) => {
+        addControlWindowListener("touchmove", (e) => {
             if (isEditMode || activeTouchId === null) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 if (e.changedTouches[i].identifier === activeTouchId) {
@@ -2539,8 +2267,8 @@
                 }
             }
         };
-        window.addEventListener("touchend", endTouch);
-        window.addEventListener("touchcancel", endTouch);
+        addControlWindowListener("touchend", endTouch);
+        addControlWindowListener("touchcancel", endTouch);
 
         // Mouse Support
         let isMouseDown = false;
@@ -2550,11 +2278,11 @@
             isMouseDown = true;
             updateDirection(e.clientX, e.clientY);
         });
-        window.addEventListener("mousemove", (e) => {
+        addControlWindowListener("mousemove", (e) => {
             if (isEditMode || !isMouseDown) return;
             updateDirection(e.clientX, e.clientY);
         });
-        window.addEventListener("mouseup", () => {
+        addControlWindowListener("mouseup", () => {
             if (isEditMode || !isMouseDown) return;
             isMouseDown = false;
             clearArrows();
@@ -2565,26 +2293,45 @@
         let activeTouchId = null;
         const currentPressedKeys = new Set();
         const stick = jsContainer.querySelector(".vpad-joystick-stick");
+        let restCenterX = 0;
+        let restCenterY = 0;
+        let isMouseDown = false;
 
         function updateJoystick(clientX, clientY) {
-            const rect = jsContainer.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-
-            const dx = clientX - centerX;
-            const dy = clientY - centerY;
+            const dx = clientX - restCenterX;
+            const dy = clientY - restCenterY;
             const distance = Math.hypot(dx, dy);
-            const maxRadius = (rect.width / 2) * 0.65;
 
-            const clampedDist = Math.min(distance, maxRadius);
+            const baseScale = ctrl.scale || 1.0;
+            const containerRadius = (ctrl.width / 2) * baseScale;
+            const maxRadius = containerRadius * 0.65;
             const angleRad = Math.atan2(dy, dx);
-            const stickX = Math.cos(angleRad) * clampedDist;
-            const stickY = Math.sin(angleRad) * clampedDist;
+
+            const isFloating = ctrl.floating !== false;
+
+            let baseX = 0, baseY = 0;
+            if (isFloating && distance > maxRadius) {
+                // Semi-floating: outer ring elastically follows thumb at the boundary
+                const excess = distance - maxRadius;
+                const elasticShift = Math.min(excess * 0.42, maxRadius * 0.45);
+                baseX = Math.cos(angleRad) * elasticShift;
+                baseY = Math.sin(angleRad) * elasticShift;
+            }
+
+            if (baseX !== 0 || baseY !== 0) {
+                jsContainer.style.transform = `scale(${baseScale}) translate(${baseX}px, ${baseY}px)`;
+            } else {
+                jsContainer.style.transform = `scale(${baseScale})`;
+            }
+
+            const stickDist = Math.min(distance, maxRadius);
+            const stickX = Math.cos(angleRad) * stickDist;
+            const stickY = Math.sin(angleRad) * stickDist;
 
             stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
             jsContainer.classList.add("active");
 
-            const deadzone = rect.width * 0.12;
+            const deadzone = containerRadius * 0.15;
             if (distance < deadzone) {
                 clearKeys();
                 return;
@@ -2626,9 +2373,26 @@
         }
 
         function resetStick() {
+            const baseScale = ctrl.scale || 1.0;
+            jsContainer.style.transition = "transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)";
+            jsContainer.style.transform = `scale(${baseScale}) translate(0px, 0px)`;
+            stick.style.transition = "transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)";
             stick.style.transform = "translate(-50%, -50%)";
             jsContainer.classList.remove("active");
             clearKeys();
+            setTimeout(() => {
+                jsContainer.style.transition = "";
+                stick.style.transition = "";
+            }, 300);
+        }
+
+        function startJoystick(clientX, clientY) {
+            const rect = jsContainer.getBoundingClientRect();
+            restCenterX = rect.left + rect.width / 2;
+            restCenterY = rect.top + rect.height / 2;
+            jsContainer.style.transition = "none";
+            stick.style.transition = "none";
+            updateJoystick(clientX, clientY);
         }
 
         jsContainer.addEventListener("touchstart", (e) => {
@@ -2637,10 +2401,10 @@
             e.preventDefault();
             const touch = e.changedTouches[0];
             activeTouchId = touch.identifier;
-            updateJoystick(touch.clientX, touch.clientY);
+            startJoystick(touch.clientX, touch.clientY);
         }, { passive: false });
 
-        window.addEventListener("touchmove", (e) => {
+        addControlWindowListener("touchmove", (e) => {
             if (isEditMode || activeTouchId === null) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 if (e.changedTouches[i].identifier === activeTouchId) {
@@ -2661,22 +2425,21 @@
                 }
             }
         };
-        window.addEventListener("touchend", endTouch);
-        window.addEventListener("touchcancel", endTouch);
+        addControlWindowListener("touchend", endTouch);
+        addControlWindowListener("touchcancel", endTouch);
 
         // Mouse Support
-        let isMouseDown = false;
         jsContainer.addEventListener("mousedown", (e) => {
             if (isEditMode) return;
             e.stopPropagation();
             isMouseDown = true;
-            updateJoystick(e.clientX, e.clientY);
+            startJoystick(e.clientX, e.clientY);
         });
-        window.addEventListener("mousemove", (e) => {
+        addControlWindowListener("mousemove", (e) => {
             if (isEditMode || !isMouseDown) return;
             updateJoystick(e.clientX, e.clientY);
         });
-        window.addEventListener("mouseup", () => {
+        addControlWindowListener("mouseup", () => {
             if (isEditMode || !isMouseDown) return;
             isMouseDown = false;
             resetStick();
@@ -2687,6 +2450,7 @@
         window.pressKey = pressKey;
         window.releaseKey = releaseKey;
         window.openLinktree = openLinktree;
+        window.vpadSwitchPreset = switchPreset;
     }
 
     if (typeof module !== "undefined" && module.exports) {
@@ -2694,7 +2458,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // 13. Auto-Start
+    // 14. Auto-Start
     // ------------------------------------------------------------------------
     if (typeof document !== "undefined") {
         if (document.readyState === "complete" || document.readyState === "interactive") {

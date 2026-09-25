@@ -1,16 +1,35 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Foundation Plan Task 5 fix round 1 selesai di worktree `deep-asset-audit-foundation`: schema alignment untuk optional audit, stable diagnostic code `BLD-104`, actionable finding messages + remediation flags di stderr, `--no-compile` test option, serta integration tests end-to-end untuk build gating.
-- **Next step:** Foundation Plan Task 6 (foundation documentation and verification).
-- **Blocker:** Ada 3 warning Clippy pre-existing di core yang memblokir `-D warnings`.
-- **Catatan fokus:** Placeholder audit tetap `INDETERMINATE` + `CMP-AUD-001`; ordinary build memerlukan `--accept-audit-unknown` sampai adapter plan selesai, dan Tyrano legal gate tidak dapat dioverride.
+- **Sedang kerjain apa:** Plan 2 (Deep Asset Audit Adapters) Task 5 Selesai + Fix Round 1 Selesai (`TyranoAssetAuditor` untuk unpacked & Electron ASAR layout, decoupled dynamic jump targets, project-wide single file limit, audio aliases `fadeinbgm`/`playbgv`, dynamic plugin storage, case-insensitive `.ks`/`.node`, ASAR shadowing size deduplication, dan 25/25 integration tests passing). Siap lanjut ke Task 6 (Registry Integration & Cross-Engine Contracts).
+- **Next step:** Eksekusi Plan 2 Task 6 (`create_default_asset_auditor_registry` registration, cross-engine contract test, workspace lint/type check).
+- **Blocker:** Tidak ada blocker aktif.
+- **Catatan fokus:** Tyrano asset audit adapter menjaga input immutability dengan zero-disk extraction pada ASAR archive, memisahkan technical outcome dari `TYRANO-LEGAL` gate (`TYR-101`), dan merekam line/column provenance ke dependency graph.
 
 ## Selesai
-- [2026-09-24] Foundation Plan Task 5 Fix Round 1: Build-manifest schema aligned with optional audit metadata (schema evolution rules); dedicated diagnostic code BLD-104 (BLD_AUDIT_POLICY_BLOCKED) replaces improper CMP-AUD-010; actionable findings and suggestion flags surfaced to stderr; added --no-compile build flag; end-to-end build gating tests pass.
-- [2026-09-24] Foundation Plan Task 5: build menjalankan static audit sebelum output/content/project side effects; matrix PASS/WARNING/FAIL/INDETERMINATE, override terpisah, hard blockers, dan metadata audit manifest/provenance selesai.
-- [2026-09-24] Foundation Plan Task 4: CLI `runtimepack audit`, integration tests, placeholder auditor semua engine v1, dan atomic authoritative JSON report selesai; direct CLI acceptance lulus.
-
+- [2026-09-25] Plan 2 Task 5 (Tyrano Static Adapter + Fix Round 1) Selesai:
+  1. Implementasi `TyranoAssetAuditor` pada `engines/tyrano/src/asset_audit.rs` (implementing `AssetAuditor` untuk `EngineId::Tyrano`).
+  2. Ekstensi `AsarArchive` di `engines/tyrano/src/asar.rs` dengan bounded list/read metadata APIs (`read_file_bytes_bounded`, `read_file_string_bounded`, `get_file`, `get_file_size`, `total_size_bytes`) dengan prinsip zero-disk extraction / source immutability.
+  3. Parser scenario `.ks` multi-pass mendukung sintaks baris `@tag key=val` dan inline bracket `[tag key=val]`, indeks label (`*label`), dan resolusi tag: `bg`, `image`, `chara_new`/`face`/`mod`, `playbgm`, `fadeinbgm`, `playse`, `playbgv`, `movie`, `loadjs`, `loadcss`, `jump`/`call`, `button`/`glink`, dan `plugin`.
+  4. Decoupling resolusi storage skenario dan target label pada `jump`/`call`: storage skenario diperiksa tanpa terpengaruh target dinamis, dan target dinamis dievaluasi independen (`CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`).
+  5. Pemeriksaan batas ukuran berkas tunggal (`max_single_file_bytes`) secara komprehensif di awal audit untuk seluruh file dalam proyek (`effective_source.files.values()`), memaksa `completeness.required_scope_complete = false` saat batas terlampaui.
+  6. Penanganan tag audio tambahan (`fadeinbgm` -> `data/bgm/`, `playbgv` -> `data/sound/`, `data/se/`), dynamic plugin storage (`storage="&..."`), ekstensi case-insensitive (`.ks`, `.node`), dan dedup kalkulasi ukuran berkas unpacked yang membayangi entri ASAR.
+  7. Penegakan informational finding `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) untuk dokumentasi legal gate tanpa mendegradasi technical pass.
+  8. 25/25 integration tests di `tests/integration/tyrano_asset_audit_test.rs` dan 197/197 workspace tests lulus 100%.
+- [2026-09-24] Eksekusi Plan 1 (Deep Asset Audit Foundation) Selesai & Merge ke `master`:
+  1. Kontrak domain audit engine-neutral & Dependency Graph (`core/src/asset_audit/mod.rs`, `graph.rs`, `schemas/asset-audit-report.schema.json`).
+  2. Auditor registry dengan panic-containment & fail-closed behavior saat adapter belum tersedia (`CMP-AUD-001`).
+  3. Taksonomi diagnostik stabil `CMP-AUD-001..012` dan `BLD-104` (BLD_AUDIT_POLICY_BLOCKED).
+  4. Perintah CLI `runtimepack audit` dengan opsi `--mode standard|deep`, `--allow-network-audit`, atomic report writer, dan isolasi proses (static-only).
+  5. Build audit policy gating: otomatis memblokir build jika `FAIL` (kecuali `--accept-audit-fail`) atau `INDETERMINATE` (kecuali `--accept-audit-unknown`); hard blockers tidak dapat dibypass; manifest & provenance mencatat audit outcome.
+  6. Dokumentasi kanonikal diselaraskan di `Docs/COMPATIBILITY.md`, `Docs/CONFIG_AND_SCHEMAS.md`, `Docs/TEST_PLAN.md`, dan `Docs/IMPLEMENTATION_PLAN.md`.
+  7. Seluruh 34 integration build tests, 9 audit CLI tests, 28 core unit tests, dan full workspace test suite (92/92) lulus 100%.
+- [2026-09-24] Fix 4 Issue Interaksi Overlay & Sinkronisasi 100% ke `preview/`:
+  1. Centralized Panel Registry: Membangun `window.RuntimePackModalRegistry` (`Set`) dengan helper `setModalState(id, isOpen)` dan `registerModal(id, isOpen)` pada `vpad.js`, dihubungkan ke `enterEditMode`/`exitEditMode` ('settings'), `addBtn`/`closeKeyModal` ('custom_control'), `showPropertyPanel`/`hidePropertyPanel` ('inspector'), `openCheatMenu`/`closeCheatMenu` ('cheat'), dan `DiagnosticSuite.open`/`close` ('diag'). Bridge native `setOverlayModalOpen(true)` tetap dipertahankan selama `size > 0` dan hanya dilepas ke `false` saat seluruh panel telah ditutup (`size === 0`).
+  2. Ghost Click & Click-Through Fix: Memindahkan aktivasi `bindTap` pada `vpad.js` agar memicu aksi secara otoritatif pada `pointerup` setelah validasi pergerakan jari (<= 10px), bukan pada `pointerdown`. Menambahkan interaction guard berbasis `collapseGuardTimestamp` dan penonaktifan sementara `pointer-events: none` selama 150ms pada tombol yang baru terungkap saat `#vpad-bar-collapse` ditoggle.
+  3. Panel Pointer-Events Protection: Memberikan `pointer-events: auto !important; touch-action: none !important;` serta penghentian propagasi `pointerdown` dan `pointerup` (`e.stopPropagation()`) pada `#rp-diag-modal`, `#fnh-cheat-overlay`, `#vpad-editor-bar`, `#vpad-prop-panel`, dan `#vpad-key-modal` untuk mencegah sentuhan bocor ke `gameWebView` di latar belakang.
+  4. Minimalist Matte Theme Active Button Flicker Fix: Mengganti aturan `.vpad-top-btn:active` di `vpad.css` agar tidak mengubah warna background dan border ke abu-abu `#27272a`. Menetapkan scale tactile press (`transform: scale(0.88) !important;`) sambil mempertahankan warna aktif `#1e3a8a` / `#3b82f6` pada seluruh tema (clean, matte, retro).
+  5. Sinkronisasi Penuh & Test Regression: Seluruh file overlay di `android/shell/app/src/main/assets/overlay/` dan `preview/` disinkronkan identik (SHA-256 terverifikasi identik). Unit tests baru ditambahkan di `overlay_interaction_regression.test.js`. Seluruh test JS (11/11 regression, 12/12 vpad bridge, 7/7 cheat menu, 4/4 diagnostic suite, web shims, cheat primitives) dan 27/27 integration tests Cargo lulus 100%.
 - [2026-09-23] Verifikasi Live Redesigned Diagnostic Suite pada *BLACK SOULS* (MuMu Player `127.0.0.1:16384`):
   1. Build APK `dist/black_souls/BlackSouls.apk` (826.00 MB, flavor `beta`) sukses dikompilasi via Gradle.
   2. Fresh install (`pm clear`) dan booting ke Title Screen interaktif berjalan mulus dalam ~12 detik.

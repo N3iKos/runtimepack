@@ -1,5 +1,42 @@
 # Decisions Log
 
+## [2026-09-24] Centralized Panel Registry, Ghost Click Suppression, dan Matte Theme Stability
+**Keputusan:**
+1. Menyediakan registry modal terpusat `window.RuntimePackModalRegistry` (berbasis `Set`) dengan helper universal `setModalState(id, isOpen)` dan `registerModal(id, isOpen)` di `vpad.js`.
+2. Menghubungkan seluruh siklus hidup panel overlay (`settings`, `cheat`, `diag`, `custom_control`, `inspector`) ke registry: bridge native `setOverlayModalOpen(true)` dipertahankan selama `size > 0` dan hanya dinonaktifkan (`setOverlayModalOpen(false)`) saat seluruh modal ditutup (`size === 0`).
+3. Mengubah trigger `bindTap` pada `vpad.js` agar memicu aksi pada `pointerup` (setelah verifikasi pergerakan jari <= 10px) dan menekan synthetic click selama 500ms, bukan pada `pointerdown`.
+4. Menerapkan interaction guard saat `#vpad-bar-collapse` ditoggle dengan menonaktifkan sementara `pointer-events: none` selama 150ms pada tombol yang baru terungkap dan menolak tap selama transisi layout.
+5. Menegakkan `pointer-events: auto !important; touch-action: none !important;` serta `e.stopPropagation()` pada seluruh container dan header panel overlay (`#rp-diag-modal`, `#fnh-cheat-overlay`, `#vpad-editor-bar`, `#vpad-prop-panel`, `#vpad-key-modal`).
+6. Memperbaiki aturan CSS tema matte pada `.vpad-top-btn:active` dan `.vpad-btn-pressed` agar mempertahankan warna tema aktif `#1e3a8a` / `#3b82f6` dan hanya melakukan tactile scale kompresi (`transform: scale(0.88)`), menghilangkan flicker ke abu-abu `#27272a`.
+**Alasan:** Menutup satu modal (misalnya Diagnostic atau Cheat) sebelumnya langsung memicu `setOverlayModalOpen(false)` dan mematikan touch routing panel editor yang masih terbuka; mutasi DOM pada `pointerdown` collapse button memicu ghost click ke tombol Done di bawah jari; dan warna aktif tema matte tertimpa oleh rule `:active` abu-abu.
+**Dampak:** Transisi antar panel mulus tanpa konflik bridge, tidak ada kebocoran klik/tap ke game di latar belakang, dan tombol aktif bebas flicker. Terverifikasi 100% pada 11 JS regression tests dan 27 integration tests Rust.
+
+## [2026-09-24] WebActivity Modal Touch Routing & Gesture Ownership
+**Keputusan:**
+1. Saat `isOverlayModalOpen == true`, `shouldForwardTouchToGame(...)` langsung mengembalikan `false` dan `isTouchOnActiveControls(...)` mengembalikan `true` untuk semua koordinat layar tanpa terkecuali, sepenuhnya mem-bypass bounding box modal statis (`isTouchInsideModal`).
+2. Menjaga kepemilikan gesture dari DOWN hingga UP/CANCEL via helper murni `resolveGestureCapturedByGame`: jika gesture diawali saat modal aktif, event DOWN, MOVE, dan UP/CANCEL tetap 100% berada pada `overlayWebView`.
+3. Memastikan pembersihan flag penangkapan (`isTouchCapturedByGame = false`) saat modal dibuka (`setOverlayModalOpen(true)`).
+4. Tidak mengubah perilaku `RgssActivity.kt` yang sudah benar menahan seluruh input di overlay saat modal aktif.
+**Alasan:** Sebelumnya, sentuhan di luar bounding box modal terpusat (seperti saat editor custom control aktif layar penuh atau saat modal digeser) bocor ke `gameWebView` di bawahnya.
+**Dampak:** Seluruh kontrol, panel editor, dan modal overlay di WebActivity terbebas dari kebocoran tap ke canvas game. Unit test Kotlin, JS regression tests, dan `cargo test` lulus 100%.
+
+## [2026-09-24] Redesign UI Virtual Pad Modern: Arsitektur 3 File, iOS Spring Physics, 3 Tema Konsisten, & Diagnostic Suite untuk Beta/Release
+**Keputusan:**
+1. Memecah arsitektur overlay menjadi 3 file terpisah (`index.html`, `vpad.css`, `vpad.js`), memisahkan deklarasi CSS dan struktur DOM dari file logika kontrol.
+2. Menerapkan kurva animasi fisika pegas dua arah khas iOS (`cubic-bezier(0.34, 1.56, 0.64, 1)` untuk mekar/muncul dan `cubic-bezier(0.32, 0.72, 0, 1)` untuk menyusut) dengan efek origin-based dari titik pusat tombol pemicu.
+3. Menstandarkan 3 tema modular yang konsisten lintas komponen (VPad, Cheat Engine, Diagnostic Suite):
+   - `Minimalist Glass`: Translucent frosted glass, aksen Electric Cyan (`#38bdf8`), subtle glow.
+   - `Minimalist Matte`: Solid charcoal dark (`#141416`), aksen Deep Blue (`#1e3a8a` / `#2563eb`), zero glare.
+   - `Retro OSD`: Amber CRT terminal (`#ff7700`), background hitam `#0a0a0c`, tombol lingkaran, sudut panel 2px.
+4. Menghadirkan Floating Joystick dengan elastisitas semi-floating (mengikuti tarikan jempol di tepi luar secara lentur) beserta opsi toggle `Semi-Floating` ⇄ `Fixed` di Control Inspector.
+5. Menghadirkan animasi tactile press empuk pada D-Pad seirama tombol A, B, X, Y (kompresi ~8% dengan semburan cahaya aksen aktif).
+6. Mengimplementasikan Universal Bring-To-Front: Mengklik panel mana pun (Settings Bar, Inspector, Cheat Engine, Diagnostic Suite) mengangkat panel tersebut ke urutan layer teratas, sementara tombol gameplay (A/B/X/Y, D-Pad) terkunci di layer bawah sehingga tidak pernah menonjol/menutupi modal.
+7. Membuka modal `+ Add Button` / `Change Key` (`#vpad-key-modal`) langsung dengan z-index absolut tertinggi di atas seluruh panel lainnya.
+8. Menjadikan Diagnostic Suite Beta (`diagnostic_suite.js`) bagian standar dari build pipeline baik flavor `--flavor beta` maupun `--flavor release`, dengan penambahan toggle `Show FPS: ON/OFF` melayang di layar secara real-time, dan penyederhanaan teks Share Bug Report bebas AI slop.
+9. Menegakkan Permanent Beta Watermark di pojok kanan atas bertuliskan `Beta Test\nVeldra Community` dengan style persisten `display: block !important; opacity: 0.8 !important; pointer-events: none;` khusus pada `--flavor beta`.
+**Alasan:** Layout lama monolitik di dalam `vpad.js`, animasinya kaku, tombol saling menindih z-index, dan styling tema tidak harmonis lintas komponen.
+**Dampak:** UI terasa mulus setara konsol handheld modern, arsitektur modular 3 file mudah di-maintain, dan seluruh 27 tes integrasi Rust serta seluruh test suite JS bridge lulus 100%.
+
 ## [2026-09-23] Pipeline Build Flavor (--flavor beta vs --flavor release) & Permanent Beta Watermark
 **Keputusan:**
 1. Menambahkan CLI argument `--flavor` pada `runtimepack build` (default `"beta"`), dengan validasi strict hanya menerima `"beta"` atau `"release"` (case-insensitive) dan me-return diagnostic `BLD-101` jika invalid.

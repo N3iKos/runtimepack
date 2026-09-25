@@ -493,4 +493,204 @@ class KeyMappingTest {
         // Toolbar stays with overlay
         assertFalse(WebActivity.shouldForwardTouchToGame(50f, 50f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = true))
     }
+
+    @Test
+    fun testWebActivityModalOpenRoutesAllScreenPointsToOverlay() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        val testPoints = listOf(
+            // Screen Corners
+            Pair(0f, 0f),
+            Pair(screenWidth, 0f),
+            Pair(0f, screenHeight),
+            Pair(screenWidth, screenHeight),
+            // Points outside static modal rectangle
+            Pair(100f, 540f),
+            Pair(1800f, 540f),
+            Pair(960f, 50f),
+            Pair(960f, 1050f),
+            Pair(200f, 50f),
+            Pair(1700f, 50f),
+            // Points inside static modal rectangle
+            Pair(960f, 540f),
+            Pair(500f, 200f),
+            Pair(1400f, 900f)
+        )
+
+        for ((x, y) in testPoints) {
+            assertFalse(
+                "Point ($x, $y) must NOT forward to game when modal is open (gamepad visible)",
+                WebActivity.shouldForwardTouchToGame(
+                    x, y, screenWidth, screenHeight, density,
+                    isGamepadHidden = false,
+                    isOverlayModalOpen = true
+                )
+            )
+            assertFalse(
+                "Point ($x, $y) must NOT forward to game when modal is open (gamepad hidden)",
+                WebActivity.shouldForwardTouchToGame(
+                    x, y, screenWidth, screenHeight, density,
+                    isGamepadHidden = true,
+                    isOverlayModalOpen = true
+                )
+            )
+        }
+    }
+
+    @Test
+    fun testWebActivityNormalNonModalRoutingPreserved() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // When modal is closed:
+        // 1. Canvas points forward to game when gamepad is visible
+        assertTrue(
+            "Center canvas should forward to game",
+            WebActivity.shouldForwardTouchToGame(
+                960f, 540f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+        assertTrue(
+            "Upper canvas should forward to game",
+            WebActivity.shouldForwardTouchToGame(
+                960f, 300f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+
+        // 2. Canvas points forward to game when gamepad is hidden (touch anywhere except toolbar)
+        assertTrue(
+            "Bottom-left canvas should forward to game when gamepad hidden",
+            WebActivity.shouldForwardTouchToGame(
+                100f, 900f, screenWidth, screenHeight, density,
+                isGamepadHidden = true,
+                isOverlayModalOpen = false
+            )
+        )
+        assertTrue(
+            "Bottom-right canvas should forward to game when gamepad hidden",
+            WebActivity.shouldForwardTouchToGame(
+                1800f, 900f, screenWidth, screenHeight, density,
+                isGamepadHidden = true,
+                isOverlayModalOpen = false
+            )
+        )
+    }
+
+    @Test
+    fun testWebActivityToolbarAndControlsOverlayOwned() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // Toolbar points are always overlay-owned
+        assertFalse(
+            WebActivity.shouldForwardTouchToGame(
+                0f, 0f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+        assertFalse(
+            WebActivity.shouldForwardTouchToGame(
+                50f, 50f, screenWidth, screenHeight, density,
+                isGamepadHidden = true,
+                isOverlayModalOpen = false
+            )
+        )
+        assertFalse(
+            WebActivity.shouldForwardTouchToGame(
+                140f, 520f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+
+        // Virtual gamepad controls are overlay-owned when gamepad is visible
+        assertFalse(
+            "D-pad zone must be overlay-owned",
+            WebActivity.shouldForwardTouchToGame(
+                100f, 900f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+        assertFalse(
+            "Action buttons zone must be overlay-owned",
+            WebActivity.shouldForwardTouchToGame(
+                1800f, 900f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+        assertFalse(
+            "Top utility buttons zone must be overlay-owned",
+            WebActivity.shouldForwardTouchToGame(
+                960f, 30f, screenWidth, screenHeight, density,
+                isGamepadHidden = false,
+                isOverlayModalOpen = false
+            )
+        )
+    }
+
+    @Test
+    fun testWebActivityGestureOwnershipLifecycle() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // 1. Gesture initiated while overlay modal is open (outside static modal rectangle, e.g. top-right 1800f, 200f)
+        // On ACTION_DOWN: should NOT be captured by game
+        val modalDownCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_DOWN,
+            1800f, 200f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = true, wasCapturedByGame = false
+        )
+        assertFalse("Modal gesture DOWN outside static modal rect must NOT route to game", modalDownCaptured)
+
+        val modalMoveCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_MOVE,
+            960f, 540f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = true, wasCapturedByGame = modalDownCaptured
+        )
+        assertFalse("Modal gesture MOVE must remain overlay-owned", modalMoveCaptured)
+
+        // 2. Gesture initiated on game canvas while modal is closed
+        val canvasDownCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_DOWN,
+            960f, 540f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = false, wasCapturedByGame = false
+        )
+        assertTrue("Canvas gesture DOWN must route to game", canvasDownCaptured)
+
+        // Dragging into toolbar maintains game gesture ownership until UP
+        val canvasMoveCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_MOVE,
+            50f, 50f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = false, wasCapturedByGame = canvasDownCaptured
+        )
+        assertTrue("Canvas gesture MOVE maintains game capture even when moving into toolbar", canvasMoveCaptured)
+
+        // 3. Gesture initiated on toolbar while modal is closed
+        val toolbarDownCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_DOWN,
+            50f, 50f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = false, wasCapturedByGame = false
+        )
+        assertFalse("Toolbar gesture DOWN must NOT route to game", toolbarDownCaptured)
+
+        // Dragging out of toolbar maintains overlay gesture ownership until UP
+        val toolbarMoveCaptured = WebActivity.resolveGestureCapturedByGame(
+            android.view.MotionEvent.ACTION_MOVE,
+            960f, 540f, screenWidth, screenHeight, density,
+            isGamepadHidden = false, isOverlayModalOpen = false, wasCapturedByGame = toolbarDownCaptured
+        )
+        assertFalse("Toolbar gesture MOVE maintains overlay capture even when moving into canvas", toolbarMoveCaptured)
+    }
 }

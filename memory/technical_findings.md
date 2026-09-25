@@ -1,5 +1,81 @@
 # Technical Findings
 
+## [DOM Mutation on PointerDown Causes Ghost Clicks & Multi-Panel Bridge Conflict]
+**Masalah:** 
+1. Saat tombol collapse (`─` / `≡`) pada editor bar diklik, tombol `Done` (yang baru muncul/bergeser ke posisi koordinat jari yang sama) ikut tertekan seketika sehingga editor mode langsung tertutup atau tap tembus ke elemen di belakangnya.
+2. Saat membuka beberapa panel (misalnya Settings Editor, lalu membuka Diagnostic Suite), menutup Diagnostic Suite langsung memanggil `setOverlayModalOpen(false)` sehingga touch bridge native menganggap tidak ada modal aktif dan sentuhan pada Settings Bar bocor ke canvas game.
+3. Tombol aktif pada tema Minimalist Matte berkedip (flicker) dari biru `#1e3a8a` menjadi abu-abu `#27272a` saat ditekan.
+**Penyebab:** 
+1. `bindTap` memicu aksi pada `pointerdown`. Ketika aksi memutasi DOM (menyembunyikan atau menampilkan tombol di bawah posisi fisik jari), browser melanjutkan siklus gesture fisik dan menembakkan `pointerup` dan synthetic `click` pada elemen baru yang kini berada di bawah jari (`doneBtn`).
+2. Tidak ada agregator status modal terpusat; setiap modal memanggil bridge `setOverlayModalOpen` secara mandiri tanpa mengetahui apakah modal lain masih terbuka.
+3. `vpad.css` tema matte memiliki selektor `body.vpad-theme-matte .vpad-top-btn:active` dengan `background: #27272a !important;` yang menimpa warna `.active`.
+**Solusi/workaround:** 
+1. Ubah `bindTap` agar memicu aksi pada `pointerup` (setelah verifikasi pergerakan jari dx/dy <= 10px) dan gunakan `setPointerCapture` serta penekanan synthetic click selama 500ms. Tambahkan interaction guard: saat collapse ditoggle, matikan `pointer-events: none` selama 150ms pada tombol yang baru terungkap.
+2. Bangun registry modal terpusat `window.RuntimePackModalRegistry` (`Set`) di `vpad.js` dengan helper `setModalState(id, isOpen)`. Panggil `setOverlayModalOpen(true)` selama `registry.size > 0` dan hanya panggil `false` saat `registry.size === 0`.
+3. Ganti aturan `:active` tema matte agar hanya melakukan scale kompresi tactile (`transform: scale(0.88) !important;`) sambil mempertahankan warna aktif `#1e3a8a` / `#3b82f6`.
+**Tags:** #ghost-click #pointer-events #modal-registry #touch-bleed #vpad #matte-theme
+
+## [Native WebActivity Touch Routing Intercepts Dynamic / Hoisted Overlay DOM Elements]
+**Masalah:** Saat modal atau panel overlay (seperti Custom Control Setup `+ Add Button`, panel editor, tombol collapse/minimize `─`/`≡`) disentuh di layar, tombol `✕` (Close) dan `Cancel` sama sekali tidak merespons, dan game di latar belakang justru menerima sentuhan.
+**Penyebab:** 
+1. Di `WebActivity.kt`, `overlayWebView` berukuran full-screen transparan di atas `gameWebView`. Untuk membiarkan sentuhan game lewat, `dispatchTouchEvent` memeriksa posisi koordinat fisik jari terhadap rectangle statis:
+   - Toolbar: `70dp × 260dp` di pojok kiri atas.
+   - Modal: rectangle statis yang diasumsikan selalu berada di tengah layar (`min(92%, 520dp) × 86%`).
+2. Begitu panel overlay (seperti Editor Bar, Inspector, Popovers, dan Key Modal) di-hoist langsung ke `document.body` dan dapat digeser (drag) atau berukuran full-screen, titik sentuh tombol Close `✕` dan `Cancel` jatuh di LUAR rectangle statis yang diasumsikan Kotlin. Akibatnya, `shouldForwardTouchToGame` mengembalikan `true` dan seluruh event gesture (`ACTION_DOWN`, `MOVE`, `UP`) dialihkan langsung ke `gameWebView` di bawahnya.
+**Solusi/workaround:** 
+Di `WebActivity.kt`, jadikan status `isOverlayModalOpen` sebagai penentu mutlak: saat mode modal/editor aktif (`isOverlayModalOpen == true`), seluruh gesture sentuh di seluruh layar dipaksa menjadi milik `overlayWebView` (`shouldForwardTouchToGame` mengembalikan `false` untuk semua koordinat) persis seperti arsitektur `RgssActivity.kt`, dan kunci `isTouchCapturedByGame = false`.
+**Tags:** #touch-routing #webactivity #hit-test #modal #overlay #android
+
+## [Listener Accumulation & Synthetic Event Duplication pada Virtual Controller DOM]
+**Masalah:** Sentuhan tombol toolbar terasa ada delay atau tidak merespons (harus ditekan beberapa kali), dan semakin lama game dimainkan saat berpindah preset/mengedit tombol, interaksi overlay semakin berat dan lambat.
+**Penyebab:** 
+1. `renderControls()` membersihkan kontainer dengan `innerHTML = ""`, tetapi seluruh listener `window.touchmove`, `window.touchend`, `window.mousemove`, `window.mouseup` yang dipasang oleh `setupDirectManipulation`, D-Pad, dan Joystick tidak pernah di-`removeEventListener`. Setiap kali ganti preset atau re-render, puluhan listener baru menumpuk di `window` (dari 13 naik hingga 85+ listener) yang semuanya dieksekusi di setiap frame gerakan jari.
+2. `bindTap` lama mengikat 4 event sekaligus (`touchstart`, `mousedown`, `pointerdown`, `click`). Di WebView modern, satu sentuhan fisik memicu rangkaian event kompatibilitas secara beruntun, sehingga callback dieksekusi berulang kali atau terblokir oleh debounce window yang kaku.
+3. `cheat_menu.js` menjalankan inisialisasi ganda dari event DOM-ready dan window `load`, dan menempelkan listener tambahan pada `#vpad-btn-cheat` yang sudah dimiliki oleh `vpad.js`.
+**Solusi/workaround:**
+1. Sebelum `container.innerHTML = ""` dijalankan di `renderControls()`, eksekusi cleanup array untuk mencopot seluruh window listener dari kontrol lama.
+2. Gunakan satu jalur otoritartif Pointer Events pada `bindTap` dengan penekanan event sintetis kompatibilitas, tanpa menggunakan debounce berbasis waktu yang membuang tap sah berikutnya.
+3. Jadikan `vpad.js` sebagai pemilik tunggal aktivasi tombol Cheat di toolbar, dan pastikan inisialisasi `cheat_menu.js` sepenuhnya idempotent sebelum mengikat listener apa pun.
+**Tags:** #vpad #event-leak #touch-latency #pointer-events #cheat-menu
+
+## [Touch Routing Bounding Box Leak pada WebActivity]
+**Masalah:** Saat modal atau panel Custom Control/Editor overlay dibuka pada `WebActivity`, sentuhan di luar area persegi panjang modal terpusat (misal sudut layar, panel editor yang digeser, atau tombol di luar area tengah) tembus dan memicu aksi di `gameWebView` di bawahnya.
+**Penyebab:** `WebActivity.shouldForwardTouchToGame` mengecek `isTouchInsideModal(...)` yang menghitung bounding box statis 520dp terpusat. Titik di luar box tersebut dievaluasi sebagai bukan kontrol aktif (`isTouchOnActiveControls == false`) sehingga `shouldForwardTouchToGame` mengembalikan `true`.
+**Solusi/workaround:** Jika `isOverlayModalOpen == true`, bypass pengecekan box statis dan langsung kembalikan `false` dari `shouldForwardTouchToGame` (dan `true` dari `isTouchOnActiveControls`). Gunakan `resolveGestureCapturedByGame` untuk mempertahankan status gesture sejak `ACTION_DOWN` hingga `ACTION_UP`/`ACTION_CANCEL`.
+**Tags:** #touch-routing #modal #webactivity #android #gesture-ownership
+
+## [Duplicate Tap, Startup Binding, dan Listener Leak pada Overlay]
+**Masalah:** Satu tap fisik memicu callback toolbar empat kali, startup CheatMenu berulang menambah listener, rerender preset menaikkan listener window dari 13 menjadi 85, dan popover tertutup editor bar yang sudah dinaikkan.
+**Penyebab:** `bindTap` mengikat pointer/touch/mouse/click sekaligus; `initCheatDOM` memeriksa idempotensi setelah binding dan ikut mengikat tombol milik VPad; setiap control memasang closure permanen ke window tanpa cleanup; popover memakai z-index statis.
+**Solusi/workaround:** Gunakan Pointer Events sebagai jalur utama dengan compatibility-click suppression berbasis urutan event, fallback ke satu touch/click path; cek overlay sebelum binding dan biarkan VPad memiliki tombol existing; simpan cleanup listener control lalu jalankan sebelum `innerHTML` rerender; panggil elevasi panel saat membuka popover.
+**Tags:** #pointer-events #tap #listener-leak #idempotency #z-index #overlay
+
+## [Pointer Events & 1:1 Pixel Dragging pada Floating Modal Overlay]
+**Masalah:** Dragging modal Diagnostic Suite dan Cheat Menu tersendat atau terputus saat digeser dengan cepat pada layar sentuh mobile, serta posisi melompat (jumping offset) saat pertama kali disentuh jika masih memiliki CSS `transform: translate(-50%, -50%)`.
+**Penyebab:** 
+1. Drag lama menggunakan passive touch listener dan `doc.addEventListener("touchmove")` yang bisa tertahan oleh scroll gesture browser atau dicegat `e.stopPropagation()` pada modal root.
+2. Centering awal modal mengandalkan `top: 50%; left: 50%; transform: translate(-50%, -50%)`. Jika `left` diupdate tanpa menghapus translate offset, pergerakan mouse/touch menjadi offset 50% atau melompat.
+**Solusi/workaround:** 
+1. Gunakan modern Pointer Events (`pointerdown` dengan `header.setPointerCapture(e.pointerId)`, `pointermove`, `pointerup`, `pointercancel`) serta deklarasikan `touch-action: none` pada header.
+2. Saat drag dimulai, konversi `modal.getBoundingClientRect()` ke koordinat pixel absolut `initLeft`/`initTop`, set `modal.style.transform = "none"`, sehingga delta perpindahan 1:1 langsung memodifikasi `left` dan `top` secara presisi.
+3. Hapus `touchmove`/`mousemove` dari pemblokir `e.stopPropagation()` di modal root agar pointer tracking tetap diterima event loop.
+**Tags:** #touch-events #pointer-events #modal-drag #vpad #diagnostic-suite #cheat-menu
+
+## [GPU Compositor Overhead & SVG CurrentColor Contrast pada Mobile WebView]
+**Masalah:** 
+1. Ikon toolbar `.vpad-top-btn` SVG dengan `stroke: currentColor` tampil hitam pekat (user-agent default) sehingga tidak kontras dengan background gelap.
+2. Multiple nested `backdrop-filter: blur(16px)` pada tombol-tombol di dalam modal memicu frame drops pada GPU compositor mobile.
+3. Logging intensif memicu synchronous reflow berulang akibat `box.scrollTop = box.scrollHeight`.
+**Solusi/workaround:** 
+1. Berikan `color: #f1f5f9 !important;` eksplisit pada `.vpad-top-btn` dan `color: #f8fafc;` pada `html, body`.
+2. Ringankan backdrop modal menjadi `rgba(15, 23, 42, 0.94)` dengan `backdrop-filter: blur(8px)`, serta nonaktifkan duplicate blur pada tombol di dalam modal (`backdrop-filter: none !important;`).
+3. Throttle auto-scroll console via `requestAnimationFrame` saat modal terbuka.
+**Tags:** #css #svg #gpu-compositor #performance #reflow
+**Masalah:** Saat panel Settings atau Inspector dinaikkan z-index-nya, tombol gameplay (A, B, X, Y, D-Pad) ikut terangkat ke atas menembus dan menutupi jendela modal Cheat Engine dan Diagnostic Suite.
+**Penyebab:** Seluruh elemen panel sebelumnya berada di dalam container `#vpad-root` yang juga menaungi `#vpad-controls`. Saat z-index `#vpad-root` dinaikkan agar panel settings bisa di atas modal, seluruh tombol di dalam `#vpad-controls` ikut terangkat melompati modal.
+**Solusi/workaround:** Pindahkan panel mengambang (`#vpad-editor-bar`, `#vpad-prop-panel`, `#vpad-key-modal`, `#vpad-preset-popover`, `#vpad-theme-popover`) langsung menjadi anak dari `document.body`, dan kunci `#vpad-root` pada z-index dasar (`99990`) di bawah z-index panel (`100000+`). Dengan demikian, gameplay controls tidak akan pernah menonjol di atas modal, dan setiap panel dapat dinaikkan z-index-nya secara mandiri saat disentuh.
+**Tags:** #overlay #z-index #stacking-context #vpad #ui
+
 ## [Touch Event Handling & Resilient DOM Ingestion pada Overlay Toolbar]
 **Masalah:** Tombol toolbar overlay dinamis (`#vpad-btn-diag`) gagal merespons touch input atau hilang saat `vpad.js` me-render ulang template DOM overlay.
 **Penyebab:** 
