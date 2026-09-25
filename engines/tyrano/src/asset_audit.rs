@@ -81,8 +81,15 @@ struct TyranoReader<'a> {
 impl<'a> TyranoReader<'a> {
     fn new(source: &'a GameSourceIndex) -> Self {
         let mut asar = None;
-        if source.has_file("resources/app.asar") {
-            let asar_path = source.root_path.join("resources/app.asar");
+        let asar_file = if source.has_file("resources/app.asar") {
+            source.get_file("resources/app.asar")
+        } else if source.has_file_case_folded("resources/app.asar") {
+            source.get_file("resources/app.asar")
+        } else {
+            None
+        };
+        if let Some(file) = asar_file {
+            let asar_path = source.root_path.join(&file.relative_path);
             if let Ok(archive) = AsarArchive::load(&asar_path) {
                 asar = Some((archive, asar_path));
             }

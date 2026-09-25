@@ -624,3 +624,36 @@ fn test_mv_transitive_plugin_dependency_resolved() {
 
     assert!(missing.source_node_ids[0].contains("Plugin:SamplePlugin"));
 }
+
+#[test]
+fn test_mv_plugins_manifest_with_preceding_bracketed_comment() {
+    let temp_dir = std::env::temp_dir().join(format!("web_plugin_bracket_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+    std::fs::write(temp_dir.join("data/System.json"), "{}").unwrap();
+    std::fs::write(
+        temp_dir.join("js/plugins.js"),
+        "/* [Plugin Manager] */\nvar $plugins = [\n{\"name\":\"TestPlugin\",\"status\":false,\"description\":\"\",\"parameters\":{}}\n];",
+    ).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    let has_malformed_plugins = report.findings.iter().any(|f| {
+        f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE && f.message.contains("plugins.js")
+    });
+    assert!(
+        !has_malformed_plugins,
+        "plugins.js with bracketed comment must not fail to parse"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

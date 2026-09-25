@@ -1710,7 +1710,12 @@ fn audit_plugins(ctx: &mut AuditContext) {
         }
     };
 
-    let plugins_array = match (content.find('['), content.rfind(']')) {
+    let start_idx = content
+        .find("$plugins")
+        .and_then(|pos| content[pos..].find('[').map(|offset| pos + offset))
+        .or_else(|| content.find('['));
+
+    let plugins_array = match (start_idx, content.rfind(']')) {
         (Some(start), Some(end)) if start < end => {
             let json_part = &content[start..=end];
             match serde_json::from_str::<serde_json::Value>(json_part) {

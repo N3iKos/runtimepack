@@ -162,6 +162,56 @@ fn test_renpy_case_mismatch_warning() {
 }
 
 #[test]
+fn test_renpy_python_package_init_import_resolves() {
+    let temp_dir = std::env::temp_dir().join(format!("renpy_pkg_init_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("game").join("mypackage")).unwrap();
+
+    std::fs::write(
+        temp_dir.join("game").join("options.rpy"),
+        "define config.version = \"1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("game").join("script.rpy"),
+        "init python:\n    import mypackage\nlabel start:\n    return\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("game").join("mypackage").join("__init__.py"),
+        "# mypackage init\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    let has_missing_import = report.findings.iter().any(|f| {
+        f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+            && f.message.contains("mypackage")
+    });
+    assert!(
+        !has_missing_import,
+        "mypackage with __init__.py must be resolved"
+    );
+
+    let has_script_node = report
+        .graph
+        .nodes
+        .iter()
+        .any(|n| n.id == "script:game/mypackage/__init__.py");
+    assert!(
+        has_script_node,
+        "node script:game/mypackage/__init__.py must exist in the graph"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_renpy_case_collision_fails() {
     let root = fixture_dir("renpy_valid");
     let mut index = make_index(&root);

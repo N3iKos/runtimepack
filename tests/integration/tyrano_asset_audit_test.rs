@@ -687,6 +687,42 @@ fn test_tyrano_asar_valid_game() {
 }
 
 #[test]
+fn test_tyrano_asar_case_folded_detected() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_asar_case_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("Resources")).unwrap();
+
+    let asar_file = temp_dir.join("Resources").join("APP.ASAR");
+    let ks_content = b"*start\n@bg storage=\"title.jpg\"\n[s]\n";
+    let img_content = b"DUMMY_TITLE_IMAGE_DATA";
+
+    build_synthetic_asar(
+        &asar_file,
+        &[
+            ("index.html", b"<html><body></body></html>"),
+            ("tyrano/tyrano.js", b"// tyrano core"),
+            ("data/scenario/first.ks", ks_content),
+            ("data/bgimage/title.jpg", img_content),
+        ],
+    );
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected Pass for case-folded ASAR, findings: {:#?}",
+        report.findings
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_tyrano_asar_native_node_fails() {
     let temp_dir = std::env::temp_dir().join(format!("tyrano_asar_node_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);

@@ -2068,19 +2068,14 @@ fn audit_database_files(
 
 fn is_map_file(logical_path: &str, ext: &str) -> bool {
     let lower = logical_path.to_ascii_lowercase();
-    let expected_suffix = format!(".{ext}");
+    let expected_suffix = format!(".{}", ext.to_ascii_lowercase());
     if !lower.starts_with("data/map") || !lower.ends_with(&expected_suffix) {
         return false;
     }
     let filename = logical_path.rsplit('/').next().unwrap_or(logical_path);
-    if let Some(rest) = filename
-        .strip_prefix("Map")
-        .or_else(|| filename.strip_prefix("map"))
-    {
-        if let Some(digits) = rest
-            .strip_suffix(&format!(".{ext}"))
-            .or_else(|| rest.strip_suffix(&expected_suffix))
-        {
+    let lower_filename = filename.to_ascii_lowercase();
+    if let Some(rest) = lower_filename.strip_prefix("map") {
+        if let Some(digits) = rest.strip_suffix(&expected_suffix) {
             return !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit());
         }
     }
@@ -2769,5 +2764,15 @@ mod tests {
         } else {
             panic!("Expected array");
         }
+    }
+
+    #[test]
+    fn test_is_map_file_case_handling() {
+        assert!(is_map_file("Data/Map001.rxdata", "rxdata"));
+        assert!(is_map_file("Data/MAP001.rxdata", "rxdata"));
+        assert!(is_map_file("data/map123.rvdata2", "rvdata2"));
+        assert!(!is_map_file("Data/MapInfos.rxdata", "rxdata"));
+        assert!(!is_map_file("Data/Map.rxdata", "rxdata"));
+        assert!(!is_map_file("Data/Other.rxdata", "rxdata"));
     }
 }

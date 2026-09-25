@@ -114,6 +114,15 @@ impl GameSourceIndex {
         self.files.contains_key(&normalized)
     }
 
+    pub fn has_file_case_folded(&self, logical_path: &str) -> bool {
+        self.has_file(logical_path)
+    }
+
+    pub fn has_file_exact(&self, logical_path: &str) -> bool {
+        let normalized = logical_path.replace('\\', "/");
+        self.files.values().any(|f| f.logical_path == normalized)
+    }
+
     pub fn get_file(&self, logical_path: &str) -> Option<&IndexedFile> {
         let normalized = logical_path.replace('\\', "/").to_ascii_lowercase();
         self.files.get(&normalized)

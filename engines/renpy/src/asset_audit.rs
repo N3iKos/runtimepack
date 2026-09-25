@@ -513,14 +513,13 @@ impl<'a> AuditContext<'a> {
                 resolution: ReferenceResolution::RuntimeProvided,
             });
         } else {
-            let local_path = format!("game/{top_module}.py");
-            let alt_local_path = format!("{top_module}.py");
-            if self.source.has_file(&local_path) || self.source.has_file(&alt_local_path) {
-                let actual = if self.source.has_file(&local_path) {
-                    local_path
-                } else {
-                    alt_local_path
-                };
+            let candidates = [
+                format!("game/{top_module}.py"),
+                format!("{top_module}.py"),
+                format!("game/{top_module}/__init__.py"),
+                format!("{top_module}/__init__.py"),
+            ];
+            if let Some(actual) = candidates.into_iter().find(|p| self.source.has_file(p)) {
                 let node_id = format!("script:{actual}");
                 self.ensure_node(&node_id, AssetKind::Script, Some(actual));
                 self.graph.edges.push(ReferenceEdge {
