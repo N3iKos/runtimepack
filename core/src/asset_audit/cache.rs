@@ -18,6 +18,10 @@ pub struct AuditCacheKey {
     pub toolchain_version: String,
     #[serde(default)]
     pub limits: AuditLimits,
+    #[serde(default)]
+    pub allow_network: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_version: Option<String>,
 }
 
 impl AuditCacheKey {
@@ -35,6 +39,8 @@ impl AuditCacheKey {
             ruleset_version,
             toolchain_version: toolchain_version.into(),
             limits: AuditLimits::default(),
+            allow_network: false,
+            detected_version: None,
         }
     }
 
@@ -50,11 +56,23 @@ impl AuditCacheKey {
             ruleset_version: CURRENT_AUDIT_RULESET_VERSION,
             toolchain_version: env!("CARGO_PKG_VERSION").to_string(),
             limits: options.limits.clone(),
+            allow_network: options.allow_network,
+            detected_version: None,
         }
     }
 
     pub fn with_limits(mut self, limits: AuditLimits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    pub fn with_allow_network(mut self, allow_network: bool) -> Self {
+        self.allow_network = allow_network;
+        self
+    }
+
+    pub fn with_detected_version(mut self, detected_version: Option<String>) -> Self {
+        self.detected_version = detected_version;
         self
     }
 
@@ -78,6 +96,16 @@ impl AuditCacheKey {
         hasher.update(self.limits.max_total_bytes.to_le_bytes());
         hasher.update(b":");
         hasher.update(self.limits.max_single_file_bytes.to_le_bytes());
+        hasher.update(b":");
+        hasher.update(if self.allow_network {
+            b"NETWORK_ALLOWED".as_slice()
+        } else {
+            b"NETWORK_FORBIDDEN".as_slice()
+        });
+        hasher.update(b":");
+        if let Some(ref ver) = self.detected_version {
+            hasher.update(ver.as_bytes());
+        }
         format!("{:x}", hasher.finalize())
     }
 
@@ -195,6 +223,11 @@ impl AuditCache {
         write_atomic(&entry_path, &entry_json)?;
 
         Ok(())
+    }
+
+    pub fn invalidate(&self, key: &AuditCacheKey) -> bool {
+        let entry_path = self.cache_dir.join(format!("{}.json", key.to_sha256()));
+        fs::remove_file(entry_path).is_ok()
     }
 }
 

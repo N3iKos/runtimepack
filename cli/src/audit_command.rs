@@ -7,10 +7,7 @@ use runtimepack_engine_rgss::{RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMake
 use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector};
 use runtimepack_engine_tyrano::TyranoDetector;
 use std::fs;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct AuditRequest {
     pub source: PathBuf,
@@ -50,7 +47,8 @@ impl AuditExecutionContext for StaticAuditExecutionContext {
     }
 
     fn write_report(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
-        write_atomic(path, contents).map_err(|error| error.to_string())
+        runtimepack_core::asset_audit::write_atomic(path, contents)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -105,7 +103,9 @@ pub fn run(
         runtimepack_core::asset_audit::CURRENT_AUDIT_RULESET_VERSION,
         env!("CARGO_PKG_VERSION"),
     )
-    .with_limits(options.limits.clone());
+    .with_limits(options.limits.clone())
+    .with_allow_network(options.allow_network)
+    .with_detected_version(descriptor.detected_version.clone());
 
     let cache = runtimepack_core::asset_audit::AuditCache::new(
         runtimepack_core::asset_audit::AuditCache::default_dir(),
@@ -114,14 +114,29 @@ pub fn run(
 
     let (artifacts, outcome) = if cache_usable {
         if let Some(cached) = cache.get(&cache_key) {
-            let outcome = serde_json::from_slice::<serde_json::Value>(&cached.report_json)
+            let parsed_outcome = serde_json::from_slice::<serde_json::Value>(&cached.report_json)
                 .ok()
                 .and_then(|val| {
                     val.get("outcome")
                         .and_then(|o| serde_json::from_value(o.clone()).ok())
-                })
-                .unwrap_or(AuditOutcome::Pass);
-            (cached, outcome)
+                });
+            if let Some(outcome) = parsed_outcome {
+                (cached, outcome)
+            } else {
+                // Invalidate corrupt cached entry and fall back to fresh scan
+                let _ = cache.invalidate(&cache_key);
+                let report = crate::create_default_asset_auditor_registry().audit(
+                    &source_index,
+                    &descriptor,
+                    &options,
+                );
+                let rendered = runtimepack_core::asset_audit::render_canonical_artifacts(&report)
+                    .map_err(|e| {
+                    format!("[CMP-AUD-010] Failed to render canonical audit artifacts: {e}")
+                })?;
+                let _ = cache.put(&cache_key, &rendered);
+                (rendered, report.outcome)
+            }
         } else {
             let report = crate::create_default_asset_auditor_registry().audit(
                 &source_index,
@@ -148,15 +163,40 @@ pub fn run(
         (rendered, report.outcome)
     };
 
-    context
-        .write_report(&output, &artifacts.report_json)
-        .map_err(|error| {
-            format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
-        })?;
+    let is_graph_target = output
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n == "asset-dependency-graph.json")
+        .unwrap_or(false);
 
-    let graph_output = output.with_file_name("asset-dependency-graph.json");
-    if graph_output != output {
-        let _ = context.write_report(&graph_output, &artifacts.graph_json);
+    if is_graph_target {
+        context
+            .write_report(&output, &artifacts.graph_json)
+            .map_err(|error| {
+                format!("[CMP-AUD-010] Failed to write dependency graph atomically: {error}")
+            })?;
+        let report_output = output.with_file_name("asset-audit-report.json");
+        if report_output != output {
+            context
+                .write_report(&report_output, &artifacts.report_json)
+                .map_err(|error| {
+                    format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
+                })?;
+        }
+    } else {
+        context
+            .write_report(&output, &artifacts.report_json)
+            .map_err(|error| {
+                format!("[CMP-AUD-010] Failed to write audit report atomically: {error}")
+            })?;
+        let graph_output = output.with_file_name("asset-dependency-graph.json");
+        if graph_output != output {
+            context
+                .write_report(&graph_output, &artifacts.graph_json)
+                .map_err(|error| {
+                    format!("[CMP-AUD-010] Failed to write dependency graph atomically: {error}")
+                })?;
+        }
     }
 
     Ok(AuditSummary {
@@ -215,97 +255,4 @@ fn normalize_path(path: &Path) -> PathBuf {
         }
     }
     normalized
-}
-
-static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let (temporary, mut file) = create_unique_sibling(path)?;
-    let result = (|| {
-        file.write_all(contents)?;
-        if !contents.ends_with(b"\n") {
-            file.write_all(b"\n")?;
-        }
-        file.flush()?;
-        file.sync_all()?;
-        drop(file);
-        replace_file(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
-fn create_unique_sibling(path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("asset-audit-report.json");
-    for _ in 0..128 {
-        let sequence = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let temporary = path.with_file_name(format!(".{file_name}.{timestamp}.{sequence}.tmp"));
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
-            Ok(file) => return Ok((temporary, file)),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "could not allocate a unique sibling temporary report",
-    ))
-}
-
-#[cfg(not(windows))]
-fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    // SAFETY: `source` and `destination` are vectors of UTF-16 code units explicitly
-    // null-terminated via `.chain(Some(0))`. Both vectors outlive the `MoveFileExW` call,
-    // ensuring that `source.as_ptr()` and `destination.as_ptr()` point to contiguous,
-    // valid, non-null, and properly null-terminated wide string buffers for the duration of the call.
-    let result = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if result == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }

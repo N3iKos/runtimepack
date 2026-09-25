@@ -3,8 +3,9 @@ mod audit_command;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use runtimepack_core::asset_audit::{
-    render_canonical_artifacts, write_audit_artifacts, AssetAuditOptions, AssetAuditorRegistry,
-    AuditMode, AuditOutcome,
+    render_canonical_artifacts, write_audit_artifacts, AssetAuditOptions, AssetAuditReport,
+    AssetAuditorRegistry, AuditCache, AuditCacheKey, AuditMode, AuditOutcome,
+    CURRENT_AUDIT_RULESET_VERSION,
 };
 use runtimepack_core::build_plan::{
     evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
@@ -558,8 +559,52 @@ fn cmd_build(args: BuildArgs) {
         allow_network: false,
         ..AssetAuditOptions::default()
     };
-    let mut audit_report =
-        create_default_asset_auditor_registry().audit(&source_index, &descriptor, &audit_options);
+    let audit_cache_key = AuditCacheKey::new(
+        &source_index.source_hash,
+        descriptor.id,
+        audit_mode,
+        CURRENT_AUDIT_RULESET_VERSION,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .with_limits(audit_options.limits.clone())
+    .with_allow_network(false)
+    .with_detected_version(descriptor.detected_version.clone());
+
+    let audit_cache = AuditCache::new(AuditCache::default_dir());
+    let cache_usable = audit_cache
+        .validate_outside_source(&source_index.root_path)
+        .is_ok();
+
+    let (mut audit_report, from_cache) = if cache_usable {
+        if let Some(cached_artifacts) = audit_cache.get(&audit_cache_key) {
+            match serde_json::from_slice::<AssetAuditReport>(&cached_artifacts.report_json) {
+                Ok(report) => (report, true),
+                Err(_) => {
+                    let _ = audit_cache.invalidate(&audit_cache_key);
+                    let report = create_default_asset_auditor_registry().audit(
+                        &source_index,
+                        &descriptor,
+                        &audit_options,
+                    );
+                    (report, false)
+                }
+            }
+        } else {
+            let report = create_default_asset_auditor_registry().audit(
+                &source_index,
+                &descriptor,
+                &audit_options,
+            );
+            (report, false)
+        }
+    } else {
+        let report = create_default_asset_auditor_registry().audit(
+            &source_index,
+            &descriptor,
+            &audit_options,
+        );
+        (report, false)
+    };
     let registry = RuntimeRegistry::new();
     let runtimes = registry.find_for_engine(descriptor.id);
     if runtimes.is_empty() {
@@ -623,11 +668,15 @@ fn cmd_build(args: BuildArgs) {
             std::process::exit(1);
         }
     };
+    if cache_usable && !from_cache {
+        let _ = audit_cache.put(&audit_cache_key, &audit_artifacts);
+    }
     let audit_hash = audit_artifacts.report_sha256.clone();
     let runtime = runtimes[0];
+    let cache_tag = if from_cache { " [cache hit]" } else { "" };
     println!(
-        "Audit:         {:?} ({:?})",
-        audit_report.outcome, audit_mode
+        "Audit:         {:?} ({:?}){}",
+        audit_report.outcome, audit_mode, cache_tag
     );
     println!(
         "Resolved:      {} v{} ({})",

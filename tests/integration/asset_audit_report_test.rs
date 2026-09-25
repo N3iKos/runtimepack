@@ -232,7 +232,7 @@ fn test_path_sanitization_removes_host_and_user_paths() {
         severity: FindingSeverity::Error,
         disposition: FindingDisposition::Blocking,
         requiredness: ReferenceRequiredness::Required,
-        message: r"Missing file at C:\Users\SecretUser\Projects\Game\Data\System.json".into(),
+        message: r"Missing file at C:\Users\SecretUser\Projects\Game\Data\System.json.".into(),
         source_node_ids: vec![
             r"database:C:\Users\SecretUser\Projects\Game\Data\System.json".into(),
         ],
@@ -276,6 +276,11 @@ fn test_path_sanitization_removes_host_and_user_paths() {
     assert!(
         json_text.contains("Graphics/Titles/Title.png"),
         "Report JSON must contain forward-slash path Graphics/Titles/Title.png"
+    );
+    // Trailing punctuation preserved outside path
+    assert!(
+        json_text.contains("Data/System.json."),
+        "Report JSON must preserve trailing punctuation outside sanitized path"
     );
 }
 
@@ -360,6 +365,20 @@ fn test_audit_cache_key_properties_and_determinism() {
         max_single_file_bytes: 512,
     });
     assert_ne!(key1.to_sha256(), key_diff_limits.to_sha256());
+
+    // Toggling allow_network changes key hash
+    let key_network_allowed = key1.clone().with_allow_network(true);
+    assert_ne!(key1.to_sha256(), key_network_allowed.to_sha256());
+
+    // Setting detected_version changes key hash
+    let key_with_version = key1.clone().with_detected_version(Some("1.2.3".into()));
+    assert_ne!(key1.to_sha256(), key_with_version.to_sha256());
+
+    let key_with_diff_version = key1.clone().with_detected_version(Some("1.2.4".into()));
+    assert_ne!(
+        key_with_version.to_sha256(),
+        key_with_diff_version.to_sha256()
+    );
 }
 
 #[test]
@@ -525,4 +544,60 @@ fn test_audit_cache_validates_outside_source_root() {
 
     let _ = fs::remove_dir_all(source_dir);
     let _ = fs::remove_dir_all(outside_dir);
+}
+
+#[test]
+fn test_build_uses_audit_cache_on_repeat_runs() {
+    let working_dir = temp_dir("build-cache-work");
+    let out_dir = temp_dir("build-cache-repeat");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/vxace_min");
+
+    // First build run: executes audit and stores in cache
+    let run1 = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--no-compile")
+        .arg("--accept-audit-fail")
+        .output()
+        .unwrap();
+
+    let stdout1 = String::from_utf8_lossy(&run1.stdout);
+    assert!(run1.status.success(), "first build must succeed: {stdout1}");
+    assert!(stdout1.contains("Audit:"));
+
+    // Second build run: should hit cache
+    let run2 = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--no-compile")
+        .arg("--accept-audit-fail")
+        .output()
+        .unwrap();
+
+    let stdout2 = String::from_utf8_lossy(&run2.stdout);
+    assert!(
+        run2.status.success(),
+        "second build must succeed: {stdout2}"
+    );
+    assert!(stdout2.contains("Audit:"));
+    assert!(
+        stdout2.contains("[cache hit]"),
+        "second build must use cache hit on repeat run. STDOUT:\n{stdout2}"
+    );
+
+    let _ = fs::remove_dir_all(working_dir);
+    let _ = fs::remove_dir_all(out_dir);
 }

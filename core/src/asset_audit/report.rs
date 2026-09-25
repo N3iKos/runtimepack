@@ -127,21 +127,17 @@ pub fn sanitize_path_str(raw: &str) -> String {
         "scenario",
         "plugins",
         "sound",
-        "bgm",
-        "bgs",
-        "me",
-        "se",
-        "system",
         "resources",
         "www",
+        "tyrano",
     ];
 
     let segments: Vec<&str> = path_no_home.split('/').filter(|s| !s.is_empty()).collect();
-    for (i, segment) in segments.iter().enumerate() {
+    if let Some(pos) = segments.iter().rposition(|segment| {
         let lower = segment.to_ascii_lowercase();
-        if WELL_KNOWN_DIRS.contains(&lower.as_str()) {
-            return segments[i..].join("/");
-        }
+        WELL_KNOWN_DIRS.contains(&lower.as_str())
+    }) {
+        return segments[pos..].join("/");
     }
 
     // Fallback: strip leading slashes and dots
@@ -170,10 +166,18 @@ pub fn sanitize_message(msg: &str) -> String {
         Regex::new(r#"/(?:home|Users|tmp|var|opt)/[^\s'"\)\]]+"#).expect("valid regex")
     });
 
-    let with_win = win_re.replace_all(msg, |caps: &regex::Captures| sanitize_path_str(&caps[0]));
+    let with_win = win_re.replace_all(msg, |caps: &regex::Captures| {
+        let raw = &caps[0];
+        let trimmed = raw.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        let suffix = &raw[trimmed.len()..];
+        format!("{}{}", sanitize_path_str(trimmed), suffix)
+    });
 
     let with_unix = unix_re.replace_all(&with_win, |caps: &regex::Captures| {
-        sanitize_path_str(&caps[0])
+        let raw = &caps[0];
+        let trimmed = raw.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        let suffix = &raw[trimmed.len()..];
+        format!("{}{}", sanitize_path_str(trimmed), suffix)
     });
 
     with_unix.into_owned()
@@ -211,7 +215,7 @@ pub fn write_audit_artifacts(
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn write_atomic(destination: &Path, contents: &[u8]) -> Result<(), DiagnosticError> {
+pub fn write_atomic(destination: &Path, contents: &[u8]) -> Result<(), DiagnosticError> {
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let file_name = destination
         .file_name()
@@ -304,6 +308,10 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
         .chain(Some(0))
         .collect::<Vec<_>>();
 
+    // SAFETY: `source` and `destination` are vectors of UTF-16 code units explicitly
+    // null-terminated via `.chain(Some(0))`. Both vectors outlive the `MoveFileExW` call,
+    // ensuring that `source.as_ptr()` and `destination.as_ptr()` point to contiguous,
+    // valid, non-null, and properly null-terminated wide string buffers for the duration of the call.
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),
