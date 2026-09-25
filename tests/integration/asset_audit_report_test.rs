@@ -652,7 +652,7 @@ fn test_render_audit_html_escapes_game_controlled_text() {
         severity: FindingSeverity::Error,
         disposition: FindingDisposition::Blocking,
         requiredness: ReferenceRequiredness::Required,
-        message: "XSS test: <script>alert('xss & dangerous \"quotes\"')</script>".into(),
+        message: "XSS test: <script>alert('xss & dangerous \"quotes\"')</script> and </SCRIPT> and </sCrIpT> and </style>".into(),
         source_node_ids: vec!["map:<alert>&'test'".into()],
         orphan: false,
     });
@@ -668,9 +668,37 @@ fn test_render_audit_html_escapes_game_controlled_text() {
         "Game-controlled finding message must be HTML-escaped in rendered body"
     );
     assert!(
+        html.contains("&lt;/SCRIPT&gt;"),
+        "Mixed-case closing script tag must be HTML-escaped in table body"
+    );
+    assert!(
         html.contains("map:&lt;alert&gt;&amp;&#39;test&#39;"),
         "Game-controlled node id must be HTML-escaped"
     );
+
+    // Verify script breakout in #audit-data script tag
+    let script_start = html
+        .find(r#"<script type="application/json" id="audit-data">"#)
+        .unwrap();
+    let json_start = html[script_start..].find('>').unwrap() + script_start + 1;
+    let json_end = html[json_start..].find("</script>").unwrap() + json_start;
+    let embedded_json = &html[json_start..json_end];
+
+    // Inside the script tag body, there must be NO unescaped </SCRIPT>, </script>, </sCrIpT>, etc.
+    assert!(
+        !embedded_json.to_lowercase().contains("</script"),
+        "Embedded JSON must not contain closing script tags: {embedded_json}"
+    );
+    assert!(
+        !embedded_json.contains("</"),
+        "Embedded JSON must universally escape </ to <\\/: {embedded_json}"
+    );
+
+    // Verify it still parses as identical valid JSON
+    let parsed: serde_json::Value =
+        serde_json::from_str(embedded_json.trim()).expect("must be valid JSON");
+    let expected: serde_json::Value = serde_json::from_slice(&artifacts.report_json).unwrap();
+    assert_eq!(parsed, expected);
 }
 
 #[test]
@@ -730,6 +758,47 @@ fn test_render_audit_html_renders_status_badges_and_counters() {
     assert!(
         html_pass.contains("Unreadable"),
         "Must contain Unreadable counter"
+    );
+
+    // Verify exact counter values rendered in sample report 1
+    let (report_1, _) = sample_report_pair();
+    let artifacts_1 = render_canonical_artifacts(&report_1).expect("render report 1");
+    let html_1 =
+        String::from_utf8(render_audit_html(&artifacts_1).expect("render html 1")).unwrap();
+
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-total-assets">3</div>"#),
+        "Total Assets count must match exact number 3"
+    );
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-resolved">2</div>"#),
+        "Resolved count must match exact number 2"
+    );
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-missing">2</div>"#),
+        "Missing count must match exact number 2"
+    );
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-case-mismatch">0</div>"#),
+        "Case mismatch count must match exact number 0"
+    );
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-unresolved-dynamic">0</div>"#),
+        "Unresolved dynamic count must match exact number 0"
+    );
+    assert!(
+        html_1.contains(r#"<div class="stat-value" id="stat-unreadable">0</div>"#),
+        "Unreadable count must match exact number 0"
+    );
+
+    // Assert that data-stages contains SCREAMING_SNAKE_CASE like REFERENCE_FOUND, FILE_READABLE
+    assert!(
+        html_1.contains("FILE_READABLE"),
+        "data-stages must use SCREAMING_SNAKE_CASE matching <option> values"
+    );
+    assert!(
+        !html_1.contains("FILEREADABLE") && !html_1.contains("REFERENCEFOUND"),
+        "data-stages must not contain unformatted pascal-case strings"
     );
 }
 

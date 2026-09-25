@@ -1,9 +1,22 @@
 use crate::asset_audit::{
-    AssetAuditReport, AssetNode, AuditOutcome, CanonicalAuditArtifacts, FindingSeverity,
-    ReferenceEdge, ReferenceResolution,
+    AssetAuditReport, AssetNode, AuditOutcome, CanonicalAuditArtifacts, EvidenceStage,
+    FindingSeverity, ReferenceEdge, ReferenceResolution,
 };
 use crate::diagnostics::DiagnosticError;
 use std::collections::HashMap;
+
+fn stage_to_screaming_snake(stage: EvidenceStage) -> &'static str {
+    match stage {
+        EvidenceStage::ReferenceFound => "REFERENCE_FOUND",
+        EvidenceStage::PathResolved => "PATH_RESOLVED",
+        EvidenceStage::FileExists => "FILE_EXISTS",
+        EvidenceStage::FileReadable => "FILE_READABLE",
+        EvidenceStage::IntegrityVerified => "INTEGRITY_VERIFIED",
+        EvidenceStage::DecodeSuccess => "DECODE_SUCCESS",
+        EvidenceStage::EngineLoadSuccess => "ENGINE_LOAD_SUCCESS",
+        EvidenceStage::RuntimeUseSuccess => "RUNTIME_USE_SUCCESS",
+    }
+}
 
 pub fn escape_html(input: &str) -> String {
     let mut escaped = String::with_capacity(input.len());
@@ -94,9 +107,7 @@ pub fn render_audit_html(
     let engine_str = report.engine.to_string();
 
     let json_text = String::from_utf8_lossy(&artifacts.report_json);
-    let safe_embedded_json = json_text
-        .replace("</script", "<\\/script")
-        .replace("</Script", "<\\/Script");
+    let safe_embedded_json = json_text.replace("</", "<\\/");
 
     let mut html = String::with_capacity(64 * 1024);
 
@@ -637,7 +648,7 @@ footer {
                 if let Some(edges) = edges_by_source.get(source_id.as_str()) {
                     for edge in edges {
                         for stage in edge.evidence.stages() {
-                            let stage_name = format!("{stage:?}").to_uppercase();
+                            let stage_name = stage_to_screaming_snake(*stage);
                             if !stages_for_finding.contains(&stage_name) {
                                 stages_for_finding.push(stage_name);
                             }
@@ -721,9 +732,24 @@ footer {
                         ));
                     }
 
-                    // Display edges associated with this source
+                    // Display edges associated with this source, filtered to finding relevance and capped
                     if let Some(edges) = edges_by_source.get(src_id.as_str()) {
-                        for edge in edges {
+                        let targeted: Vec<&ReferenceEdge> = edges
+                            .iter()
+                            .copied()
+                            .filter(|e| finding.source_node_ids.contains(&e.target))
+                            .collect();
+                        let candidate_edges: Vec<&ReferenceEdge> = if !targeted.is_empty() {
+                            targeted
+                        } else {
+                            edges.clone()
+                        };
+
+                        const MAX_PROVENANCE_EDGES: usize = 16;
+                        let display_count = candidate_edges.len().min(MAX_PROVENANCE_EDGES);
+                        let omitted_count = candidate_edges.len().saturating_sub(MAX_PROVENANCE_EDGES);
+
+                        for edge in &candidate_edges[..display_count] {
                             let res_str = format!("{:?}", edge.resolution).to_uppercase();
                             let req_str = format!("{:?}", edge.requiredness).to_uppercase();
                             html.push_str(&format!(
@@ -737,11 +763,20 @@ footer {
                             ));
                             for stage in edge.evidence.stages() {
                                 html.push_str(&format!(
-                                    "                <span class=\"stage-tag\">{:?}</span>\n",
-                                    stage
+                                    "                <span class=\"stage-tag\">{}</span>\n",
+                                    stage_to_screaming_snake(*stage)
                                 ));
                             }
                             html.push_str("              </div></div>\n");
+                        }
+
+                        if omitted_count > 0 {
+                            html.push_str(&format!(
+                                "              <div style=\"padding-left: 1.5rem; margin: 0.25rem 0; color: var(--text-muted); font-style: italic;\">\n\
+                                               &bull; ... and {} more references omitted\n\
+                                               </div>\n",
+                                omitted_count
+                            ));
                         }
                     }
                 }
@@ -840,7 +875,7 @@ footer {
 
       if (matchesSearch && matchesSeverity && matchesStage) {
         row.style.display = '';
-        if (details && details.classList.contains('expanded')) {
+        if (details) {
           details.style.display = '';
         }
       } else {
