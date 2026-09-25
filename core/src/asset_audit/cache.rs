@@ -188,6 +188,7 @@ impl AuditCache {
             graph_json: graph_bytes,
             report_sha256: entry.report_sha256,
             graph_sha256: entry.graph_sha256,
+            html_bytes: None,
         })
     }
 

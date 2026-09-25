@@ -1,7 +1,8 @@
 use runtimepack_core::asset_audit::{
-    render_canonical_artifacts, write_audit_artifacts, AssetAuditReport, AssetKind, AssetNode,
-    AuditCache, AuditCacheKey, AuditCompleteness, AuditFinding, AuditLimits, AuditMode,
-    AuditOutcome, AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage, EvidenceTrail,
+    render_audit_html, render_canonical_artifacts, write_audit_artifacts,
+    write_audit_artifacts_with_options, AssetAuditReport, AssetKind, AssetNode, AuditCache,
+    AuditCacheKey, AuditCompleteness, AuditFinding, AuditLimits, AuditMode, AuditOutcome,
+    AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage, EvidenceTrail,
     FindingDisposition, FindingSeverity, ReferenceEdge, ReferenceRequiredness, ReferenceResolution,
     RuntimeValidationState, CURRENT_AUDIT_RULESET_VERSION,
 };
@@ -600,4 +601,215 @@ fn test_build_uses_audit_cache_on_repeat_runs() {
 
     let _ = fs::remove_dir_all(working_dir);
     let _ = fs::remove_dir_all(out_dir);
+}
+
+#[test]
+fn test_render_audit_html_is_completely_offline_and_self_contained() {
+    let (report, _) = sample_report_pair();
+    let artifacts = render_canonical_artifacts(&report).expect("render artifacts");
+    let html_bytes = render_audit_html(&artifacts).expect("render html");
+    let html = String::from_utf8(html_bytes).expect("valid utf-8 html");
+
+    // Zero external URLs or CDN links
+    assert!(
+        !html.contains("http://"),
+        "HTML report must not contain http:// links"
+    );
+    assert!(
+        !html.contains("https://"),
+        "HTML report must not contain https:// links"
+    );
+
+    // Embeds canonical JSON payload in script element
+    assert!(
+        html.contains(r#"<script type="application/json" id="audit-data">"#),
+        "HTML report must embed json payload in #audit-data script tag"
+    );
+
+    // Verify embedded JSON is valid and matches canonical report
+    let script_start = html
+        .find(r#"<script type="application/json" id="audit-data">"#)
+        .unwrap();
+    let json_start = html[script_start..].find('>').unwrap() + script_start + 1;
+    let json_end = html[json_start..].find("</script>").unwrap() + json_start;
+    let embedded_json = html[json_start..json_end].trim();
+    let parsed_json: serde_json::Value =
+        serde_json::from_str(embedded_json).expect("embedded JSON must be valid");
+    let canonical_json: serde_json::Value =
+        serde_json::from_slice(&artifacts.report_json).unwrap();
+    assert_eq!(
+        parsed_json, canonical_json,
+        "Embedded JSON must match canonical JSON"
+    );
+}
+
+#[test]
+fn test_render_audit_html_escapes_game_controlled_text() {
+    let mut report = sample_report_pair().0;
+    report.findings.push(AuditFinding {
+        id: "finding-xss".into(),
+        code: "CMP-AUD-002".into(),
+        severity: FindingSeverity::Error,
+        disposition: FindingDisposition::Blocking,
+        requiredness: ReferenceRequiredness::Required,
+        message: "XSS test: <script>alert('xss & dangerous \"quotes\"')</script>".into(),
+        source_node_ids: vec!["map:<alert>&'test'".into()],
+        orphan: false,
+    });
+    report.canonicalize();
+
+    let artifacts = render_canonical_artifacts(&report).expect("render artifacts");
+    let html_bytes = render_audit_html(&artifacts).expect("render html");
+    let html = String::from_utf8(html_bytes).expect("valid utf-8 html");
+
+    // Finding row / display text must be escaped
+    assert!(
+        html.contains("&lt;script&gt;alert(&#39;xss &amp; dangerous &quot;quotes&quot;&#39;)&lt;/script&gt;"),
+        "Game-controlled finding message must be HTML-escaped in rendered body"
+    );
+    assert!(
+        html.contains("map:&lt;alert&gt;&amp;&#39;test&#39;"),
+        "Game-controlled node id must be HTML-escaped"
+    );
+}
+
+#[test]
+fn test_render_audit_html_renders_status_badges_and_counters() {
+    let (mut report, _) = sample_report_pair();
+    report.outcome = AuditOutcome::Pass;
+    report.findings.clear();
+    report.canonicalize();
+
+    let artifacts_pass = render_canonical_artifacts(&report).expect("render pass");
+    let html_pass =
+        String::from_utf8(render_audit_html(&artifacts_pass).expect("render html")).unwrap();
+    assert!(html_pass.contains("PASS"), "Must render PASS badge");
+
+    report.outcome = AuditOutcome::Warning;
+    let artifacts_warn = render_canonical_artifacts(&report).expect("render warn");
+    let html_warn =
+        String::from_utf8(render_audit_html(&artifacts_warn).expect("render html")).unwrap();
+    assert!(html_warn.contains("WARNING"), "Must render WARNING badge");
+
+    report.outcome = AuditOutcome::Fail;
+    let artifacts_fail = render_canonical_artifacts(&report).expect("render fail");
+    let html_fail =
+        String::from_utf8(render_audit_html(&artifacts_fail).expect("render html")).unwrap();
+    assert!(html_fail.contains("FAIL"), "Must render FAIL badge");
+
+    report.outcome = AuditOutcome::Indeterminate;
+    let artifacts_indet = render_canonical_artifacts(&report).expect("render indet");
+    let html_indet =
+        String::from_utf8(render_audit_html(&artifacts_indet).expect("render html")).unwrap();
+    assert!(
+        html_indet.contains("INDETERMINATE"),
+        "Must render INDETERMINATE badge"
+    );
+
+    // Verify summary counter headers exist
+    assert!(
+        html_pass.contains("Total Assets"),
+        "Must contain Total Assets counter"
+    );
+    assert!(
+        html_pass.contains("Resolved"),
+        "Must contain Resolved counter"
+    );
+    assert!(
+        html_pass.contains("Missing"),
+        "Must contain Missing counter"
+    );
+    assert!(
+        html_pass.contains("Case Mismatch"),
+        "Must contain Case Mismatch counter"
+    );
+    assert!(
+        html_pass.contains("Unresolved Dynamic"),
+        "Must contain Unresolved Dynamic counter"
+    );
+    assert!(
+        html_pass.contains("Unreadable"),
+        "Must contain Unreadable counter"
+    );
+}
+
+#[test]
+fn test_write_audit_artifacts_with_html_and_no_html() {
+    let output_dir = temp_dir("write-html-artifacts");
+    let (report, _) = sample_report_pair();
+    let artifacts = render_canonical_artifacts(&report).expect("render artifacts");
+
+    // Default: write_audit_artifacts emits HTML
+    write_audit_artifacts(&output_dir, &artifacts).expect("write artifacts");
+    assert!(output_dir.join("asset-audit-report.json").exists());
+    assert!(output_dir.join("asset-dependency-graph.json").exists());
+    assert!(output_dir.join("asset-audit-report.html").exists());
+
+    // When emit_html is false: write_audit_artifacts_with_options skips HTML
+    let output_dir_no_html = temp_dir("write-no-html-artifacts");
+    write_audit_artifacts_with_options(&output_dir_no_html, &artifacts, false)
+        .expect("write artifacts without html");
+    assert!(output_dir_no_html.join("asset-audit-report.json").exists());
+    assert!(output_dir_no_html
+        .join("asset-dependency-graph.json")
+        .exists());
+    assert!(
+        !output_dir_no_html.join("asset-audit-report.html").exists(),
+        "HTML must NOT be emitted when emit_html=false"
+    );
+
+    let _ = fs::remove_dir_all(output_dir);
+    let _ = fs::remove_dir_all(output_dir_no_html);
+}
+
+#[test]
+fn test_cli_audit_emits_html_by_default_and_respects_no_html_flag() {
+    let working_dir = temp_dir("cli-audit-html");
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/vxace_min");
+
+    // Default audit run: emits asset-audit-report.html
+    let run1 = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .arg("audit")
+        .arg(&fixture)
+        .output()
+        .unwrap();
+
+    assert!(run1.status.success(), "audit command must succeed");
+    assert!(working_dir.join("asset-audit-report.json").exists());
+    assert!(working_dir.join("asset-dependency-graph.json").exists());
+    assert!(
+        working_dir.join("asset-audit-report.html").exists(),
+        "HTML report must be emitted by default"
+    );
+
+    // Remove artifacts
+    let _ = fs::remove_file(working_dir.join("asset-audit-report.json"));
+    let _ = fs::remove_file(working_dir.join("asset-dependency-graph.json"));
+    let _ = fs::remove_file(working_dir.join("asset-audit-report.html"));
+
+    // Run with --no-html: omits asset-audit-report.html
+    let run2 = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .arg("audit")
+        .arg(&fixture)
+        .arg("--no-html")
+        .output()
+        .unwrap();
+
+    assert!(
+        run2.status.success(),
+        "audit command with --no-html must succeed"
+    );
+    assert!(working_dir.join("asset-audit-report.json").exists());
+    assert!(working_dir.join("asset-dependency-graph.json").exists());
+    assert!(
+        !working_dir.join("asset-audit-report.html").exists(),
+        "HTML report must NOT be emitted with --no-html"
+    );
+
+    let _ = fs::remove_dir_all(working_dir);
 }

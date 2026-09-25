@@ -422,7 +422,13 @@ fn test_build_gating_accept_audit_unknown_succeeds_with_provenance_and_reports()
     assert_eq!(prov_audit.report_path, "asset-audit-report.json");
     assert_eq!(prov_audit.outcome, AuditOutcome::Indeterminate);
     let expected_hash = format!("{:x}", Sha256::digest(&audit_bytes));
+    assert_eq!(manifest_audit.report_sha256, expected_hash);
     assert_eq!(prov_audit.report_sha256, expected_hash);
+
+    assert!(
+        out_dir.join("asset-audit-report.html").exists(),
+        "asset-audit-report.html must be emitted on build by default"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -489,7 +495,48 @@ fn test_build_gating_accept_audit_fail_succeeds_with_provenance_and_reports() {
     assert_eq!(prov_audit.report_path, "asset-audit-report.json");
     assert_eq!(prov_audit.outcome, AuditOutcome::Fail);
     let expected_hash = format!("{:x}", Sha256::digest(&audit_bytes));
+    assert_eq!(manifest_audit.report_sha256, expected_hash);
     assert_eq!(prov_audit.report_sha256, expected_hash);
+
+    assert!(
+        out_dir.join("asset-audit-report.html").exists(),
+        "asset-audit-report.html must be emitted on build by default"
+    );
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_build_with_no_html_flag_omits_html_report() {
+    let out_dir = test_temp_dir("accepted-no-html");
+    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--no-compile")
+        .arg("--no-html")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "build with --no-html must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    assert!(out_dir.join("asset-audit-report.json").exists());
+    assert!(out_dir.join("asset-dependency-graph.json").exists());
+    assert!(
+        !out_dir.join("asset-audit-report.html").exists(),
+        "asset-audit-report.html must NOT be emitted when --no-html is passed"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }

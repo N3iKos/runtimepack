@@ -16,6 +16,8 @@ pub struct CanonicalAuditArtifacts {
     pub graph_json: Vec<u8>,
     pub report_sha256: String,
     pub graph_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html_bytes: Option<Vec<u8>>,
 }
 
 pub fn render_canonical_artifacts(
@@ -65,6 +67,7 @@ pub fn render_canonical_artifacts(
         graph_json,
         report_sha256,
         graph_sha256,
+        html_bytes: None,
     })
 }
 
@@ -187,6 +190,14 @@ pub fn write_audit_artifacts(
     output_dir: &Path,
     artifacts: &CanonicalAuditArtifacts,
 ) -> Result<(), DiagnosticError> {
+    write_audit_artifacts_with_options(output_dir, artifacts, true)
+}
+
+pub fn write_audit_artifacts_with_options(
+    output_dir: &Path,
+    artifacts: &CanonicalAuditArtifacts,
+    emit_html: bool,
+) -> Result<(), DiagnosticError> {
     if output_dir.exists() && !output_dir.is_dir() {
         return Err(DiagnosticError::from_code(
             "CMP-AUD-010",
@@ -209,6 +220,15 @@ pub fn write_audit_artifacts(
 
     let graph_path = output_dir.join("asset-dependency-graph.json");
     write_atomic(&graph_path, &artifacts.graph_json)?;
+
+    if emit_html {
+        let html_bytes = match &artifacts.html_bytes {
+            Some(bytes) => bytes.clone(),
+            None => crate::asset_audit::render_audit_html(artifacts)?,
+        };
+        let html_path = output_dir.join("asset-audit-report.html");
+        write_atomic(&html_path, &html_bytes)?;
+    }
 
     Ok(())
 }

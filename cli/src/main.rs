@@ -3,8 +3,8 @@ mod audit_command;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use runtimepack_core::asset_audit::{
-    render_canonical_artifacts, write_audit_artifacts, AssetAuditOptions, AssetAuditReport,
-    AssetAuditorRegistry, AuditCache, AuditCacheKey, AuditMode, AuditOutcome,
+    render_canonical_artifacts, write_audit_artifacts_with_options, AssetAuditOptions,
+    AssetAuditReport, AssetAuditorRegistry, AuditCache, AuditCacheKey, AuditMode, AuditOutcome,
     CURRENT_AUDIT_RULESET_VERSION,
 };
 use runtimepack_core::build_plan::{
@@ -85,6 +85,9 @@ pub struct AuditArgs {
     /// Authoritative JSON report path
     #[arg(short, long, default_value = "asset-audit-report.json")]
     pub output: PathBuf,
+    /// Do not emit standalone HTML report viewer
+    #[arg(long)]
+    pub no_html: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -115,6 +118,9 @@ pub struct BuildArgs {
     /// Skip Gradle APK compilation (generates Android project and assets only)
     #[arg(long)]
     pub no_compile: bool,
+    /// Do not emit standalone HTML report viewer
+    #[arg(long)]
+    pub no_html: bool,
     /// Output directory
     #[arg(short, long, default_value = "./dist")]
     pub output: PathBuf,
@@ -431,6 +437,7 @@ fn cmd_audit(args: AuditArgs) {
         mode: args.mode,
         allow_network: args.allow_network_audit,
         output: args.output,
+        emit_html: !args.no_html,
     };
     match audit_command::run(request, &audit_command::StaticAuditExecutionContext) {
         Ok(summary) => {
@@ -956,7 +963,7 @@ fn cmd_build(args: BuildArgs) {
 
     let report_json = serde_json::to_string_pretty(&report).unwrap();
     fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
-    if let Err(error) = write_audit_artifacts(output, &audit_artifacts) {
+    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html) {
         eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
         std::process::exit(1);
     }

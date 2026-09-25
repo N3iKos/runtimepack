@@ -1,10 +1,12 @@
 mod cache;
 mod graph;
+mod html;
 mod report;
 mod resolver;
 
 pub use cache::*;
 pub use graph::*;
+pub use html::*;
 pub use report::*;
 pub use resolver::*;
 
