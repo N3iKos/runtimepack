@@ -320,28 +320,32 @@ dependencies {{
         )
     }
 
-    pub fn find_overlay_src() -> Option<PathBuf> {
-        let p1 = Path::new("android/shell/app/src/main/assets/overlay");
+    pub fn find_template_file(rel_path: &str) -> Option<PathBuf> {
+        let p1 = Path::new(rel_path);
         if p1.exists() {
             return Some(p1.to_path_buf());
         }
-        let p2 = Path::new("../android/shell/app/src/main/assets/overlay");
+        let p2 = Path::new("..").join(rel_path);
         if p2.exists() {
-            return Some(p2.to_path_buf());
+            return Some(p2);
         }
         if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-            let p3 = Path::new(&manifest_dir).join("android/shell/app/src/main/assets/overlay");
+            let p3 = Path::new(&manifest_dir).join(rel_path);
             if p3.exists() {
                 return Some(p3);
             }
             if let Some(parent) = Path::new(&manifest_dir).parent() {
-                let p4 = parent.join("android/shell/app/src/main/assets/overlay");
+                let p4 = parent.join(rel_path);
                 if p4.exists() {
                     return Some(p4);
                 }
             }
         }
         None
+    }
+
+    pub fn find_overlay_src() -> Option<PathBuf> {
+        Self::find_template_file("android/shell/app/src/main/assets/overlay")
     }
 
     pub fn configure_overlay_watermark(overlay_dir: &Path, flavor: &str) -> std::io::Result<()> {
@@ -514,16 +518,14 @@ dependencies {{
         }
 
         // Copy all Java / Kotlin sources (including org.libsdl.app and io.runtimepack.host)
-        let host_java_src = Path::new("android/shell/app/src/main/java");
-        if host_java_src.exists() {
-            copy_dir_all(host_java_src, &src_dir)?;
+        if let Some(host_java_src) = Self::find_template_file("android/shell/app/src/main/java") {
+            copy_dir_all(&host_java_src, &src_dir)?;
         }
 
         // Copy native jniLibs
-        let jni_src = Path::new("android/shell/app/src/main/jniLibs");
-        if jni_src.exists() {
+        if let Some(jni_src) = Self::find_template_file("android/shell/app/src/main/jniLibs") {
             let jni_dst = app_dir.join("src/main/jniLibs");
-            copy_dir_all(jni_src, &jni_dst)?;
+            copy_dir_all(&jni_src, &jni_dst)?;
         }
 
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
@@ -543,18 +545,16 @@ dependencies {{
             .unwrap_or("beta");
         Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
 
-        // Copy web_shims assets (runtimepack_web_shims.js)
-        let shims_src = Path::new("android/shell/app/src/main/assets/web_shims");
-        if shims_src.exists() {
+        // Copy web_shims assets (runtimepack_web_shims.js, runtimepack_asset_audit.js)
+        if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
             let shims_dst = assets_dir.join("web_shims");
-            copy_dir_all(shims_src, &shims_dst)?;
+            copy_dir_all(&shims_src, &shims_dst)?;
         }
 
         // Copy Android resources (launcher icons, mipmaps)
         let res_dst = app_dir.join("src/main/res");
-        let res_src = Path::new("android/shell/app/src/main/res");
-        if res_src.exists() {
-            copy_dir_all(res_src, &res_dst)?;
+        if let Some(res_src) = Self::find_template_file("android/shell/app/src/main/res") {
+            copy_dir_all(&res_src, &res_dst)?;
         }
 
         // Dynamic icon extraction from game source or fallback to neutral icons
@@ -569,24 +569,36 @@ dependencies {{
         }
 
         // Copy RGSS post-binding bootstrap if present
-        let bootstrap_src = Path::new("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
-        if bootstrap_src.exists() {
-            fs::copy(bootstrap_src, assets_dir.join("runtimepack_bootstrap.rb"))?;
+        if let Some(bootstrap_src) = Self::find_template_file("android/shell/app/src/main/assets/runtimepack_bootstrap.rb") {
+            fs::copy(&bootstrap_src, assets_dir.join("runtimepack_bootstrap.rb"))?;
+        }
+
+        // Copy RGSS asset audit script if present
+        if let Some(audit_rb_src) = Self::find_template_file("android/shell/app/src/main/assets/runtimepack_asset_audit.rb") {
+            fs::copy(&audit_rb_src, assets_dir.join("runtimepack_asset_audit.rb"))?;
+        }
+
+        // Ensure web asset audit script is also directly accessible in assets root
+        if let Some(audit_js_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims/runtimepack_asset_audit.js") {
+            if !assets_dir.join("runtimepack_asset_audit.js").exists() {
+                let _ = fs::copy(&audit_js_src, assets_dir.join("runtimepack_asset_audit.js"));
+            }
         }
 
         // Copy Gradle wrapper if available in shell template
-        let shell_dir = Path::new("android/shell");
-        if shell_dir.join("gradlew.bat").exists() {
-            let _ = fs::copy(
-                shell_dir.join("gradlew.bat"),
-                project_dir.join("gradlew.bat"),
-            );
-        }
-        if shell_dir.join("gradlew").exists() {
-            let _ = fs::copy(shell_dir.join("gradlew"), project_dir.join("gradlew"));
-        }
-        if shell_dir.join("gradle").exists() {
-            let _ = copy_dir_all(&shell_dir.join("gradle"), &project_dir.join("gradle"));
+        if let Some(shell_dir) = Self::find_template_file("android/shell") {
+            if shell_dir.join("gradlew.bat").exists() {
+                let _ = fs::copy(
+                    shell_dir.join("gradlew.bat"),
+                    project_dir.join("gradlew.bat"),
+                );
+            }
+            if shell_dir.join("gradlew").exists() {
+                let _ = fs::copy(shell_dir.join("gradlew"), project_dir.join("gradlew"));
+            }
+            if shell_dir.join("gradle").exists() {
+                let _ = copy_dir_all(&shell_dir.join("gradle"), &project_dir.join("gradle"));
+            }
         }
 
         // Write root build.gradle.kts and settings.gradle.kts

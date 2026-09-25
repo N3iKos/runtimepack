@@ -1065,6 +1065,87 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
 }
 
 #[test]
+fn test_emit_project_packages_runtime_asset_audit_scripts() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("build_test_audit_scripts_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-24T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        app: AppConfig {
+            name: "Audit Script Test Game".to_string(),
+            package: "com.example.auditscripttest".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_vxace".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("RGSS3".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "mkxp-z".to_string(),
+            version: "2.4.2".to_string(),
+            family: "RGSS".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "hash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        assets_dir.join("runtimepack_asset_audit.rb").exists(),
+        "runtimepack_asset_audit.rb must be packaged in emitted project assets"
+    );
+    assert!(
+        assets_dir.join("web_shims/runtimepack_asset_audit.js").exists(),
+        "web_shims/runtimepack_asset_audit.js must be packaged in emitted project assets"
+    );
+    assert!(
+        assets_dir.join("runtimepack_asset_audit.js").exists(),
+        "runtimepack_asset_audit.js must be packaged in emitted project assets root"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
     let temp_dir =
         std::env::temp_dir().join(format!("build_test_icons_default_{}", std::process::id()));

@@ -445,6 +445,7 @@ open class RgssActivity : SDLActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Set transparent window background so SurfaceView beneath is visible
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        AssetAuditService.init(filesDir, "rgss")
 
         val gameDir = File(filesDir, "game")
         val alreadyExtracted = GpackExtractor.isExtracted(gameDir)
@@ -563,6 +564,31 @@ open class RgssActivity : SDLActivity() {
                 }
 
                 @JavascriptInterface
+                fun getAuditEvents(afterSeq: Long): String {
+                    return this@RgssActivity.getAuditEvents(afterSeq)
+                }
+
+                @JavascriptInterface
+                fun getAuditReport(): String {
+                    return this@RgssActivity.getAuditReport()
+                }
+
+                @JavascriptInterface
+                fun postAuditEvent(eventJson: String): Boolean {
+                    return this@RgssActivity.postAuditEvent(eventJson)
+                }
+
+                @JavascriptInterface
+                fun cancelAudit(): Boolean {
+                    return this@RgssActivity.cancelAudit()
+                }
+
+                @JavascriptInterface
+                fun startAudit(requestJson: String): String {
+                    return this@RgssActivity.startAudit(requestJson)
+                }
+
+                @JavascriptInterface
                 fun shareBugReport(jsonContent: String) {
                     this@RgssActivity.shareBugReport(jsonContent)
                 }
@@ -668,6 +694,67 @@ open class RgssActivity : SDLActivity() {
         } catch (_: Exception) {
             ""
         }
+    }
+
+    private var lastIngestedRgssAuditSeq = 0L
+
+    fun ingestRgssAuditEventsFromFile() {
+        try {
+            val dir = getInputStateDirectory()
+            var file = File(dir, "rp_audit_events.json")
+            if (!file.exists()) {
+                val gameSub = File(dir, "game")
+                file = File(gameSub, "rp_audit_events.json")
+            }
+            if (file.exists()) {
+                val content = file.readText(Charsets.UTF_8).trim()
+                if (content.startsWith("[")) {
+                    val events = RuntimeAuditEvent.fromJsonArray(content)
+                    for (ev in events) {
+                        if (ev.sequence_id > lastIngestedRgssAuditSeq) {
+                            AssetAuditService.recordEvent(ev)
+                            lastIngestedRgssAuditSeq = maxOf(lastIngestedRgssAuditSeq, ev.sequence_id)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to ingest RGSS audit events from file: ${e.message}")
+        }
+    }
+
+    open fun getAuditEvents(afterSeq: Long): String {
+        ingestRgssAuditEventsFromFile()
+        return AssetAuditService.getAuditEvents(afterSeq)
+    }
+
+    open fun getAuditReport(): String {
+        ingestRgssAuditEventsFromFile()
+        return AssetAuditService.getAuditReport()
+    }
+
+    open fun postAuditEvent(eventJson: String): Boolean {
+        return try {
+            val ev = RuntimeAuditEvent.fromJson(eventJson)
+            if (ev != null) {
+                AssetAuditService.recordEvent(ev)
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse and record audit event: ${e.message}", e)
+            false
+        }
+    }
+
+    open fun cancelAudit(): Boolean {
+        return AssetAuditService.cancelAudit()
+    }
+
+    open fun startAudit(requestJson: String = ""): String {
+        lastIngestedRgssAuditSeq = 0L
+        return AssetAuditService.startAudit(requestJson)
     }
 
     open fun shareBugReport(jsonContent: String) {

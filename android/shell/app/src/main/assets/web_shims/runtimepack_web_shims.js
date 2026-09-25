@@ -694,17 +694,22 @@
     } catch (e) {}
 
     function patchAudioManager(am) {
-        if (!am || (am.audioFileExt && am.audioFileExt.__patched)) return;
-        am.audioFileExt = function() {
-            if (root.Utils && typeof root.Utils.canPlayOgg === "function" && root.Utils.canPlayOgg()) {
+        if (!am) return;
+        if (!am.audioFileExt || !am.audioFileExt.__patched) {
+            am.audioFileExt = function() {
+                if (root.Utils && typeof root.Utils.canPlayOgg === "function" && root.Utils.canPlayOgg()) {
+                    return '.ogg';
+                }
+                if (root.WebAudio && typeof root.WebAudio.canPlayOgg === "function" && root.WebAudio.canPlayOgg()) {
+                    return '.ogg';
+                }
                 return '.ogg';
-            }
-            if (root.WebAudio && typeof root.WebAudio.canPlayOgg === "function" && root.WebAudio.canPlayOgg()) {
-                return '.ogg';
-            }
-            return '.ogg';
-        };
-        am.audioFileExt.__patched = true;
+            };
+            am.audioFileExt.__patched = true;
+        }
+        if (root.RuntimePackAssetAudit && typeof root.RuntimePackAssetAudit.installHooks === "function") {
+            root.RuntimePackAssetAudit.installHooks(root);
+        }
     }
 
     function patchGraphics(g) {
@@ -741,6 +746,9 @@
         }
         if (root.SceneManager) {
             patchSceneManager(root.SceneManager);
+        }
+        if (root.RuntimePackAssetAudit && typeof root.RuntimePackAssetAudit.installHooks === "function") {
+            root.RuntimePackAssetAudit.installHooks(root);
         }
     }
 

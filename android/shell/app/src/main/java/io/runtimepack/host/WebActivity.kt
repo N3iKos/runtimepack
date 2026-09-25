@@ -219,6 +219,7 @@ open class WebActivity : Activity() {
         )
 
         val gameDir = File(filesDir, "game")
+        AssetAuditService.init(filesDir, "rpgmaker_web")
         prepareGameContent(gameDir)
         setupVfs(gameDir)
         loadWebShims()
@@ -391,6 +392,31 @@ open class WebActivity : Activity() {
             @JavascriptInterface
             fun setEvalResult(resStr: String) {
                 this@WebActivity.setEvalResult(resStr)
+            }
+
+            @JavascriptInterface
+            fun postAuditEvent(eventJson: String): Boolean {
+                return this@WebActivity.postAuditEvent(eventJson)
+            }
+
+            @JavascriptInterface
+            fun getAuditEvents(afterSeq: Long): String {
+                return this@WebActivity.getAuditEvents(afterSeq)
+            }
+
+            @JavascriptInterface
+            fun getAuditReport(): String {
+                return this@WebActivity.getAuditReport()
+            }
+
+            @JavascriptInterface
+            fun cancelAudit(): Boolean {
+                return this@WebActivity.cancelAudit()
+            }
+
+            @JavascriptInterface
+            fun startAudit(requestJson: String): String {
+                return this@WebActivity.startAudit(requestJson)
             }
         }, "RuntimePackWeb")
 
@@ -574,6 +600,31 @@ open class WebActivity : Activity() {
             }
 
             @JavascriptInterface
+            fun getAuditEvents(afterSeq: Long): String {
+                return this@WebActivity.getAuditEvents(afterSeq)
+            }
+
+            @JavascriptInterface
+            fun getAuditReport(): String {
+                return this@WebActivity.getAuditReport()
+            }
+
+            @JavascriptInterface
+            fun postAuditEvent(eventJson: String): Boolean {
+                return this@WebActivity.postAuditEvent(eventJson)
+            }
+
+            @JavascriptInterface
+            fun cancelAudit(): Boolean {
+                return this@WebActivity.cancelAudit()
+            }
+
+            @JavascriptInterface
+            fun startAudit(requestJson: String): String {
+                return this@WebActivity.startAudit(requestJson)
+            }
+
+            @JavascriptInterface
             fun shareBugReport(jsonContent: String) {
                 this@WebActivity.shareBugReport(jsonContent)
             }
@@ -586,7 +637,11 @@ open class WebActivity : Activity() {
     fun loadWebShims() {
         if (webShimsScript.isNotEmpty()) return
         webShimsScript = try {
-            assets.open("web_shims/runtimepack_web_shims.js").bufferedReader().use { it.readText() }
+            val shims = assets.open("web_shims/runtimepack_web_shims.js").bufferedReader().use { it.readText() }
+            val audit = try {
+                assets.open("web_shims/runtimepack_asset_audit.js").bufferedReader().use { it.readText() }
+            } catch (_: Exception) { "" }
+            if (audit.isNotEmpty()) "$shims\n\n$audit" else shims
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load web shims from assets: ${e.message}", e)
             ""
@@ -778,6 +833,37 @@ open class WebActivity : Activity() {
         val res = cachedAuditProgress
         cachedAuditProgress = ""
         return res
+    }
+
+    open fun getAuditEvents(afterSeq: Long): String {
+        return AssetAuditService.getAuditEvents(afterSeq)
+    }
+
+    open fun getAuditReport(): String {
+        return AssetAuditService.getAuditReport()
+    }
+
+    open fun postAuditEvent(eventJson: String): Boolean {
+        return try {
+            val ev = RuntimeAuditEvent.fromJson(eventJson)
+            if (ev != null) {
+                AssetAuditService.recordEvent(ev)
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse and record audit event: ${e.message}", e)
+            false
+        }
+    }
+
+    open fun cancelAudit(): Boolean {
+        return AssetAuditService.cancelAudit()
+    }
+
+    open fun startAudit(requestJson: String = ""): String {
+        return AssetAuditService.startAudit(requestJson)
     }
 
     open fun shareBugReport(jsonContent: String) {

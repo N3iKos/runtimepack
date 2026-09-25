@@ -353,4 +353,106 @@ function createSandbox(initialStorageManager) {
     }, "executeCheatCmd must safely no-op when game globals are undefined");
 }
 
+{
+    // Web Asset Audit Instrumentation Tests (Image, Audio, Video loaders)
+    const auditShimsPath = path.resolve(__dirname, "../../main/assets/web_shims/runtimepack_asset_audit.js");
+    assert(fs.existsSync(auditShimsPath), `Audit shims file must exist at ${auditShimsPath}`);
+    const auditCode = fs.readFileSync(auditShimsPath, "utf-8");
+
+    const sb = createSandbox();
+    const postedEvents = [];
+    sb.RuntimePackWeb = {
+        postAuditEvent: function(eventJson) {
+            const ev = typeof eventJson === "string" ? JSON.parse(eventJson) : eventJson;
+            postedEvents.push(ev);
+            return true;
+        }
+    };
+
+    // Load main shims and audit shims into sandbox
+    vm.runInContext(shimsCode, sb);
+    vm.runInContext(auditCode, sb);
+
+    // Mock ImageManager
+    sb.ImageManager = {
+        loadBitmap: function(folder, filename, hue, smooth) {
+            const bmp = {
+                _url: folder + filename + ".png",
+                _isLoading: true,
+                _errorListeners: [],
+                addLoadListener: function(fn) {},
+                addErrorListener: function(fn) {
+                    this._errorListeners.push(fn);
+                },
+                triggerError: function() {
+                    this._errorListeners.forEach(fn => fn(this));
+                }
+            };
+            return bmp;
+        }
+    };
+
+    // Mock AudioManager
+    sb.AudioManager = {
+        playBgm: function(bgm, pos) {
+            throw new Error("Failed to decode audio stream: " + (bgm ? bgm.name : "null"));
+        },
+        playSe: function(se) {
+            throw new Error("Audio file not found: " + (se ? se.name : "null"));
+        }
+    };
+
+    // Mock Graphics
+    sb.Graphics = {
+        playVideo: function(src) {
+            if (this._videoErrorCb) {
+                this._videoErrorCb(new Error("Video format unsupported: " + src));
+            }
+        },
+        _videoErrorCb: null
+    };
+
+    // Install asset audit hooks in sandbox
+    vm.runInContext("if (window.RuntimePackAssetAudit) { window.RuntimePackAssetAudit.installHooks(window); }", sb);
+
+    // 1. Test ImageManager.loadBitmap error interception
+    const bmp = sb.ImageManager.loadBitmap("img/characters/", "MissingHero", 0, true);
+    assert(bmp, "loadBitmap should return a bitmap instance");
+    bmp.triggerError();
+
+    const imgEvent = postedEvents.find(e => e.asset_path && e.asset_path.includes("MissingHero"));
+    assert(imgEvent, "Error in loadBitmap should emit an audit event to RuntimePackWeb");
+    assert.strictEqual(imgEvent.stage, "FILE_EXISTS");
+    assert.strictEqual(imgEvent.outcome, "FAIL");
+    assert.strictEqual(imgEvent.fallback_action, "PLACEHOLDER_SUBSTITUTED");
+    assert.strictEqual(imgEvent.source_location, "ImageManager.loadBitmap");
+
+    // 2. Test AudioManager.playBgm failure suppression and audit emission
+    assert.doesNotThrow(() => {
+        sb.AudioManager.playBgm({ name: "MissingTheme", volume: 90, pitch: 100, pan: 0 });
+    }, "playBgm error should be safely caught");
+
+    const bgmEvent = postedEvents.find(e => e.asset_path && e.asset_path.includes("MissingTheme"));
+    assert(bgmEvent, "playBgm failure should emit an audit event");
+    assert.strictEqual(bgmEvent.outcome, "FAIL");
+    assert.strictEqual(bgmEvent.fallback_action, "AUDIO_LOAD_SUPPRESSED");
+    assert.strictEqual(bgmEvent.source_location, "AudioManager.playBgm");
+
+    // 3. Test AudioManager.playSe failure suppression and audit emission
+    assert.doesNotThrow(() => {
+        sb.AudioManager.playSe({ name: "MissingSound", volume: 80, pitch: 100, pan: 0 });
+    }, "playSe error should be safely caught");
+
+    const seEvent = postedEvents.find(e => e.asset_path && e.asset_path.includes("MissingSound"));
+    assert(seEvent, "playSe failure should emit an audit event");
+    assert.strictEqual(seEvent.outcome, "FAIL");
+    assert.strictEqual(seEvent.fallback_action, "AUDIO_LOAD_SUPPRESSED");
+    assert.strictEqual(seEvent.source_location, "AudioManager.playSe");
+
+    // 4. Test Graphics.playVideo error interception
+    assert.doesNotThrow(() => {
+        sb.Graphics.playVideo("movies/Opening.webm");
+    });
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");

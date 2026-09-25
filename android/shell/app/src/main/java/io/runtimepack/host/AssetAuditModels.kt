@@ -64,6 +64,100 @@ data class RuntimeAuditEvent(
     }
 
     companion object {
+        fun fromJson(jsonStr: String): RuntimeAuditEvent? {
+            return try {
+                fun extractString(key: String): String? {
+                    val pattern = Regex("\"$key\"\\s*:\\s*(?:\"((?:\\\\\"|[^\"])*)\"|null)")
+                    val match = pattern.find(jsonStr) ?: return null
+                    if (match.groupValues[1].isEmpty() && match.value.contains("null")) return null
+                    return match.groupValues[1]
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                        .replace("\\n", "\n")
+                        .replace("\\r", "\r")
+                        .replace("\\t", "\t")
+                }
+
+                fun extractLong(key: String): Long? {
+                    val pattern = Regex("\"$key\"\\s*:\\s*([0-9]+)")
+                    val match = pattern.find(jsonStr) ?: return null
+                    return match.groupValues[1].toLongOrNull()
+                }
+
+                val stageStr = extractString("stage") ?: "FILE_EXISTS"
+                val stage = try {
+                    RuntimeAuditStage.valueOf(stageStr)
+                } catch (_: Exception) {
+                    RuntimeAuditStage.FILE_EXISTS
+                }
+
+                val outcomeStr = extractString("outcome") ?: "FAIL"
+                val outcome = try {
+                    RuntimeAuditOutcome.valueOf(outcomeStr)
+                } catch (_: Exception) {
+                    RuntimeAuditOutcome.FAIL
+                }
+
+                val assetPath = extractString("asset_path") ?: ""
+                val seq = extractLong("sequence_id") ?: 0L
+                val ts = extractLong("timestamp_ns") ?: System.nanoTime()
+                val fallback = extractString("fallback_action")
+                val error = extractString("error_message")
+                val sourceLoc = extractString("source_location")
+
+                RuntimeAuditEvent(
+                    sequence_id = seq,
+                    timestamp_ns = ts,
+                    stage = stage,
+                    asset_path = assetPath,
+                    outcome = outcome,
+                    fallback_action = fallback,
+                    error_message = error,
+                    source_location = sourceLoc
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun fromJsonArray(jsonStr: String): List<RuntimeAuditEvent> {
+            val list = mutableListOf<RuntimeAuditEvent>()
+            var depth = 0
+            var inString = false
+            var escape = false
+            var startIdx = -1
+
+            for (i in jsonStr.indices) {
+                val c = jsonStr[i]
+                if (escape) {
+                    escape = false
+                    continue
+                }
+                if (c == '\\') {
+                    if (inString) escape = true
+                    continue
+                }
+                if (c == '"') {
+                    inString = !inString
+                    continue
+                }
+                if (inString) continue
+
+                if (c == '{') {
+                    if (depth == 0) startIdx = i
+                    depth++
+                } else if (c == '}') {
+                    depth--
+                    if (depth == 0 && startIdx != -1) {
+                        val objStr = jsonStr.substring(startIdx, i + 1)
+                        fromJson(objStr)?.let { list.add(it) }
+                        startIdx = -1
+                    }
+                }
+            }
+            return list
+        }
+
         private fun escapeJson(s: String): String {
             val sb = StringBuilder()
             for (c in s) {

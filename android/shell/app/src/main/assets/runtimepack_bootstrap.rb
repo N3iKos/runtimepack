@@ -126,6 +126,16 @@ begin
 rescue LoadError, ScriptError, StandardError
 end
 
+begin
+  require_relative 'runtimepack_asset_audit'
+rescue LoadError, ScriptError, StandardError
+  begin
+    require './runtimepack_asset_audit'
+  rescue LoadError, ScriptError, StandardError
+    load File.expand_path('runtimepack_asset_audit.rb', File.dirname(__FILE__)) rescue nil
+  end
+end
+
 class << File
   alias_method :runtimepack_original_exist?, :exist?
   alias_method :runtimepack_original_size, :size
@@ -414,14 +424,32 @@ end unless defined?(Bitmap)
 
 module Audio
   class << self
-    def bgm_play(*args); end
-    def bgs_play(*args); end
-    def me_play(*args); end
-    def se_play(*args); end
+    def bgm_play(*args)
+      check_audio_stub(args.first)
+    end
+    def bgs_play(*args)
+      check_audio_stub(args.first)
+    end
+    def me_play(*args)
+      check_audio_stub(args.first)
+    end
+    def se_play(*args)
+      check_audio_stub(args.first)
+    end
     def bgm_stop; end
     def bgs_stop; end
     def me_stop; end
     def se_stop; end
+
+    private
+    def check_audio_stub(item)
+      return unless item
+      name = item.respond_to?(:name) ? item.name : item.to_s
+      return if name.empty?
+      unless File.exist?(name)
+        raise Errno::ENOENT, "No such file or directory - #{name}"
+      end
+    end
   end
 end unless defined?(Audio)
 
@@ -650,7 +678,17 @@ module RuntimePackCheatRunner
                   send(orig_m, *args)
                 rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
                   puts "[RuntimePack] Missing bitmap in #{cache_mod}.#{m}(#{args.first}): #{e.class}: #{e.message}, returning dummy bitmap"
-                  (Bitmap.new(32, 32) rescue nil)
+                  if defined?(RuntimePackAssetAudit)
+                    RuntimePackAssetAudit.record_event(
+                      "FILE_EXISTS",
+                      args.first.to_s,
+                      "FAIL",
+                      fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                      error_message: "#{e.class}: #{e.message}",
+                      source_location: "#{cache_mod}.#{m}"
+                    )
+                  end
+                  (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
                 end
               end
             end
@@ -666,8 +704,18 @@ module RuntimePackCheatRunner
               rp_orig_normal_bitmap(path)
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
               puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path}, falling back to empty bitmap"
+              if defined?(RuntimePackAssetAudit)
+                RuntimePackAssetAudit.record_event(
+                  "FILE_EXISTS",
+                  path.to_s,
+                  "FAIL",
+                  fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                  error_message: "#{e.class}: #{e.message}",
+                  source_location: "#{cache_mod}.normal_bitmap"
+                )
+              end
               @cache ||= {}
-              @cache[path] = (Bitmap.new(32, 32) rescue nil)
+              @cache[path] = (Bitmap.new(1, 1) rescue Bitmap.new(32, 32) rescue nil)
             end
           end
         end
@@ -699,10 +747,20 @@ module RuntimePackCheatRunner
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
               if args.size <= 1
                 puts "[RuntimePack] Bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting dummy bitmap"
+                if defined?(RuntimePackAssetAudit) && args[0].is_a?(String)
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    args[0],
+                    "FAIL",
+                    fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                    error_message: "#{e.class}: #{e.message}",
+                    source_location: "Bitmap.new"
+                  )
+                end
                 if args[0].is_a?(String) && args[0].downcase.include?("save") && (File.exist?("Graphics/System/SaveNotFound.png") rescue false)
-                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue rp_orig_bitmap_new(32, 32))
+                  (rp_orig_bitmap_new("Graphics/System/SaveNotFound.png") rescue (rp_orig_bitmap_new(1, 1) rescue rp_orig_bitmap_new(32, 32)))
                 else
-                  rp_orig_bitmap_new(32, 32)
+                  (rp_orig_bitmap_new(1, 1) rescue rp_orig_bitmap_new(32, 32))
                 end
               else
                 raise e
@@ -725,6 +783,17 @@ module RuntimePackCheatRunner
                   send(orig_m, *args)
                 rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
                   puts "[RuntimePack] Audio asset not found or error in #{m}: #{args[0]} (#{e.class}: #{e.message})"
+                  audio_path = args.first.respond_to?(:name) ? args.first.name : args.first.to_s
+                  if defined?(RuntimePackAssetAudit)
+                    RuntimePackAssetAudit.record_event(
+                      "FILE_EXISTS",
+                      audio_path,
+                      "FAIL",
+                      fallback_action: "AUDIO_LOAD_SUPPRESSED",
+                      error_message: "#{e.class}: #{e.message}",
+                      source_location: "Audio.#{m}"
+                    )
+                  end
                   nil
                 end
               end
