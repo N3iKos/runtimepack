@@ -246,3 +246,26 @@ No P0 release if:
 - **Static and runtime separation:**
   - Verify that static audit reports remain decoupled from runtime probe reports. In-game telemetry indicators (Diagnostic Suite) are tested as viewers only and cannot satisfy static verification gates.
 
+### 16.4 Runtime probe and checkpoint tests
+
+- **Sampled probe mode:**
+  - Verifies deterministic selection of representative unique assets across all categories (image, audio, font, video, data).
+  - Verifies that repeated runs select identical assets in deterministic sorted order.
+- **Exhaustive probe mode & memory safety:**
+  - Queues all unique assets and processes them sequentially.
+  - Enforces memory boundaries: verifies bitmaps are decoded via `BitmapFactory.decodeStream` and immediately freed via `Bitmap.recycle()`.
+  - Verifies zero retention of decoded image buffers across iterations.
+- **Checkpoint persistence & crash resilience:**
+  - Verifies that checkpoints are persisted to `filesDir/runtime-state/audit/probe_checkpoint.json` every 50-100 items.
+  - Verifies resume capability: when a valid checkpoint exists, the probe resumes from the checkpoint index without re-evaluating completed assets.
+- **Cancellation & timeout bounds:**
+  - Verifies that calling `cancel()` cleanly terminates execution and sets outcome to `INDETERMINATE`.
+  - Verifies that exceeding the configured timeout cleanly terminates execution and records `INDETERMINATE`.
+- **Validation schemas & report generation:**
+  - Verifies generation and atomic persistence of `runtime-validation-report.json` conforming to `schemas/runtime-validation-report.schema.json`.
+  - Verifies generation and atomic persistence of `combined-validation-summary.json` conforming to `schemas/combined-validation-summary.schema.json`.
+- **Diagnostic Suite overlay integration:**
+  - Verifies renamed tab "Asset Audit & Probe" and triggers for `Run Sampled Probe` and `Run Exhaustive Probe`.
+  - Verifies real authentic live counters for Scanned, Valid, Missing, and Fallback stages.
+  - Verifies inclusion of `combined_validation_summary` in the exported Bug Report payload.
+

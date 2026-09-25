@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CombinedValidationSummary",
+  "description": "Combined authoritative summary of static audit and runtime probe validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "summary_id",
+    "engine",
+    "static_outcome",
+    "runtime_outcome",
+    "combined_outcome",
+    "timestamp"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "summary_id": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "static_outcome": {
+      "type": "string",
+      "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE", "NOT_RUN"]
+    },
+    "runtime_outcome": {
+      "type": "string",
+      "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE", "NOT_RUN"]
+    },
+    "combined_outcome": {
+      "type": "string",
+      "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"]
+    },
+    "static_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string" },
+        "nodes": { "type": "integer", "minimum": 0 },
+        "references": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "runtime_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string" },
+        "total_probed": { "type": "integer", "minimum": 0 },
+        "passed_count": { "type": "integer", "minimum": 0 },
+        "failed_count": { "type": "integer", "minimum": 0 },
+        "warning_count": { "type": "integer", "minimum": 0 },
+        "stage_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "fallbacks_detected": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "discrepancies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asset_path",
+          "issue"
+        ],
+        "properties": {
+          "asset_path": { "type": "string" },
+          "static_status": { "type": ["string", "null"] },
+          "runtime_status": { "type": ["string", "null"] },
+          "issue": { "type": "string" }
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  }
+}

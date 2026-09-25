@@ -418,6 +418,11 @@ open class WebActivity : Activity() {
             fun startAudit(requestJson: String): String {
                 return this@WebActivity.startAudit(requestJson)
             }
+
+            @JavascriptInterface
+            fun getCombinedSummary(): String {
+                return this@WebActivity.getCombinedSummary()
+            }
         }, "RuntimePackWeb")
 
         wv.webChromeClient = object : WebChromeClient() {
@@ -622,6 +627,11 @@ open class WebActivity : Activity() {
             @JavascriptInterface
             fun startAudit(requestJson: String): String {
                 return this@WebActivity.startAudit(requestJson)
+            }
+
+            @JavascriptInterface
+            fun getCombinedSummary(): String {
+                return this@WebActivity.getCombinedSummary()
             }
 
             @JavascriptInterface
@@ -841,6 +851,10 @@ open class WebActivity : Activity() {
 
     open fun getAuditReport(): String {
         return AssetAuditService.getAuditReport()
+    }
+
+    open fun getCombinedSummary(): String {
+        return AssetAuditService.getCombinedSummary(filesDir)
     }
 
     open fun postAuditEvent(eventJson: String): Boolean {

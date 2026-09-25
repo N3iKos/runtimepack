@@ -143,7 +143,12 @@ object AssetAuditService {
         return targetFile
     }
 
+    @Volatile
+    private var activeRunner: AssetProbeRunner? = null
+
     fun reset() {
+        activeRunner?.cancel()
+        activeRunner = null
         eventQueue.clear()
         queueSize.set(0)
         sequenceIdGenerator.set(0L)
@@ -159,6 +164,29 @@ object AssetAuditService {
             outcome = RuntimeAuditOutcome.PASS,
             sourceLocation = loc
         )
+
+        var requestedMode: ProbeMode? = null
+        if (requestJson.contains("\"exhaustive\"", ignoreCase = true)) {
+            requestedMode = ProbeMode.EXHAUSTIVE
+        } else if (requestJson.contains("\"sampled\"", ignoreCase = true)) {
+            requestedMode = ProbeMode.SAMPLED
+        }
+
+        if (requestedMode != null && baseFilesDir != null) {
+            val runner = AssetProbeRunner(
+                gameDir = baseFilesDir!!,
+                stateDir = baseFilesDir,
+                engine = currentEngine,
+                mode = requestedMode
+            )
+            activeRunner = runner
+            Thread {
+                try {
+                    runner.run()
+                } catch (_: Exception) {}
+            }.start()
+        }
+
         return """{"status":"STARTED"}"""
     }
 
@@ -171,7 +199,23 @@ object AssetAuditService {
         return getReport()?.toJson() ?: "{}"
     }
 
+    fun getCombinedSummary(baseDir: File? = null): String {
+        val auditDir = when {
+            baseDir != null -> File(baseDir, "runtime-state/audit")
+            baseFilesDir != null -> File(baseFilesDir, "runtime-state/audit")
+            else -> File("runtime-state/audit")
+        }
+        val file = File(auditDir, "combined-validation-summary.json")
+        return if (file.exists()) {
+            file.readText(Charsets.UTF_8)
+        } else {
+            "{}"
+        }
+    }
+
     fun cancelAudit(): Boolean {
+        activeRunner?.cancel()
+        activeRunner = null
         recordEvent(
             stage = RuntimeAuditStage.RUNTIME_USE_SUCCESS,
             assetPath = "root",
@@ -179,5 +223,28 @@ object AssetAuditService {
             errorMessage = "Audit cancelled by user"
         )
         return true
+    }
+
+    fun runProbe(
+        mode: ProbeMode = ProbeMode.SAMPLED,
+        gameDir: File? = null,
+        stateDir: File? = null,
+        sampleLimitPerCategory: Int = 5,
+        checkpointInterval: Int = 100,
+        timeoutMs: Long = 60000L
+    ): RuntimeValidationReport {
+        val gDir = gameDir ?: baseFilesDir ?: File(".")
+        val sDir = stateDir ?: baseFilesDir
+        val runner = AssetProbeRunner(
+            gameDir = gDir,
+            stateDir = sDir,
+            engine = currentEngine,
+            mode = mode,
+            sampleLimitPerCategory = sampleLimitPerCategory,
+            checkpointInterval = checkpointInterval,
+            timeoutMs = timeoutMs
+        )
+        activeRunner = runner
+        return runner.run()
     }
 }

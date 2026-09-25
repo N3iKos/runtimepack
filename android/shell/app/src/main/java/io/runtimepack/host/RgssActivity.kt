@@ -589,6 +589,11 @@ open class RgssActivity : SDLActivity() {
                 }
 
                 @JavascriptInterface
+                fun getCombinedSummary(): String {
+                    return this@RgssActivity.getCombinedSummary()
+                }
+
+                @JavascriptInterface
                 fun shareBugReport(jsonContent: String) {
                     this@RgssActivity.shareBugReport(jsonContent)
                 }
@@ -746,6 +751,10 @@ open class RgssActivity : SDLActivity() {
     open fun getAuditReport(): String {
         ingestRgssAuditEventsFromFile()
         return AssetAuditService.getAuditReport()
+    }
+
+    open fun getCombinedSummary(): String {
+        return AssetAuditService.getCombinedSummary(filesDir)
     }
 
     open fun postAuditEvent(eventJson: String): Boolean {

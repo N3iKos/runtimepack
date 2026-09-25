@@ -486,4 +486,125 @@ function createDOMContext() {
     assert.strictEqual(badge.textContent, "COMPLETED");
 }
 
+// Test 10: Tab "Asset Audit & Probe" and Probe Buttons Exist
+{
+    console.log("Test 10: Tab Asset Audit & Probe and Probe Buttons Exist");
+    const { sandbox } = createDOMContext();
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    // Verify Tab is named "Asset Audit & Probe"
+    const modal = sandbox.document.getElementById("rp-diag-modal");
+    assert(modal.innerHTML.includes("Asset Audit & Probe"), "Tab text must be Asset Audit & Probe");
+
+    // Verify probe buttons exist in DOM and modal template
+    const btnSampled = sandbox.document.getElementById("diag-btn-probe-sampled");
+    assert(btnSampled, "Button diag-btn-probe-sampled must exist");
+    assert(modal.innerHTML.includes("Run Sampled Probe"), "Modal must contain Run Sampled Probe button");
+
+    const btnExhaustive = sandbox.document.getElementById("diag-btn-probe-exhaustive");
+    assert(btnExhaustive, "Button diag-btn-probe-exhaustive must exist");
+    assert(modal.innerHTML.includes("Run Exhaustive Probe"), "Modal must contain Run Exhaustive Probe button");
+
+    // Verify Run Full Stress Test still exists alongside
+    const btnStress = sandbox.document.getElementById("diag-btn-stress");
+    assert(btnStress, "Button diag-btn-stress must exist");
+    assert(modal.innerHTML.includes("Run Full Stress Test"), "Modal must contain Run Full Stress Test button");
+}
+
+// Test 11: Real Authentic Live Stage Counters
+{
+    console.log("Test 11: Real Authentic Live Stage Counters");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn) {
+        intervalCallback = fn;
+        return 303;
+    };
+    sandbox.clearInterval = function () {
+        intervalCallback = null;
+    };
+
+    let startAuditCalled = false;
+    let auditMode = "";
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        startAudit: function (req) {
+            startAuditCalled = true;
+            try { auditMode = JSON.parse(req).mode; } catch (e) {}
+            return "{\"status\":\"STARTED\"}";
+        },
+        getAuditEvents: function () {
+            return JSON.stringify([
+                { sequence_id: 1, stage: "FILE_EXISTS", outcome: "PASS", asset_path: "img/1.png" },
+                { sequence_id: 2, stage: "DECODE_SUCCESS", outcome: "PASS", asset_path: "img/1.png" },
+                { sequence_id: 3, stage: "FILE_EXISTS", outcome: "FAIL", asset_path: "img/missing.png", error_message: "Not found" },
+                { sequence_id: 4, stage: "FILE_EXISTS", outcome: "FAIL", asset_path: "img/fallback.png", fallback_action: "PLACEHOLDER_SUBSTITUTED" },
+                { sequence_id: 5, type: "DONE", message: "Finished" }
+            ]);
+        }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    // Trigger sampled probe
+    sandbox.DiagnosticSuite.runProbe("sampled");
+    assert.strictEqual(startAuditCalled, true, "startAudit must be called when triggering probe");
+    assert.strictEqual(auditMode, "sampled");
+
+    intervalCallback();
+
+    const cntScanned = sandbox.document.getElementById("diag-cnt-scanned");
+    const cntValid = sandbox.document.getElementById("diag-cnt-valid");
+    const cntMissing = sandbox.document.getElementById("diag-cnt-missing");
+    const cntFallback = sandbox.document.getElementById("diag-cnt-fallback");
+
+    assert(cntScanned, "diag-cnt-scanned must exist");
+    assert(cntValid, "diag-cnt-valid must exist");
+    assert(cntMissing, "diag-cnt-missing must exist");
+    assert(cntFallback, "diag-cnt-fallback must exist");
+
+    assert.strictEqual(cntValid.textContent, "2", "Valid count should be 2");
+    assert.strictEqual(cntMissing.textContent, "1", "Missing count should be 1");
+    assert.strictEqual(cntFallback.textContent, "1", "Fallback count should be 1");
+}
+
+// Test 12: exportBugReport includes combined_validation_summary
+{
+    console.log("Test 12: exportBugReport includes combined_validation_summary");
+    const { sandbox } = createDOMContext();
+
+    let sharedReportJson = null;
+    const mockSummary = {
+        schema_version: 1,
+        summary_id: "test-summary-01",
+        engine: "rpgmaker_web",
+        static_outcome: "PASS",
+        runtime_outcome: "FAIL",
+        combined_outcome: "FAIL"
+    };
+
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getCombinedSummary: function () {
+            return JSON.stringify(mockSummary);
+        },
+        shareBugReport: function (jsonStr) {
+            sharedReportJson = jsonStr;
+        }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.exportBugReport();
+
+    assert(sharedReportJson, "shareBugReport must be called");
+    const parsed = JSON.parse(sharedReportJson);
+    assert(parsed.combined_validation_summary, "Report must include combined_validation_summary");
+    assert.strictEqual(parsed.combined_validation_summary.summary_id, "test-summary-01");
+    assert.strictEqual(parsed.combined_validation_summary.combined_outcome, "FAIL");
+}
+
 console.log("All Diagnostic Suite JS unit tests passed successfully!");

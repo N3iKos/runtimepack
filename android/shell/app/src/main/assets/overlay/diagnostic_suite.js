@@ -604,20 +604,30 @@
             "    <button id=\"diag-fps-toggle-btn\" class=\"diag-stat-pill diag-fps-toggle\" style=\"cursor:pointer;\">Show FPS: OFF</button>" +
             "</div>" +
             "<div class=\"diag-tabs\">" +
-            "    <button class=\"diag-tab-btn active\" data-tab=\"stress\">" + SVG_ICONS.radar + " Stress Test</button>" +
+            "    <button class=\"diag-tab-btn active\" data-tab=\"stress\">" + SVG_ICONS.radar + " Asset Audit & Probe</button>" +
             "    <button class=\"diag-tab-btn\" data-tab=\"teleport\">" + SVG_ICONS.map + " Map Warper</button>" +
             "    <button class=\"diag-tab-btn\" data-tab=\"share\">" + SVG_ICONS.share + " Export & Share</button>" +
             "</div>" +
             "<div class=\"diag-body-container\">" +
-            "    <!-- Pane 1: Automated Stress Test -->" +
+            "    <!-- Pane 1: Automated Asset Audit & Probe -->" +
             "    <div class=\"diag-tab-pane active\" data-pane=\"stress\">" +
             "        <div class=\"diag-card\">" +
             "            <div class=\"diag-card-title\">" +
             "                <span>Automated Asset & Map Auditor</span>" +
             "                <span id=\"diag-step-badge\" class=\"diag-badge\" style=\"background:#1e293b; color:#94a3b8;\">READY</span>" +
             "            </div>" +
-            "            <div class=\"diag-card-desc\">Scans all Maps, event picture references, BGM/SE audio tracks, and database entities to detect missing files or case mismatches.</div>" +
-            "            <button id=\"diag-btn-stress\" class=\"diag-btn diag-btn-primary\">" + SVG_ICONS.play + " Run Full Stress Test</button>" +
+            "            <div class=\"diag-card-desc\">Scans maps, event picture references, audio tracks, and verifies project assets with deterministic probes and checkpoints.</div>" +
+            "            <div style=\"display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;\">" +
+            "                <button id=\"diag-btn-probe-sampled\" class=\"diag-btn diag-btn-action\" style=\"flex:1; min-width:130px;\">" + SVG_ICONS.radar + " Run Sampled Probe</button>" +
+            "                <button id=\"diag-btn-probe-exhaustive\" class=\"diag-btn diag-btn-action\" style=\"flex:1; min-width:130px;\">" + SVG_ICONS.play + " Run Exhaustive Probe</button>" +
+            "                <button id=\"diag-btn-stress\" class=\"diag-btn diag-btn-primary\" style=\"flex:1; min-width:130px;\">" + SVG_ICONS.play + " Run Full Stress Test</button>" +
+            "            </div>" +
+            "            <div id=\"diag-probe-counters\" class=\"diag-counters-row\" style=\"display:flex; gap:10px; margin:8px 0; font-size:12px; color:#cbd5e1;\">" +
+            "                <span>Scanned: <strong id=\"diag-cnt-scanned\">0</strong></span> | " +
+            "                <span>Valid: <strong id=\"diag-cnt-valid\">0</strong></span> | " +
+            "                <span>Missing: <strong id=\"diag-cnt-missing\">0</strong></span> | " +
+            "                <span>Fallback: <strong id=\"diag-cnt-fallback\">0</strong></span>" +
+            "            </div>" +
             "            <div class=\"diag-pbar-box\"><div id=\"diag-pbar-fill\" class=\"diag-pbar-fill\"></div></div>" +
             "            <div id=\"diag-stress-status\" class=\"diag-status-line\">Ready to scan project assets.</div>" +
             "        </div>" +
@@ -822,6 +832,16 @@
             updateFloatingFpsUI();
         }
 
+        var probeSampledBtn = doc.getElementById("diag-btn-probe-sampled");
+        if (probeSampledBtn) {
+            attachTap(probeSampledBtn, function () { DiagnosticSuite.runProbe("sampled"); });
+        }
+
+        var probeExhaustiveBtn = doc.getElementById("diag-btn-probe-exhaustive");
+        if (probeExhaustiveBtn) {
+            attachTap(probeExhaustiveBtn, function () { DiagnosticSuite.runProbe("exhaustive"); });
+        }
+
         var stressBtn = doc.getElementById("diag-btn-stress");
         if (stressBtn) {
             attachTap(stressBtn, function () { DiagnosticSuite.runStressTest(); });
@@ -942,15 +962,26 @@
         isOpen: function () {
             return modalOpen;
         },
+        runProbe: function (mode) {
+            this.executeAuditOrProbe(mode || "sampled", "run_probe");
+        },
         runStressTest: function () {
+            this.executeAuditOrProbe("exhaustive", "run_stress_test");
+        },
+        executeAuditOrProbe: function (mode, actionName) {
             if (isStressTestRunning) return;
             isStressTestRunning = true;
 
+            var probeMode = mode || "sampled";
             var stStatus = doc ? doc.getElementById("diag-stress-status") : null;
             var badge = doc ? doc.getElementById("diag-step-badge") : null;
             var pbar = doc ? doc.getElementById("diag-pbar-fill") : null;
 
-            if (stStatus) stStatus.textContent = "Initializing Asset Graph & Database Audit...";
+            var initMsg = (probeMode === "sampled")
+                ? "Initializing Sampled Asset Probe..."
+                : (actionName === "run_stress_test" ? "Initializing Asset Graph & Database Audit..." : "Initializing Exhaustive Asset Probe...");
+
+            if (stStatus) stStatus.textContent = initMsg;
             if (badge) {
                 badge.textContent = "SCANNING";
                 badge.style.background = "#0284c7";
@@ -958,14 +989,38 @@
             }
             if (pbar) pbar.style.width = "10%";
 
-            addLogEntry("PROGRESS", "Starting Automated Stress Test & Deep Asset Audit...");
-            dispatchCommand({ action: "run_stress_test" });
+            addLogEntry("PROGRESS", initMsg);
+            dispatchCommand({ action: actionName || "run_probe", mode: probeMode });
+
+            if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.startAudit === "function") {
+                globalObj.RuntimePackVPad.startAudit(JSON.stringify({ mode: probeMode }));
+            } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.startAudit === "function") {
+                globalObj.RuntimePackWeb.startAudit(JSON.stringify({ mode: probeMode }));
+            }
 
             var pollCount = 0;
             var lastSeenLine = "";
             var lastEventSeq = 0;
             var failureCount = 0;
             var totalPassedCount = 0;
+
+            var scannedCount = 0;
+            var validCount = 0;
+            var missingCount = 0;
+            var fallbackCount = 0;
+
+            function updateCountersUI() {
+                if (!doc) return;
+                var elScanned = doc.getElementById("diag-cnt-scanned");
+                var elValid = doc.getElementById("diag-cnt-valid");
+                var elMissing = doc.getElementById("diag-cnt-missing");
+                var elFallback = doc.getElementById("diag-cnt-fallback");
+                if (elScanned) elScanned.textContent = String(scannedCount);
+                if (elValid) elValid.textContent = String(validCount);
+                if (elMissing) elMissing.textContent = String(missingCount);
+                if (elFallback) elFallback.textContent = String(fallbackCount);
+            }
+            updateCountersUI();
 
             var STAGE_LABELS = {
                 "REFERENCE_FOUND": "Reference Found",
@@ -1009,7 +1064,9 @@
                     var targetPath = ev.asset_path || ev.assetPath || "";
                     var fallbackAct = ev.fallback_action || ev.fallbackAction || "";
 
-                    var isFailure = (evOutcome === "FAIL" || evOutcome === "FAILED" || !!fallbackAct || evType === "FAIL" || evType === "ERROR");
+                    var isFallback = (!!fallbackAct);
+                    var isMissing = !isFallback && (ev.stage === "FILE_EXISTS" && (evOutcome === "FAIL" || evOutcome === "FAILED" || (evMsg && evMsg.toLowerCase().indexOf("not found") !== -1)));
+                    var isFailure = (evOutcome === "FAIL" || evOutcome === "FAILED" || isFallback || evType === "FAIL" || evType === "ERROR");
                     var isDone = (evType === "DONE" || ev.is_complete === true || ev.isComplete === true);
 
                     if (isDone) {
@@ -1040,6 +1097,16 @@
                         return;
                     }
 
+                    if (ev.stage || targetPath) {
+                        scannedCount++;
+                    }
+                    if (isMissing) {
+                        missingCount++;
+                    }
+                    if (isFallback) {
+                        fallbackCount++;
+                    }
+
                     if (isFailure) {
                         failureCount++;
                         var note = fallbackAct ? " [" + fallbackAct + "]" : "";
@@ -1053,6 +1120,7 @@
                             badge.style.background = "#dc2626";
                             badge.style.color = "#ffffff";
                         }
+                        updateCountersUI();
                         return;
                     }
 
@@ -1065,6 +1133,7 @@
                         if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
                     } else if (evType === "STAGE" || evType === "AUDIT" || ev.stage) {
                         totalPassedCount++;
+                        validCount++;
                         var stageDesc = STAGE_LABELS[ev.stage] || ev.stage || evType;
                         var displayMsg = targetPath ? stageDesc + ": " + targetPath : (evMsg || stageDesc);
                         addLogEntry("AUDIT", displayMsg);
@@ -1072,11 +1141,13 @@
                         if (ev.pct && pbar) pbar.style.width = ev.pct + "%";
                     } else {
                         totalPassedCount++;
+                        validCount++;
                         if (targetPath) {
                             var stageDesc2 = STAGE_LABELS[ev.stage] || ev.stage || "Verified";
                             addLogEntry("AUDIT", stageDesc2 + ": " + targetPath);
                         }
                     }
+                    updateCountersUI();
                 }
 
                 if (rawEvents && rawEvents.trim().length > 0 && rawEvents.trim() !== "[]") {
@@ -1120,10 +1191,16 @@
                                 addLogEntry("SCAN", progText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = progText;
                             } else if (line.indexOf("STAGE:") === 0) {
+                                scannedCount++;
+                                validCount++;
+                                updateCountersUI();
                                 var stageText = line.replace(/^STAGE:\s*/, "");
                                 addLogEntry("AUDIT", stageText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = stageText;
                             } else if (line.indexOf("MAP:") === 0) {
+                                scannedCount++;
+                                validCount++;
+                                updateCountersUI();
                                 var mapText = line.replace(/^MAP:\s*/, "");
                                 addLogEntry("SCAN", mapText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = mapText;
@@ -1135,12 +1212,20 @@
                                     pbar.style.width = pct + "%";
                                 }
                             } else if (line.indexOf("DATABASE:") === 0) {
+                                scannedCount++;
+                                validCount++;
+                                updateCountersUI();
                                 var dbText = line.replace(/^DATABASE:\s*/, "");
                                 addLogEntry("AUDIT", dbText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = dbText;
                                 if (pbar) pbar.style.width = "85%";
                             } else if (line.indexOf("FAIL:") === 0 || line.indexOf("ERROR:") === 0) {
+                                scannedCount++;
                                 failureCount++;
+                                if (line.toLowerCase().indexOf("not found") !== -1 || line.toLowerCase().indexOf("missing") !== -1) {
+                                    missingCount++;
+                                }
+                                updateCountersUI();
                                 var errText = line.replace(/^(FAIL|ERROR):\s*/, "");
                                 addLogEntry("ERROR", errText);
                                 if (stStatus) {
@@ -1280,6 +1365,20 @@
                 } : null
             };
 
+            // Combined Validation Summary extraction
+            var combinedSummary = null;
+            if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getCombinedSummary === "function") {
+                try {
+                    var rawSummary = globalObj.RuntimePackVPad.getCombinedSummary();
+                    if (rawSummary && rawSummary !== "{}") combinedSummary = JSON.parse(rawSummary);
+                } catch (err) {}
+            } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getCombinedSummary === "function") {
+                try {
+                    var rawSummary = globalObj.RuntimePackWeb.getCombinedSummary();
+                    if (rawSummary && rawSummary !== "{}") combinedSummary = JSON.parse(rawSummary);
+                } catch (err) {}
+            }
+
             var reportPayload = {
                 timestamp: new Date().toISOString(),
                 platform: (typeof navigator !== "undefined" ? navigator.userAgent : "Android"),
@@ -1287,6 +1386,7 @@
                 engine_family: engineFamily,
                 device_telemetry: deviceTelemetry,
                 game_state: gameState,
+                combined_validation_summary: combinedSummary,
                 performance: { fps: fps },
                 logs: logBuffer.slice(-50)
             };

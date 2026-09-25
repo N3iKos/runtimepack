@@ -199,3 +199,51 @@ This is a RuntimePack v1 product decision; it is not a statement about JoiPlay. 
 Runtime API v1 is frozen once the first backend is released.
 
 Breaking host-backend changes require `runtime_api = 2`.
+
+---
+
+## 11. Runtime asset probe engine and validation schemas
+
+RuntimePack host provides a controlled in-app asset probe engine (`AssetProbeRunner`) to verify asset availability and decodability on target Android devices.
+
+### 11.1 Probe modes
+
+- **`SAMPLED`**:
+  - Deterministically selects up to N representative unique assets per category (`IMAGE`, `AUDIO`, `FONT`, `VIDEO`, `DATA`).
+  - Runs representative assets through staged verification (`FILE_EXISTS` -> `FILE_READABLE` -> `INTEGRITY_VERIFIED` -> `DECODE_SUCCESS`).
+  - Fast execution suitable for in-game diagnostic checks and quick validation.
+- **`EXHAUSTIVE`**:
+  - Queues all unique assets discovered from embedded `asset-dependency-graph.json` / `asset-audit-report.json` or extracted game filesystem.
+  - Decodes images sequentially using memory boundaries (`BitmapFactory.decodeStream`, `Bitmap.recycle()`), never keeping multiple decoded bitmaps in memory.
+  - Writes a crash checkpoint to `filesDir/runtime-state/audit/probe_checkpoint.json` every 50-100 items. If interrupted or killed, subsequent exhaustive probes resume from the checkpointed index.
+
+### 11.2 Authoritative report artifacts and schemas
+
+Upon probe completion, the host persists authoritative validation artifacts in `filesDir/runtime-state/audit/`:
+
+1. **`runtime-validation-report.json`**:
+   - Conforms to `schemas/runtime-validation-report.schema.json`.
+   - Records probe mode, outcome (`PASS`, `WARNING`, `FAIL`, `INDETERMINATE`), total assets probed, pass/fail/warning counts, stage counts, detected fallbacks, checkpoint restoration status, and event trace.
+2. **`combined-validation-summary.json`**:
+   - Conforms to `schemas/combined-validation-summary.schema.json`.
+   - Combines static audit report outcome (if available) with runtime probe outcome.
+   - Preserves traceability between static results and runtime observations, recording explicit discrepancies.
+
+### 11.3 Host bridge contract
+
+Host activities (`RgssActivity`, `WebActivity`) expose standard JavaScript bridge methods on `RuntimePackVPad` and `RuntimePackWeb`:
+
+```kotlin
+@JavascriptInterface fun startAudit(requestJson: String): String
+@JavascriptInterface fun getAuditEvents(afterSeq: Long): String
+@JavascriptInterface fun getAuditReport(): String
+@JavascriptInterface fun getCombinedSummary(): String
+@JavascriptInterface fun cancelAudit(): Boolean
+```
+
+### 11.4 In-game overlay integration
+
+The Diagnostic Suite overlay (`diagnostic_suite.js`) provides:
+- Tab "Asset Audit & Probe" with `Run Sampled Probe`, `Run Exhaustive Probe`, and `Run Full Stress Test`.
+- Real authentic live stage counters (`Scanned: X | Valid: Y | Missing: Z | Fallback: W`).
+- Inclusion of `combined_validation_summary` in the exported Bug Report JSON payload.
