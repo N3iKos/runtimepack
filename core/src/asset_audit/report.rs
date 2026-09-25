@@ -77,6 +77,16 @@ pub fn sanitize_path_str(raw: &str) -> String {
         .trim_start_matches("//?/")
         .trim_start_matches("//./");
 
+    // Preserve external URLs without truncating at well-known directory keywords
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return trimmed.to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("external:") {
+        if rest.starts_with("http://") || rest.starts_with("https://") {
+            return trimmed.to_string();
+        }
+    }
+
     // Strip drive letter if present, e.g. "C:/" or "c:/"
     let path_no_drive = if trimmed.len() >= 2
         && trimmed.as_bytes()[0].is_ascii_alphabetic()
@@ -151,7 +161,14 @@ pub fn sanitize_path_str(raw: &str) -> String {
 }
 
 pub fn sanitize_id(id: &str) -> String {
+    if let Some(rest) = id.strip_prefix("external:") {
+        let sanitized = sanitize_path_str(rest);
+        return format!("external:{sanitized}");
+    }
     if let Some((prefix, rest)) = id.split_once(':') {
+        if prefix == "http" || prefix == "https" {
+            return sanitize_path_str(id);
+        }
         let sanitized = sanitize_path_str(rest);
         format!("{prefix}:{sanitized}")
     } else {

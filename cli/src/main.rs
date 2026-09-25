@@ -661,6 +661,13 @@ fn cmd_build(args: BuildArgs) {
             std::process::exit(1);
         }
     };
+    // Put pristine report into audit_cache before attaching ephemeral build policy overrides
+    if cache_usable && !from_cache {
+        if let Ok(clean_artifacts) = render_canonical_artifacts(&audit_report) {
+            let _ = audit_cache.put(&audit_cache_key, &clean_artifacts);
+        }
+    }
+
     audit_report.overrides = audit_overrides
         .iter()
         .map(|record| runtimepack_core::asset_audit::AuditOverride {
@@ -675,9 +682,6 @@ fn cmd_build(args: BuildArgs) {
             std::process::exit(1);
         }
     };
-    if cache_usable && !from_cache {
-        let _ = audit_cache.put(&audit_cache_key, &audit_artifacts);
-    }
     let audit_hash = audit_artifacts.report_sha256.clone();
     let runtime = runtimes[0];
     let cache_tag = if from_cache { " [cache hit]" } else { "" };

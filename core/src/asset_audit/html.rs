@@ -2,7 +2,7 @@ use crate::asset_audit::{
     AssetAuditReport, AssetNode, AuditOutcome, CanonicalAuditArtifacts, EvidenceStage,
     FindingSeverity, ReferenceEdge, ReferenceResolution,
 };
-use crate::diagnostics::DiagnosticError;
+use crate::diagnostics::{DiagnosticCode, DiagnosticError};
 use std::collections::HashMap;
 
 fn stage_to_screaming_snake(stage: EvidenceStage) -> &'static str {
@@ -69,22 +69,28 @@ pub fn render_audit_html(artifacts: &CanonicalAuditArtifacts) -> Result<Vec<u8>,
     let missing_references = report
         .findings
         .iter()
-        .filter(|f| f.code == "CMP-AUD-002" || f.code == "CMP-AUD-003")
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                || f.code == DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+        })
         .count();
     let case_mismatches = report
         .findings
         .iter()
-        .filter(|f| f.code == "CMP-AUD-004" || f.code == "CMP-AUD-005")
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH
+                || f.code == DiagnosticCode::CMP_AUD_CASE_COLLISION
+        })
         .count();
     let unresolved_dynamics = report
         .findings
         .iter()
-        .filter(|f| f.code == "CMP-AUD-006")
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED)
         .count();
     let unreadable_resources = report
         .findings
         .iter()
-        .filter(|f| f.code == "CMP-AUD-008")
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE)
         .count();
 
     let outcome_str = match report.outcome {

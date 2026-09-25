@@ -1,12 +1,12 @@
 use runtimepack_core::asset_audit::{
     audit_external_network_resources, audit_network_reference, classify_possible_orphans,
-    render_audit_html, render_canonical_artifacts, write_audit_artifacts,
-    write_audit_artifacts_with_options, AssetAuditOptions, AssetAuditReport, AssetKind, AssetNode,
-    AuditCache, AuditCacheKey, AuditCompleteness, AuditCoverage, AuditFinding, AuditLimits,
-    AuditMode, AuditOutcome, AuditOverride, AuditStatistics, DependencyGraph, EvidenceStage,
-    EvidenceTrail, FindingDisposition, FindingSeverity, NetworkAuditResult, ReferenceEdge,
-    ReferenceRequiredness, ReferenceResolution, RuntimeValidationState,
-    CURRENT_AUDIT_RULESET_VERSION,
+    render_audit_html, render_canonical_artifacts, sanitize_id, sanitize_path_str,
+    write_audit_artifacts, write_audit_artifacts_with_options, AssetAuditOptions, AssetAuditReport,
+    AssetKind, AssetNode, AuditCache, AuditCacheKey, AuditCompleteness, AuditCoverage,
+    AuditFinding, AuditLimits, AuditMode, AuditOutcome, AuditOverride, AuditStatistics,
+    DependencyGraph, EvidenceStage, EvidenceTrail, FindingDisposition, FindingSeverity,
+    NetworkAuditResult, ReferenceEdge, ReferenceRequiredness, ReferenceResolution,
+    RuntimeValidationState, CURRENT_AUDIT_RULESET_VERSION,
 };
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
@@ -1459,4 +1459,108 @@ fn test_regression_audit_external_network_resources_does_not_mangle_raw_http_url
 
     running.store(false, Ordering::SeqCst);
     let _ = server_handle.join();
+}
+
+#[test]
+fn test_regression_sanitize_preserves_external_urls_without_truncation() {
+    let url_http = "http://example.com/sound/music.ogg";
+    let url_https = "https://cdn.example.com/data/bgm.ogg";
+    let url_external = "external:https://cdn.example.com/data/image.png";
+
+    assert_eq!(
+        sanitize_path_str(url_http),
+        url_http,
+        "HTTP URL must not be truncated at 'sound'"
+    );
+    assert_eq!(
+        sanitize_path_str(url_https),
+        url_https,
+        "HTTPS URL must not be truncated at 'data'"
+    );
+    assert_eq!(
+        sanitize_path_str(url_external),
+        url_external,
+        "External URL with prefix must be preserved intact"
+    );
+
+    assert_eq!(
+        sanitize_id(url_external),
+        url_external,
+        "sanitize_id must preserve external URL with prefix"
+    );
+    assert_eq!(
+        sanitize_id(url_http),
+        url_http,
+        "sanitize_id must preserve raw HTTP URL without splitting on ':'"
+    );
+}
+
+#[test]
+fn test_regression_build_preserves_clean_audit_cache_without_ephemeral_overrides() {
+    let working_dir = temp_dir("build-clean-audit-cache");
+    let dist_dir = temp_dir("build-clean-dist");
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/vxace_min");
+
+    // Run build with --accept-audit-fail and --no-compile
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .current_dir(&working_dir)
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&dist_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--no-compile")
+        .arg("--accept-audit-fail")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        run.status.success(),
+        "Build must succeed with override:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    // 1. Output directory report MUST contain the build override record
+    let build_report_path = dist_dir.join("asset-audit-report.json");
+    assert!(build_report_path.exists());
+    let build_report_bytes = fs::read(&build_report_path).unwrap();
+    let build_report: AssetAuditReport = serde_json::from_slice(&build_report_bytes).unwrap();
+    assert_eq!(
+        build_report.overrides.len(),
+        1,
+        "Build output report must record the accepted override"
+    );
+    assert_eq!(build_report.overrides[0].flag, "--accept-audit-fail");
+
+    // 2. The audit cache MUST remain pristine (zero overrides)
+    let cache_dir = working_dir.join(".runtimepack/cache/audit");
+    assert!(cache_dir.exists(), "Cache directory must exist");
+    let mut checked_cached_reports = 0;
+    for entry in fs::read_dir(&cache_dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+            let cache_bytes = fs::read(&path).unwrap();
+            let entry_val: serde_json::Value = serde_json::from_slice(&cache_bytes).unwrap();
+            let report_str = entry_val["report_json_utf8"].as_str().unwrap();
+            let cached_report: AssetAuditReport = serde_json::from_str(report_str).unwrap();
+            assert!(
+                cached_report.overrides.is_empty(),
+                "Cached report in audit cache must remain clean with 0 overrides, found: {:?}",
+                cached_report.overrides
+            );
+            checked_cached_reports += 1;
+        }
+    }
+    assert!(
+        checked_cached_reports > 0,
+        "At least one cached report must be validated"
+    );
+
+    let _ = fs::remove_dir_all(working_dir);
+    let _ = fs::remove_dir_all(dist_dir);
 }
