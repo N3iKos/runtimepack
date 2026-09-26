@@ -179,6 +179,100 @@ fn test_audit_policy_tyrano_legal_gate_not_hard_blocker() {
 }
 
 #[test]
+fn test_audit_policy_case_mismatch_evaluates_to_allow_without_override() {
+    let report = AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerMv,
+        mode: AuditMode::Standard,
+        outcome: AuditOutcome::Warning,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: vec!["assets".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph: DependencyGraph::default(),
+        findings: vec![AuditFinding {
+            id: "case-mismatch-1".into(),
+            code: DiagnosticCode::CMP_AUD_CASE_MISMATCH.into(),
+            severity: FindingSeverity::Warning,
+            disposition: FindingDisposition::Warning,
+            requiredness: ReferenceRequiredness::Required,
+            message: "Asset reference 'img/characters/Hero.png' has case mismatch with 'hero.png' on disk".into(),
+            source_node_ids: vec!["map:Map001.json".into()],
+            orphan: false,
+        }],
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    };
+
+    let decision = evaluate_audit_policy(&report, false, false, &[]);
+    match decision {
+        AuditPolicyDecision::Allow { overrides } => {
+            assert!(
+                overrides.is_empty(),
+                "Case mismatch warnings must evaluate to Allow with 0 overrides, got {:?}",
+                overrides
+            );
+        }
+        AuditPolicyDecision::Block { diagnostics } => {
+            panic!(
+                "Case mismatch must not block build, got diagnostics: {:?}",
+                diagnostics
+            );
+        }
+    }
+}
+
+#[test]
+fn test_audit_policy_case_mismatch_auto_aliased_when_report_outcome_is_fail() {
+    let report = AssetAuditReport {
+        schema_version: 1,
+        engine: EngineId::RpgMakerMv,
+        mode: AuditMode::Standard,
+        outcome: AuditOutcome::Fail,
+        completeness: AuditCompleteness {
+            required_scope_complete: true,
+            covered_reference_classes: vec!["assets".into()],
+            uncovered_reference_classes: Vec::new(),
+        },
+        statistics: AuditStatistics::default(),
+        graph: DependencyGraph::default(),
+        findings: vec![AuditFinding {
+            id: "case-mismatch-1".into(),
+            code: DiagnosticCode::CMP_AUD_CASE_MISMATCH.into(),
+            severity: FindingSeverity::Warning,
+            disposition: FindingDisposition::Warning,
+            requiredness: ReferenceRequiredness::Required,
+            message: "Asset reference 'img/characters/Hero.png' has case mismatch with 'hero.png' on disk".into(),
+            source_node_ids: vec!["map:Map001.json".into()],
+            orphan: false,
+        }],
+        overrides: Vec::new(),
+        runtime_validation: RuntimeValidationState::NotRun,
+    };
+
+    // Even if report outcome was set to Fail, since all findings are CMP_AUD_CASE_MISMATCH,
+    // it must evaluate to Allow with 0 overrides without requiring accept_fail = true!
+    let decision = evaluate_audit_policy(&report, false, false, &[]);
+    match decision {
+        AuditPolicyDecision::Allow { overrides } => {
+            assert_eq!(
+                overrides.len(),
+                0,
+                "Auto-aliased case mismatches must evaluate to Allow with 0 overrides"
+            );
+        }
+        AuditPolicyDecision::Block { diagnostics } => {
+            panic!(
+                "Auto-aliased case mismatches must not block build: {:?}",
+                diagnostics
+            );
+        }
+    }
+}
+
+#[test]
 fn test_build_tyrano_with_accept_audit_fail_succeeds_without_tyr_101_block() {
     let out_dir = test_temp_dir("tyrano-build-unblock");
     let fixture = test_workspace_root().join("tests/fixtures/tyrano_min");

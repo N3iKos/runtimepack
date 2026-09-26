@@ -6,6 +6,9 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolutionResult {
     Exact(AssetNode),
+    /// Case mismatch between referenced path and actual file on disk.
+    /// In Android VFS, case-folding is built-in (`VfsResourceInterceptor.kt` and `GpackExtractor.kt`),
+    /// meaning case mismatches on disk are safely auto-aliased and resolved at runtime.
     CaseMismatch {
         expected: String,
         actual: String,
@@ -27,6 +30,12 @@ impl ResolutionResult {
 
     pub fn is_case_mismatch(&self) -> bool {
         matches!(self, Self::CaseMismatch { .. })
+    }
+
+    /// Indicates whether this resolution result represents a case mismatch that is safely
+    /// auto-aliased by the runtime VFS (e.g. `VfsResourceInterceptor.kt` on Android).
+    pub fn is_auto_aliased(&self) -> bool {
+        self.is_case_mismatch()
     }
 
     pub fn is_case_collision(&self) -> bool {
@@ -582,6 +591,7 @@ mod tests {
         let index = make_index(&["Graphics/Titles/Title.png"]);
         let resolver = AssetResolver::new(&index);
         let result = resolver.resolve_path("graphics/titles/title.png", AssetKind::Image);
+        assert!(result.is_auto_aliased());
         match result {
             ResolutionResult::CaseMismatch {
                 expected,
