@@ -609,26 +609,39 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
             (false, false)
         };
 
+        let disk_has_enc_img = source.files.keys().any(|p| {
+            p.ends_with(".rpgmvp") || p.ends_with(".png_") || p.ends_with(".rmmzimg")
+        });
+        let disk_has_enc_audio = source.files.keys().any(|p| {
+            p.ends_with(".rpgmvo")
+                || p.ends_with(".rpgmvm")
+                || p.ends_with(".ogg_")
+                || p.ends_with(".m4a_")
+                || p.ends_with(".rmmzaud")
+        });
+        let effective_enc_img = has_enc_img || disk_has_enc_img;
+        let effective_enc_audio = has_enc_audio || disk_has_enc_audio;
+
         let image_exts: Vec<&str> = if is_mv {
-            if has_enc_img {
-                vec!["png", "rpgmvp", "jpg"]
+            if effective_enc_img {
+                vec!["png", "rpgmvp", "png_", "rmmzimg", "jpg"]
             } else {
                 vec!["png", "jpg"]
             }
-        } else if has_enc_img {
-            vec!["png", "png_", "rmmzimg", "jpg"]
+        } else if effective_enc_img {
+            vec!["png", "png_", "rmmzimg", "rpgmvp", "jpg"]
         } else {
             vec!["png", "jpg"]
         };
 
         let audio_exts: Vec<&str> = if is_mv {
-            if has_enc_audio {
-                vec!["ogg", "rpgmvo", "m4a", "rpgmvm"]
+            if effective_enc_audio {
+                vec!["ogg", "rpgmvo", "m4a", "rpgmvm", "ogg_", "m4a_", "wav"]
             } else {
                 vec!["ogg", "m4a", "wav"]
             }
-        } else if has_enc_audio {
-            vec!["ogg", "ogg_", "rmmzaud", "m4a"]
+        } else if effective_enc_audio {
+            vec!["ogg", "ogg_", "m4a", "m4a_", "rmmzaud", "rpgmvo", "rpgmvm", "wav"]
         } else {
             vec!["ogg", "m4a", "wav"]
         };
@@ -1667,6 +1680,41 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
     }
 }
 
+fn find_subfolder_plugin_path(
+    source: &GameSourceIndex,
+    prefix: &str,
+    plugin_name: &str,
+) -> Option<String> {
+    let clean_name = plugin_name.trim();
+    let filename = clean_name.rsplit('/').next().unwrap_or(clean_name);
+    let target_suffix = format!("/{filename}.js");
+    let target_suffix_lower = target_suffix.to_ascii_lowercase();
+    let plugins_prefix = format!("{prefix}js/plugins/");
+    let plugins_prefix_lower = plugins_prefix.to_ascii_lowercase();
+
+    let mut exact_matches = Vec::new();
+    let mut case_folded_matches = Vec::new();
+
+    for file_path in source.files.keys() {
+        if file_path.starts_with(&plugins_prefix) && file_path.ends_with(&target_suffix) {
+            exact_matches.push(file_path.clone());
+        } else {
+            let lower = file_path.to_ascii_lowercase();
+            if lower.starts_with(&plugins_prefix_lower) && lower.ends_with(&target_suffix_lower) {
+                case_folded_matches.push(file_path.clone());
+            }
+        }
+    }
+
+    exact_matches.sort();
+    if let Some(first) = exact_matches.into_iter().next() {
+        return Some(first);
+    }
+
+    case_folded_matches.sort();
+    case_folded_matches.into_iter().next()
+}
+
 fn audit_plugins(ctx: &mut AuditContext) {
     let manifest_path = format!("{}js/plugins.js", ctx.prefix);
     let manifest_node = "manifest:plugins";
@@ -1754,12 +1802,19 @@ fn audit_plugins(ctx: &mut AuditContext) {
 
             if !name.is_empty() {
                 let plugin_node_id = format!("Plugin:{name}");
-                let plugin_file_path = format!("{}js/plugins/{name}.js", ctx.prefix);
+                let mut plugin_file_path = format!("{}js/plugins/{name}.js", ctx.prefix);
                 let requiredness = if status {
                     ReferenceRequiredness::Required
                 } else {
                     ReferenceRequiredness::Optional
                 };
+
+                let initial_res = ctx.resolver.resolve_path(&plugin_file_path, AssetKind::Plugin);
+                if initial_res.is_missing() {
+                    if let Some(sub_path) = find_subfolder_plugin_path(ctx.source, ctx.prefix, name) {
+                        plugin_file_path = sub_path;
+                    }
+                }
 
                 ctx.resolve_and_record(
                     manifest_node,
@@ -1777,15 +1832,36 @@ fn audit_plugins(ctx: &mut AuditContext) {
                     ));
 
                     // Scan for transitive @base dependencies declared in plugin header
-                    if let Some(file) = ctx.source.get_file(&plugin_file_path) {
+                    let file_opt = ctx
+                        .source
+                        .get_file(&plugin_file_path)
+                        .or_else(|| {
+                            ctx.resolver
+                                .resolve_path(&plugin_file_path, AssetKind::Plugin)
+                                .actual_path()
+                                .and_then(|act| ctx.source.get_file(act))
+                        });
+
+                    if let Some(file) = file_opt {
                         if file.size_bytes <= ctx.options.limits.max_single_file_bytes {
                             let full_path = ctx.source.root_path.join(&file.relative_path);
                             if let Ok(js_src) = std::fs::read_to_string(&full_path) {
                                 for cap in base_dep_regex().captures_iter(&js_src) {
                                     if let Some(m) = cap.get(1) {
                                         let dep_name = m.as_str();
-                                        let dep_path =
+                                        let mut dep_path =
                                             format!("{}js/plugins/{dep_name}.js", ctx.prefix);
+                                        let dep_res = ctx
+                                            .resolver
+                                            .resolve_path(&dep_path, AssetKind::Plugin);
+                                        if dep_res.is_missing() {
+                                            if let Some(sub_path) =
+                                                find_subfolder_plugin_path(ctx.source, ctx.prefix, dep_name)
+                                            {
+                                                dep_path = sub_path;
+                                            }
+                                        }
+
                                         ctx.resolve_and_record(
                                             &plugin_node_id,
                                             &dep_path,
@@ -1817,7 +1893,13 @@ fn audit_plugins(ctx: &mut AuditContext) {
         let mut had_dynamic = false;
 
         for (p_name, p_path, p_node) in &active_plugins {
-            if let Some(file) = ctx.source.get_file(p_path) {
+            let file_opt = ctx.source.get_file(p_path).or_else(|| {
+                ctx.resolver
+                    .resolve_path(p_path, AssetKind::Plugin)
+                    .actual_path()
+                    .and_then(|act| ctx.source.get_file(act))
+            });
+            if let Some(file) = file_opt {
                 if file.size_bytes <= ctx.options.limits.max_single_file_bytes {
                     let full_path = ctx.source.root_path.join(&file.relative_path);
                     if let Ok(js_src) = std::fs::read_to_string(&full_path) {

@@ -28,6 +28,9 @@ class GpackStreamReader private constructor(
     val totalFiles: Int
         get() = fileCount
 
+    val entries: Collection<IndexEntry>
+        get() = fileIndexMap.values
+
     data class IndexEntry(
         val index: Int,
         val logicalPath: String,

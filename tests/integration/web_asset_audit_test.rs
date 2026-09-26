@@ -658,3 +658,171 @@ fn test_mv_plugins_manifest_with_preceding_bracketed_comment() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_mz_subfolder_plugin_and_transitive_base_dependency_resolved() {
+    let temp_dir = std::env::temp_dir().join(format!("web_plugin_subfolder_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js/plugins/develop")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("js/plugins/triacontane")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rmmz_core.js"), "// rmmz_core").unwrap();
+    std::fs::write(temp_dir.join("js/rmmz_managers.js"), "// rmmz_managers").unwrap();
+    std::fs::write(temp_dir.join("data/System.json"), "{}").unwrap();
+
+    // Plugin in subfolder develop/PluginCommonBase.js
+    std::fs::write(
+        temp_dir.join("js/plugins/develop/PluginCommonBase.js"),
+        "// PluginCommonBase implementation",
+    ).unwrap();
+
+    // Active plugin MyActivePlugin.js which depends on PluginCommonBase via @base
+    std::fs::write(
+        temp_dir.join("js/plugins/triacontane/MyActivePlugin.js"),
+        "/*:\n * @target MZ\n * @base PluginCommonBase\n * @desc Test Plugin\n */\n// MyActivePlugin code",
+    ).unwrap();
+
+    // plugins.js lists PluginCommonBase without subfolder, and MyActivePlugin without subfolder
+    std::fs::write(
+        temp_dir.join("js/plugins.js"),
+        "var $plugins = [\n\
+         {\"name\":\"PluginCommonBase\",\"status\":true,\"description\":\"\",\"parameters\":{}},\n\
+         {\"name\":\"MyActivePlugin\",\"status\":true,\"description\":\"\",\"parameters\":{}}\n\
+        ];",
+    ).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMz), &options);
+
+    let missing_plugin_findings: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("js/plugins/")
+        })
+        .collect();
+
+    assert!(
+        missing_plugin_findings.is_empty(),
+        "Expected subfolder plugins to be resolved, but found missing: {:?}",
+        missing_plugin_findings
+    );
+
+    // Verify that subfolder plugin nodes exist in the graph with their subfolder paths
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.logical_path.as_deref() == Some("js/plugins/triacontane/MyActivePlugin.js")),
+        "MyActivePlugin should be in graph with subfolder path, nodes: {:?}",
+        report.graph.nodes
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.logical_path.as_deref() == Some("js/plugins/develop/PluginCommonBase.js")),
+        "PluginCommonBase should be in graph with subfolder path"
+    );
+
+    // Verify edge from MyActivePlugin to transitive base dependency PluginCommonBase
+    let base_edge = report.graph.edges.iter().find(|e| {
+        e.source == "Plugin:MyActivePlugin"
+            && e.target.contains("PluginCommonBase.js")
+    });
+    assert!(
+        base_edge.is_some(),
+        "Expected transitive base dependency edge, edges: {:?}",
+        report.graph.edges
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_mz_encrypted_audio_and_image_case_mismatch_resolves_with_warning() {
+    let temp_dir = std::env::temp_dir().join(format!("web_enc_casing_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("audio/se")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/characters")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rmmz_core.js"), "// rmmz_core").unwrap();
+    std::fs::write(temp_dir.join("js/rmmz_managers.js"), "// rmmz_managers").unwrap();
+    // System.json has hasEncryptedAudio and hasEncryptedImages true, and references jump1 and actor1
+    std::fs::write(
+        temp_dir.join("data/System.json"),
+        r#"{
+            "hasEncryptedAudio": true,
+            "hasEncryptedImages": true,
+            "sounds": [
+                {"name": "jump1", "volume": 90, "pitch": 100, "pan": 0},
+                {"name": "jump2.m4a_", "volume": 90, "pitch": 100, "pan": 0},
+                {"name": "jump3.rpgmvo", "volume": 90, "pitch": 100, "pan": 0}
+            ],
+            "gameTitle": "Test MZ Encrypted"
+        }"#,
+    ).unwrap();
+    std::fs::write(
+        temp_dir.join("data/Actors.json"),
+        r#"[null,
+            {"id": 1, "characterName": "actor1", "faceName": ""},
+            {"id": 2, "characterName": "actor2.rpgmvp", "faceName": ""}
+        ]"#,
+    ).unwrap();
+    std::fs::write(temp_dir.join("js/plugins.js"), "var $plugins = [];").unwrap();
+
+    // On disk, the files are uppercase with encrypted extensions
+    std::fs::write(temp_dir.join("audio/se/Jump1.ogg_"), "ENCRYPTED_AUDIO").unwrap();
+    std::fs::write(temp_dir.join("audio/se/Jump2.m4a_"), "ENCRYPTED_AUDIO").unwrap();
+    std::fs::write(temp_dir.join("audio/se/Jump3.rpgmvo"), "ENCRYPTED_AUDIO").unwrap();
+    std::fs::write(temp_dir.join("img/characters/Actor1.png_"), "ENCRYPTED_IMAGE").unwrap();
+    std::fs::write(temp_dir.join("img/characters/Actor2.rpgmvp"), "ENCRYPTED_IMAGE").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMz), &options);
+
+    let missing: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && (f.message.contains("jump") || f.message.contains("actor"))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "Expected case-folded encrypted audio/images to resolve, but got missing findings: {:?}",
+        missing
+    );
+
+    let case_mismatches: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH
+                && (f.message.contains("jump") || f.message.contains("actor"))
+        })
+        .collect();
+    assert_eq!(
+        case_mismatches.len(),
+        5,
+        "Expected 5 case mismatches (Jump1.ogg_, Jump2.m4a_, Jump3.rpgmvo, Actor1.png_, Actor2.rpgmvp), got: {:?}",
+        case_mismatches
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

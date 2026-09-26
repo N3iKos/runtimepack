@@ -250,4 +250,31 @@ class VfsResourceInterceptorTest {
         val escapeResponse2 = interceptor.intercept("https://game.local/data/../../secret.txt")
         assertNull("Escaping root with multiple traversals should return null", escapeResponse2)
     }
+
+    @Test
+    fun testSubfolderPluginResolutionFallback() {
+        val pluginContent = "/*: @target MZ */ console.log('subfolder plugin loaded');".toByteArray(Charsets.UTF_8)
+        val gpackBytes = createTestGpack(
+            listOf(
+                "index.html" to "<!DOCTYPE html><html><body>Test</body></html>".toByteArray(Charsets.UTF_8),
+                "js/plugins/develop/PluginCommonBase.js" to pluginContent
+            )
+        )
+
+        GpackStreamReader.open(ByteArrayInputStream(gpackBytes), null).use { reader ->
+            val interceptor = VfsResourceInterceptor(reader)
+
+            // When requested at standard root js/plugins/PluginCommonBase.js, should fallback to develop/PluginCommonBase.js
+            val fallbackResponse = interceptor.intercept("https://game.local/js/plugins/PluginCommonBase.js")
+            assertNotNull("Should resolve plugin in subfolder when requested at root", fallbackResponse)
+
+            // Direct request to subfolder should also work
+            val directResponse = interceptor.intercept("https://game.local/js/plugins/develop/PluginCommonBase.js")
+            assertNotNull("Should resolve plugin at direct subfolder path", directResponse)
+
+            // Non-existent plugin should return null
+            val notFoundResponse = interceptor.intercept("https://game.local/js/plugins/NonExistent.js")
+            assertNull("Non-existent plugin should return null", notFoundResponse)
+        }
+    }
 }

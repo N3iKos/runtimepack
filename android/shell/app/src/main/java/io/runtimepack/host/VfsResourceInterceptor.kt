@@ -173,6 +173,21 @@ class VfsResourceInterceptor(
                 stream = streamProvider(decoded)
             }
         }
+        if (stream == null && (logicalPath.startsWith("js/plugins/") || logicalPath.startsWith("www/js/plugins/")) && logicalPath.endsWith(".js")) {
+            val filename = logicalPath.substringAfterLast('/')
+            if (reader != null) {
+                val matchedEntry = reader.entries.firstOrNull { entry ->
+                    val norm = entry.logicalPath.replace('\\', '/').removePrefix("www/")
+                    norm.startsWith("js/plugins/") && norm.endsWith("/$filename")
+                } ?: reader.entries.firstOrNull { entry ->
+                    val norm = entry.logicalPath.replace('\\', '/').removePrefix("www/")
+                    norm.startsWith("js/plugins/") && norm.substringAfterLast('/').equals(filename, ignoreCase = true)
+                }
+                if (matchedEntry != null) {
+                    stream = streamProvider(matchedEntry.logicalPath)
+                }
+            }
+        }
         if (stream == null && rpgMakerKey != null) {
             val ext = logicalPath.substringAfterLast('.', "").lowercase()
             val encExt = when (ext) {
