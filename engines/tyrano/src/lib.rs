@@ -3,7 +3,7 @@ pub mod asset_audit;
 pub mod scanner;
 
 pub use asar::AsarArchive;
-pub use asset_audit::TyranoAssetAuditor;
+pub use asset_audit::{decode_scenario_text, TyranoAssetAuditor};
 pub use scanner::TyranoAnalyzer;
 
 use runtimepack_core::detection::{DetectionCandidate, Detector, Evidence};

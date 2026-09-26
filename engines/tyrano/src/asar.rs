@@ -4,6 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
+pub use crate::asset_audit::decode_scenario_text;
+
 #[derive(Debug, Clone)]
 pub struct AsarFileEntry {
     pub path: String,
@@ -161,8 +163,7 @@ impl AsarArchive {
         max_bytes: u64,
     ) -> io::Result<String> {
         let bytes = self.read_file_bytes_bounded(asar_path, rel_path, max_bytes)?;
-        let s = String::from_utf8_lossy(&bytes);
-        Ok(s.strip_prefix('\u{feff}').unwrap_or(&s).to_string())
+        Ok(decode_scenario_text(&bytes))
     }
 
     pub fn extract_all(&self, asar_path: &Path, dest_dir: &Path) -> io::Result<usize> {

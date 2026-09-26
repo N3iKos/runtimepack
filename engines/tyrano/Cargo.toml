@@ -10,6 +10,7 @@ runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
+encoding_rs = { workspace = true }
 
 [[test]]
 name = "tyrano_asset_audit_test"

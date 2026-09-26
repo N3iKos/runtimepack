@@ -1155,3 +1155,106 @@ fn test_scenario_internal_relative_path_traversal_resolves_cleanly() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_shift_jis_scenario_decoding_resolves_japanese_labels() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_sjis_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+
+    // first.ks in UTF-8 jumping to main_room.ks label *未定
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[jump storage=\"main_room.ks\" target=\"*未定\"]\n[s]\n",
+    )
+    .unwrap();
+
+    // main_room.ks encoded in Shift-JIS containing *未定
+    let (sjis_bytes, _, _) = encoding_rs::SHIFT_JIS.encode("*未定\n[cm]\n[s]\n");
+    fs::write(
+        temp_dir.join("data").join("scenario").join("main_room.ks"),
+        &sjis_bytes[..],
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    // Verify label is resolved and no CMP-AUD-002 (Target label not found) is emitted
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Target label")),
+        "Expected Japanese Kanji label to be resolved via Shift-JIS decoding, but got findings: {:#?}",
+        report.findings
+    );
+
+    // Graph should contain resolved edge for the target
+    assert!(
+        report
+            .graph
+            .edges
+            .iter()
+            .any(|e| e.relation == "jump_target" && e.resolution == ReferenceResolution::Resolved),
+        "Expected resolved jump_target edge in graph. Edges: {:#?}",
+        report.graph.edges
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_shift_jis_scenario_decoding_in_asar_archive_resolves_labels() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_asar_sjis_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("resources")).unwrap();
+
+    let (sjis_main, _, _) = encoding_rs::SHIFT_JIS.encode("*部屋\n[cm]\n[s]\n");
+    let asar_files: Vec<(&str, &[u8])> = vec![
+        ("index.html", b"<html></html>"),
+        ("tyrano/tyrano.js", b"// tyrano"),
+        (
+            "data/scenario/first.ks",
+            "*start\n[jump storage=\"main_room.ks\" target=\"*部屋\"]\n[s]\n".as_bytes(),
+        ),
+        ("data/scenario/main_room.ks", &sjis_main),
+    ];
+
+    let asar_path = temp_dir.join("resources").join("app.asar");
+    build_synthetic_asar(&asar_path, &asar_files);
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Target label")),
+        "Expected ASAR Shift-JIS label to be resolved, but got findings: {:#?}",
+        report.findings
+    );
+
+    assert!(
+        report
+            .graph
+            .edges
+            .iter()
+            .any(|e| e.relation == "jump_target" && e.resolution == ReferenceResolution::Resolved),
+        "Expected resolved jump_target edge in graph. Edges: {:#?}",
+        report.graph.edges
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

@@ -157,9 +157,19 @@ impl<'a> TyranoReader<'a> {
         }
 
         let bytes = fs::read(&full_path)?;
-        let s = String::from_utf8_lossy(&bytes);
-        Ok(s.strip_prefix('\u{feff}').unwrap_or(&s).to_string())
+        Ok(decode_scenario_text(&bytes))
     }
+}
+
+pub fn decode_scenario_text(bytes: &[u8]) -> String {
+    let stripped = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    if let Ok(utf8_str) = std::str::from_utf8(stripped) {
+        if !utf8_str.contains('\u{FFFD}') {
+            return utf8_str.to_string();
+        }
+    }
+    let (cow, _, _) = encoding_rs::SHIFT_JIS.decode(stripped);
+    cow.into_owned()
 }
 
 struct AuditContext<'a> {
