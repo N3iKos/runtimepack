@@ -23,6 +23,38 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 impl AndroidProjectGenerator {
+    pub fn sanitize_gradle_project_name(name: &str) -> String {
+        let mut raw = String::with_capacity(name.len());
+        for c in name.chars() {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                raw.push(c);
+            } else {
+                raw.push('_');
+            }
+        }
+
+        let mut collapsed = String::with_capacity(raw.len());
+        let mut last_was_underscore = false;
+        for c in raw.chars() {
+            if c == '_' {
+                if !last_was_underscore {
+                    collapsed.push('_');
+                    last_was_underscore = true;
+                }
+            } else {
+                collapsed.push(c);
+                last_was_underscore = false;
+            }
+        }
+
+        let trimmed = collapsed.trim_matches('_');
+        if trimmed.is_empty() || !trimmed.chars().any(|c| c.is_alphanumeric()) {
+            "RuntimePackGame".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     pub const NEUTRAL_CHEAT_PROFILE: &'static str = "/**\n * RuntimePack - Neutral Cheat Profile Template\n */\n\nwindow.GAME_CHEATS = {\n  title: \"Game Cheats\",\n  sections: []\n};\n";
 
     pub const FORBIDDEN_PERMISSIONS: &'static [&'static str] = &[
@@ -300,6 +332,31 @@ dependencies {{
             target_sdk = target_sdk,
             version_code = version_code,
             version_name = version_name
+        )
+    }
+
+    pub fn generate_settings_gradle(project_name: &str) -> String {
+        let sanitized_name = Self::sanitize_gradle_project_name(project_name);
+        format!(
+            r#"pluginManagement {{
+    repositories {{
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }}
+}}
+dependencyResolutionManagement {{
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {{
+        google()
+        mavenCentral()
+    }}
+}}
+
+rootProject.name = "{}"
+include(":app")
+"#,
+            sanitized_name
         )
     }
 
@@ -643,27 +700,7 @@ dependencies {{
 "#;
         fs::write(project_dir.join("build.gradle.kts"), root_gradle)?;
 
-        let settings_gradle = format!(
-            r#"pluginManagement {{
-    repositories {{
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }}
-}}
-dependencyResolutionManagement {{
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {{
-        google()
-        mavenCentral()
-    }}
-}}
-
-rootProject.name = "{}"
-include(":app")
-"#,
-            manifest.app.name.replace(' ', "")
-        );
+        let settings_gradle = Self::generate_settings_gradle(&manifest.app.name);
         fs::write(project_dir.join("settings.gradle.kts"), settings_gradle)?;
 
         let gradle_properties = r#"org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
@@ -696,3 +733,45 @@ kotlin.code.style=official
         Ok(())
     }
 }
+
+pub fn sanitize_gradle_project_name(name: &str) -> String {
+    AndroidProjectGenerator::sanitize_gradle_project_name(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_gradle_project_name() {
+        assert_eq!(
+            sanitize_gradle_project_name("Fear & Hunger 2: Termina"),
+            "Fear_Hunger_2_Termina"
+        );
+        assert_eq!(
+            sanitize_gradle_project_name("Foo / Bar \\ Baz : Qux <Quux> \"Corge\" ? Grault * Garply | Waldo & Fred ' Plugh"),
+            "Foo_Bar_Baz_Qux_Quux_Corge_Grault_Garply_Waldo_Fred_Plugh"
+        );
+        assert_eq!(sanitize_gradle_project_name("A    B     C"), "A_B_C");
+        assert_eq!(sanitize_gradle_project_name("A____B___C"), "A_B_C");
+        assert_eq!(sanitize_gradle_project_name("  __MyGame__  "), "MyGame");
+        assert_eq!(
+            sanitize_gradle_project_name("::: /// <<< >>> \"\"\" ??? *** ||| &&& '''"),
+            "RuntimePackGame"
+        );
+        assert_eq!(sanitize_gradle_project_name(""), "RuntimePackGame");
+        assert_eq!(sanitize_gradle_project_name("Clean-Project_Name123"), "Clean-Project_Name123");
+        assert_eq!(sanitize_gradle_project_name("- - -"), "RuntimePackGame");
+        assert_eq!(sanitize_gradle_project_name("My\tGame\nTitle"), "My_Game_Title");
+        assert_eq!(sanitize_gradle_project_name("!!Game!!"), "Game");
+    }
+
+    #[test]
+    fn test_generate_settings_gradle() {
+        let content = AndroidProjectGenerator::generate_settings_gradle("Fear & Hunger 2: Termina");
+        assert!(content.contains("rootProject.name = \"Fear_Hunger_2_Termina\""));
+        assert!(content.contains("include(\":app\")"));
+    }
+}
+
+

@@ -2045,3 +2045,124 @@ fn test_build_flavor_release_omits_watermark() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_gradle_project_name_sanitization() {
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("Fear & Hunger 2: Termina"),
+        "Fear_Hunger_2_Termina"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("Foo / Bar \\ Baz : Qux <Quux> \"Corge\" ? Grault * Garply | Waldo & Fred ' Plugh"),
+        "Foo_Bar_Baz_Qux_Quux_Corge_Grault_Garply_Waldo_Fred_Plugh"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("A    B     C"),
+        "A_B_C"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("A____B___C"),
+        "A_B_C"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("  __MyGame__  "),
+        "MyGame"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("::: /// <<< >>> \"\"\" ??? *** ||| &&& '''"),
+        "RuntimePackGame"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name(""),
+        "RuntimePackGame"
+    );
+    assert_eq!(
+        AndroidProjectGenerator::sanitize_gradle_project_name("Clean-Project_Name123"),
+        "Clean-Project_Name123"
+    );
+}
+
+#[test]
+fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
+    let temp_dir = std::env::temp_dir().join(format!("build_test_settings_gradle_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-26T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        app: AppConfig {
+            name: "Fear & Hunger 2: Termina".to_string(),
+            package: "com.example.termina".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("MV".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let settings_gradle_path = project_dir.join("settings.gradle.kts");
+    assert!(settings_gradle_path.exists(), "settings.gradle.kts must exist");
+    let settings_gradle = std::fs::read_to_string(&settings_gradle_path).unwrap();
+    assert!(
+        settings_gradle.contains("rootProject.name = \"Fear_Hunger_2_Termina\""),
+        "settings.gradle.kts must contain sanitized rootProject.name. Actual content:\n{settings_gradle}"
+    );
+
+    // Verify AndroidManifest.xml keeps original display name unchanged
+    let manifest_xml_path = project_dir.join("app/src/main/AndroidManifest.xml");
+    let manifest_xml = std::fs::read_to_string(&manifest_xml_path).unwrap();
+    assert!(
+        manifest_xml.contains("android:label=\"Fear & Hunger 2: Termina\""),
+        "AndroidManifest.xml must keep user-visible app name unchanged"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
