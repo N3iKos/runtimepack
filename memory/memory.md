@@ -9,7 +9,7 @@ RuntimePack adalah build-time compatibility packager untuk mengubah game desktop
 - **Gunakan Systematic Debugging & TDD:** Jangan menebak error; ambil bukti konkret (logcat, dump window, backtrace) dan tulis failing test sebelum menerapkan perbaikan.
 
 ## Status terkini (1 baris, detail di progress.md)
-Layout & UI Virtual Pad modern (arsitektur 3 file, iOS spring physics, 3 tema, Diagnostic Suite Beta + On-Screen FPS) resmi dibakukan untuk Beta Test dan Release.
+Seluruh 8 Plan Stabilisasi & Build Game (Termina, NTRdemic, show_off, Mizuki And Me, Forestia, The Witch's House MV, Hello Charlotte EP1, To the Moon) selesai 100% dan seluruh 8 APK mandiri berhasil dikompilasi di dist/.
 
 ## Preferensi user / gaya kerja
 - Komunikasi langsung ke poin utama (*concise, direct*), hindari penjelasan bertele-tele kecuali diminta detail.
