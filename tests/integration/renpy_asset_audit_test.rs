@@ -633,3 +633,86 @@ fn test_renpy_audit_limit_max_total_bytes_exceeded() {
         .iter()
         .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED));
 }
+
+#[test]
+fn test_renpy_builtins_and_color_displayables_and_stdlib_imports_resolve_as_runtime_provided() {
+    let temp_dir = std::env::temp_dir().join(format!("renpy_builtins_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("game")).unwrap();
+
+    std::fs::write(
+        temp_dir.join("game").join("options.rpy"),
+        "define config.version = \"8.2.0\"\n# Ren'Py 8.2.0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("game").join("script.rpy"),
+        r##"
+init python:
+    import inspect
+    from zipfile import ZipFile
+    import ast
+    import subprocess
+
+image bg black = "#000"
+image bg white = Solid("#ffffff")
+
+label start:
+    scene "#000" with fade
+    show expression "#ffffff"
+    scene bg black with fade
+    scene black with fade
+    return
+"##,
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS with zero findings, got: {:#?}",
+        report.findings
+    );
+    assert_eq!(
+        report.findings.len(),
+        0,
+        "Expected 0 findings, got: {:#?}",
+        report.findings
+    );
+
+    let runtime_nodes: Vec<_> = report
+        .graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == AssetKind::RuntimeProvidedResource)
+        .collect();
+
+    assert!(
+        runtime_nodes.iter().any(|n| n.id == "runtime:inspect"),
+        "runtime:inspect missing"
+    );
+    assert!(
+        runtime_nodes.iter().any(|n| n.id == "runtime:zipfile"),
+        "runtime:zipfile missing"
+    );
+    assert!(
+        runtime_nodes.iter().any(|n| n.id == "runtime:ast"),
+        "runtime:ast missing"
+    );
+    assert!(
+        runtime_nodes.iter().any(|n| n.id == "runtime:subprocess"),
+        "runtime:subprocess missing"
+    );
+    assert!(
+        runtime_nodes.iter().any(|n| n.id.contains("color")),
+        "runtime:color nodes missing"
+    );
+}

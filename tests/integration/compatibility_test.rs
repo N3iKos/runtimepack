@@ -246,6 +246,8 @@ fn test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal() {
     std::fs::create_dir_all(temp_dir.join("game")).unwrap();
     std::fs::create_dir_all(temp_dir.join("renpy")).unwrap();
     std::fs::create_dir_all(temp_dir.join("lib/py3-windows-x86_64")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("lib/py2-windows-x86_64")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("lib/windows-i686")).unwrap();
 
     std::fs::write(temp_dir.join("renpy/__init__.py"), "version = \"8.2.0\"").unwrap();
     std::fs::write(temp_dir.join("game/script.rpy"), "label start:\n    return\n").unwrap();
@@ -254,6 +256,10 @@ fn test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal() {
     std::fs::write(temp_dir.join("lib/py3-windows-x86_64/python3.dll"), b"MZ").unwrap();
     std::fs::write(temp_dir.join("lib/py3-windows-x86_64/python310.dll"), b"MZ").unwrap();
     std::fs::write(temp_dir.join("lib/py3-windows-x86_64/vcruntime140.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("lib/py3-windows-x86_64/python.exe"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("lib/py2-windows-x86_64/extra.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("lib/windows-i686/steam_api.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("steam_api64.dll"), b"MZ").unwrap();
 
     let idx = GameSourceIndex::build(&temp_dir).unwrap();
     let candidate = runtimepack_engine_renpy::RenPyDetector.probe(&idx);
@@ -274,10 +280,10 @@ fn test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    assert_ne!(
+    assert_eq!(
         report.status,
-        CompatibilityStatus::UnsupportedDependency,
-        "Ren'Py desktop wrapper DLLs must not mark the project as UnsupportedDependency"
+        CompatibilityStatus::Compatible,
+        "Ren'Py desktop wrapper DLLs must leave status as Compatible"
     );
     assert!(
         !report.issues.iter().any(|i| i.code == DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY),

@@ -74,6 +74,69 @@ fn strip_audio_modifiers(path: &str) -> &str {
     s
 }
 
+pub fn is_renpy_color_spec(s: &str) -> bool {
+    let mut trimmed = s.trim();
+    if ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+        && trimmed.len() >= 2
+    {
+        trimmed = trimmed[1..trimmed.len() - 1].trim();
+    }
+
+    if let Some(stripped) = trimmed.strip_prefix('#') {
+        let len = trimmed.len();
+        if (len == 4 || len == 5 || len == 7 || len == 9)
+            && stripped.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return true;
+        }
+    }
+
+    if trimmed.eq_ignore_ascii_case("black") || trimmed.eq_ignore_ascii_case("white") {
+        return true;
+    }
+
+    if trimmed.starts_with("Solid(") || trimmed.starts_with("Color(") {
+        return true;
+    }
+
+    false
+}
+
+fn strip_scene_show_modifiers(input: &str) -> &str {
+    let s = input.trim();
+    if s.is_empty() {
+        return s;
+    }
+
+    if let Some(stripped) = s.strip_prefix('"') {
+        if let Some(end) = stripped.find('"') {
+            return s[..=end + 1].trim();
+        }
+    } else if let Some(stripped) = s.strip_prefix('\'') {
+        if let Some(end) = stripped.find('\'') {
+            return s[..=end + 1].trim();
+        }
+    }
+
+    if s.starts_with("Solid(") || s.starts_with("Color(") {
+        if let Some(end) = s.rfind(')') {
+            return s[..=end].trim();
+        }
+    }
+
+    let mut cut_idx = s.len();
+    for keyword in &[" with ", " at ", " as ", " behind ", " onlayer ", " zorder "] {
+        if let Some(pos) = s.find(keyword) {
+            if pos < cut_idx {
+                cut_idx = pos;
+            }
+        }
+    }
+
+    s[..cut_idx].trim()
+}
+
 fn make_finding(
     code: &'static str,
     requiredness: ReferenceRequiredness,
@@ -208,6 +271,24 @@ impl<'a> AuditContext<'a> {
 
     fn ensure_node(&mut self, id: &str, kind: AssetKind, logical_path: Option<String>) {
         ensure_node(self.graph, self.node_ids, id, kind, logical_path);
+    }
+
+    fn resolve_color_spec(&mut self, stmt_node_id: &str, color_spec: &str) {
+        let cleaned = color_spec
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim();
+        let node_id = format!("runtime:color:{cleaned}");
+        self.ensure_node(&node_id, AssetKind::RuntimeProvidedResource, None);
+        self.graph.edges.push(ReferenceEdge {
+            source: stmt_node_id.to_string(),
+            target: node_id,
+            relation: "image".to_string(),
+            requiredness: ReferenceRequiredness::Required,
+            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+            resolution: ReferenceResolution::RuntimeProvided,
+        });
     }
 
     fn resolve_and_record(
@@ -390,8 +471,7 @@ impl<'a> AuditContext<'a> {
 
         let is_unsupported_native = matches!(
             top_module,
-            "ctypes"
-                | "win32api"
+            "win32api"
                 | "win32gui"
                 | "win32con"
                 | "winreg"
@@ -495,6 +575,26 @@ impl<'a> AuditContext<'a> {
                 | "decimal"
                 | "fractions"
                 | "cmath"
+                | "inspect"
+                | "zipfile"
+                | "ast"
+                | "subprocess"
+                | "ctypes"
+                | "dataclasses"
+                | "pathlib"
+                | "codecs"
+                | "shlex"
+                | "posixpath"
+                | "ntpath"
+                | "genericpath"
+                | "secrets"
+                | "dis"
+                | "token"
+                | "tokenize"
+                | "symtable"
+                | "unittest"
+                | "doctest"
+                | "site"
                 | "renpy"
                 | "pygame_sdl2"
                 | "store"
@@ -896,7 +996,9 @@ impl AssetAuditor for RenPyAssetAuditor {
                 if let Some(caps) = image_stmt_regex().captures(line) {
                     let tag = caps[1].trim().to_string();
                     let val = caps[2].trim();
-                    if let Some(str_cap) = quoted_str_regex().captures(val) {
+                    if is_renpy_color_spec(val) {
+                        ctx.image_defs.insert(tag, val.to_string());
+                    } else if let Some(str_cap) = quoted_str_regex().captures(val) {
                         ctx.image_defs.insert(tag, str_cap[1].to_string());
                     }
                 } else if let Some(caps) = define_audio_regex().captures(line) {
@@ -1060,15 +1162,21 @@ impl AssetAuditor for RenPyAssetAuditor {
                         } else {
                             ctx.record_dynamic(&stmt_node_id, val, AssetKind::Video);
                         }
+                    } else if is_renpy_color_spec(val) {
+                        ctx.resolve_color_spec(&stmt_node_id, val);
                     } else if let Some(str_cap) = quoted_str_regex().captures(val) {
                         let path = str_cap[1].to_string();
-                        ctx.resolve_and_record(
-                            &stmt_node_id,
-                            &path,
-                            AssetKind::Image,
-                            "image",
-                            ReferenceRequiredness::Required,
-                        );
+                        if is_renpy_color_spec(&path) {
+                            ctx.resolve_color_spec(&stmt_node_id, &path);
+                        } else {
+                            ctx.resolve_and_record(
+                                &stmt_node_id,
+                                &path,
+                                AssetKind::Image,
+                                "image",
+                                ReferenceRequiredness::Required,
+                            );
+                        }
                     } else {
                         ctx.record_dynamic(&stmt_node_id, val, AssetKind::Image);
                     }
@@ -1219,65 +1327,72 @@ impl AssetAuditor for RenPyAssetAuditor {
 
                     let rest = caps[2].trim();
                     if rest.starts_with("expression ") {
-                        let expr = rest.trim_start_matches("expression ").trim();
-                        ctx.record_dynamic(&stmt_node_id, expr, AssetKind::Image);
-                    } else if let Some(str_cap) = quoted_str_regex().captures(rest) {
-                        let path = str_cap[1].to_string();
-                        let kind = if rest.contains("movie")
-                            || path.ends_with(".webm")
-                            || path.ends_with(".mp4")
-                            || path.ends_with(".mkv")
-                            || path.ends_with(".ogv")
-                        {
-                            AssetKind::Video
+                        let expr_full = rest.trim_start_matches("expression ").trim();
+                        let expr = strip_scene_show_modifiers(expr_full);
+                        if is_renpy_color_spec(expr) {
+                            ctx.resolve_color_spec(&stmt_node_id, expr);
+                        } else if let Some(str_cap) = quoted_str_regex().captures(expr) {
+                            let path = str_cap[1].to_string();
+                            if is_renpy_color_spec(&path) {
+                                ctx.resolve_color_spec(&stmt_node_id, &path);
+                            } else {
+                                ctx.resolve_and_record(
+                                    &stmt_node_id,
+                                    &path,
+                                    AssetKind::Image,
+                                    "image",
+                                    ReferenceRequiredness::Required,
+                                );
+                            }
                         } else {
-                            AssetKind::Image
-                        };
-                        ctx.resolve_and_record(
-                            &stmt_node_id,
-                            &path,
-                            kind,
-                            "image",
-                            ReferenceRequiredness::Required,
-                        );
-                    } else if rest == "black" || rest == "white" {
-                        let target_id = format!("runtime:{rest}");
-                        ctx.ensure_node(&target_id, AssetKind::RuntimeProvidedResource, None);
-                        ctx.graph.edges.push(ReferenceEdge {
-                            source: stmt_node_id.clone(),
-                            target: target_id,
-                            relation: "image".to_string(),
-                            requiredness: ReferenceRequiredness::Required,
-                            evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                            resolution: ReferenceResolution::RuntimeProvided,
-                        });
+                            ctx.record_dynamic(&stmt_node_id, expr, AssetKind::Image);
+                        }
                     } else {
-                        let tag_part = rest.split_once(" with ").map(|(t, _)| t).unwrap_or(rest);
-                        let tag_part = tag_part
-                            .split_once(" at ")
-                            .map(|(t, _)| t)
-                            .unwrap_or(tag_part);
-                        let tag_part = tag_part
-                            .split_once(" as ")
-                            .map(|(t, _)| t)
-                            .unwrap_or(tag_part)
-                            .trim();
-
-                        if let Some(path) = ctx.image_defs.get(tag_part).cloned() {
-                            ctx.resolve_and_record(
-                                &stmt_node_id,
-                                &path,
-                                AssetKind::Image,
-                                "image",
-                                ReferenceRequiredness::Required,
-                            );
+                        let target = strip_scene_show_modifiers(rest);
+                        if is_renpy_color_spec(target) {
+                            ctx.resolve_color_spec(&stmt_node_id, target);
+                        } else if let Some(str_cap) = quoted_str_regex().captures(target) {
+                            let path = str_cap[1].to_string();
+                            if is_renpy_color_spec(&path) {
+                                ctx.resolve_color_spec(&stmt_node_id, &path);
+                            } else {
+                                let kind = if rest.contains("movie")
+                                    || path.ends_with(".webm")
+                                    || path.ends_with(".mp4")
+                                    || path.ends_with(".mkv")
+                                    || path.ends_with(".ogv")
+                                {
+                                    AssetKind::Video
+                                } else {
+                                    AssetKind::Image
+                                };
+                                ctx.resolve_and_record(
+                                    &stmt_node_id,
+                                    &path,
+                                    kind,
+                                    "image",
+                                    ReferenceRequiredness::Required,
+                                );
+                            }
+                        } else if let Some(path) = ctx.image_defs.get(target).cloned() {
+                            if is_renpy_color_spec(&path) {
+                                ctx.resolve_color_spec(&stmt_node_id, &path);
+                            } else {
+                                ctx.resolve_and_record(
+                                    &stmt_node_id,
+                                    &path,
+                                    AssetKind::Image,
+                                    "image",
+                                    ReferenceRequiredness::Required,
+                                );
+                            }
                         } else {
                             let clean_tag =
-                                tag_part.split_whitespace().collect::<Vec<_>>().join(" ");
+                                target.split_whitespace().collect::<Vec<_>>().join(" ");
                             let auto_candidates = vec![
                                 format!("images/{clean_tag}"),
-                                format!("images/{}", tag_part.replace(' ', "/")),
-                                format!("images/{}", tag_part.replace(' ', "_")),
+                                format!("images/{}", target.replace(' ', "/")),
+                                format!("images/{}", target.replace(' ', "_")),
                             ];
                             let mut resolved = false;
                             for base in auto_candidates {
@@ -1345,7 +1460,7 @@ impl AssetAuditor for RenPyAssetAuditor {
                                     DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
                                     ReferenceRequiredness::Required,
                                     format!(
-                                        "Referenced image tag '{rest}' not found in image definitions or images/ directory"
+                                        "Referenced image tag '{target}' not found in image definitions or images/ directory"
                                     ),
                                     vec![stmt_node_id.clone()],
                                 );
@@ -1379,5 +1494,48 @@ impl AssetAuditor for RenPyAssetAuditor {
         report.canonicalize();
         report.recompute_outcome();
         report
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_renpy_color_spec() {
+        assert!(is_renpy_color_spec("#000"));
+        assert!(is_renpy_color_spec("#fff"));
+        assert!(is_renpy_color_spec("#ffffff"));
+        assert!(is_renpy_color_spec("#000000ff"));
+        assert!(is_renpy_color_spec("#1234"));
+        assert!(is_renpy_color_spec("\"#000\""));
+        assert!(is_renpy_color_spec("'#ffffff'"));
+
+        assert!(is_renpy_color_spec("black"));
+        assert!(is_renpy_color_spec("Black"));
+        assert!(is_renpy_color_spec("BLACK"));
+        assert!(is_renpy_color_spec("white"));
+        assert!(is_renpy_color_spec("WHITE"));
+        assert!(is_renpy_color_spec("\"black\""));
+
+        assert!(is_renpy_color_spec("Solid(\"#ffffff\")"));
+        assert!(is_renpy_color_spec("Color(\"#000\")"));
+        assert!(is_renpy_color_spec("\"Solid('#fff')\""));
+
+        assert!(!is_renpy_color_spec("#12"));
+        assert!(!is_renpy_color_spec("#12345"));
+        assert!(!is_renpy_color_spec("#gggggg"));
+        assert!(!is_renpy_color_spec("images/bg.png"));
+        assert!(!is_renpy_color_spec("bg main"));
+        assert!(!is_renpy_color_spec(""));
+    }
+
+    #[test]
+    fn test_strip_scene_show_modifiers() {
+        assert_eq!(strip_scene_show_modifiers("\"#000\" with fade"), "\"#000\"");
+        assert_eq!(strip_scene_show_modifiers("\"images/bg.png\" with dissolve"), "\"images/bg.png\"");
+        assert_eq!(strip_scene_show_modifiers("black with fade"), "black");
+        assert_eq!(strip_scene_show_modifiers("bg main at center with dissolve"), "bg main");
+        assert_eq!(strip_scene_show_modifiers("Solid(\"#fff\") with fade"), "Solid(\"#fff\")");
     }
 }

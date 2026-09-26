@@ -8,20 +8,18 @@ pub struct RenPyAnalyzer;
 
 impl RenPyAnalyzer {
     pub fn is_desktop_wrapper_dll(path: &str) -> bool {
-        let lower = path.to_ascii_lowercase();
-        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+        let normalized = path.replace('\\', "/").to_ascii_lowercase();
+        let filename = normalized.rsplit('/').next().unwrap_or(&normalized);
 
-        lower.starts_with("lib/py3-windows-x86_64/")
-            || lower.contains("/lib/py3-windows-x86_64/")
-            || lower.starts_with("lib/windows-i686/")
-            || lower.contains("/lib/windows-i686/")
-            || lower.starts_with("lib/windows-x86_64/")
-            || lower.contains("/lib/windows-x86_64/")
-            || lower.starts_with("py3-windows-x86_64/")
-            || lower.contains("/py3-windows-x86_64/")
-            || lower.starts_with("lib/python")
-            || lower.contains("/lib/python")
-            || filename.starts_with("python3")
+        normalized.starts_with("lib/")
+            || normalized.contains("/lib/")
+            || normalized.starts_with("py3-windows-")
+            || normalized.contains("/py3-windows-")
+            || normalized.starts_with("py2-windows-")
+            || normalized.contains("/py2-windows-")
+            || normalized.starts_with("windows-")
+            || normalized.contains("/windows-")
+            || filename.starts_with("python")
             || filename.starts_with("vcruntime")
             || filename.starts_with("msvcr")
             || filename.starts_with("msvcp")
@@ -29,6 +27,7 @@ impl RenPyAnalyzer {
             || filename.starts_with("steam_api")
             || filename.starts_with("d3d")
             || filename.starts_with("xinput")
+            || filename.ends_with(".exe")
     }
 }
 
@@ -66,7 +65,7 @@ impl Analyzer for RenPyAnalyzer {
                     remediation: Some(RemediationCategory::Dependency),
                 });
             }
-            if path.ends_with(".dll") {
+            if path.ends_with(".dll") || path.ends_with(".exe") {
                 if Self::is_desktop_wrapper_dll(path) {
                     report.add_issue(CompatibilityIssue {
                         code: DiagnosticCode::CMP_DESKTOP_EXCLUDED.to_string(),
@@ -78,7 +77,7 @@ impl Analyzer for RenPyAnalyzer {
                         source_path: Some(file.logical_path.clone()),
                         remediation: Some(RemediationCategory::Dependency),
                     });
-                } else {
+                } else if path.ends_with(".dll") {
                     report.add_issue(CompatibilityIssue {
                         code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
                         severity: DiagnosticSeverity::Error,
@@ -98,11 +97,17 @@ impl Analyzer for RenPyAnalyzer {
 
         // Check small text files in game/ or renpy/
         for (path, file) in &source.files {
-            if path.ends_with(".rpy") || path.ends_with(".txt") || path.ends_with(".json") {
+            if path.ends_with(".rpy")
+                || path.ends_with(".py")
+                || path.ends_with(".txt")
+                || path.ends_with(".json")
+            {
                 if let Some(text) = source.read_small_text(&file.logical_path, 8192) {
                     if text.contains("renpy 8.")
                         || text.contains("Ren'Py 8.")
                         || text.contains("version = \"8.")
+                        || text.contains("version = '8.")
+                        || text.contains("(8,")
                     {
                         detected_generation = Some("8");
                         break;
@@ -110,6 +115,8 @@ impl Analyzer for RenPyAnalyzer {
                     if text.contains("renpy 7.")
                         || text.contains("Ren'Py 7.")
                         || text.contains("version = \"7.")
+                        || text.contains("version = '7.")
+                        || text.contains("(7,")
                     {
                         detected_generation = Some("7");
                         break;
@@ -153,5 +160,24 @@ impl Analyzer for RenPyAnalyzer {
         }
 
         report
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_desktop_wrapper_dll() {
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("lib/py3-windows-x86_64/python.exe"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("lib/py3-windows-x86_64/librenpython.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("lib/py2-windows-x86_64/foo.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("lib/windows-i686/steam_api.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("lib/windows-x86_64/bar.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("py3-windows-x86_64/python.exe"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("steam_api.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("steam_api64.dll"));
+        assert!(RenPyAnalyzer::is_desktop_wrapper_dll("game.exe"));
+        assert!(!RenPyAnalyzer::is_desktop_wrapper_dll("game/native_plugin.dll"));
     }
 }

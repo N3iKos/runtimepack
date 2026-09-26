@@ -1,5 +1,5 @@
 init python:
-    import ctypes
+    import cffi
 
 label start:
     return
