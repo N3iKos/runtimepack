@@ -122,6 +122,7 @@ impl<'a> TyranoReader<'a> {
                 files,
                 total_size_bytes,
                 source_hash: self.source.source_hash.clone(),
+                rtp_root: self.source.rtp_root.clone(),
             }
         } else {
             self.source.clone()
@@ -684,6 +685,44 @@ impl AssetAuditor for TyranoAssetAuditor {
     }
 }
 
+fn resolve_audio_reference(
+    ctx: &mut AuditContext,
+    cmd_node_id: &str,
+    sound_ref: &str,
+    relation: &str,
+) {
+    let trimmed = sound_ref.trim();
+    if trimmed.starts_with('&') {
+        ctx.record_dynamic(cmd_node_id, sound_ref, AssetKind::Audio);
+    } else if !trimmed.is_empty() {
+        let rule = if trimmed.starts_with("data/") {
+            CandidateRule::exact(trimmed)
+        } else if !trimmed.contains('.') {
+            CandidateRule::candidates([
+                format!("data/sound/{trimmed}.ogg"),
+                format!("data/sound/{trimmed}.mp3"),
+                format!("data/sound/{trimmed}.wav"),
+                format!("data/se/{trimmed}.ogg"),
+                format!("data/se/{trimmed}.mp3"),
+                format!("data/se/{trimmed}.wav"),
+            ])
+        } else {
+            CandidateRule::candidates([
+                format!("data/sound/{trimmed}"),
+                format!("data/se/{trimmed}"),
+            ])
+        };
+        ctx.resolve_and_record(
+            cmd_node_id,
+            trimmed,
+            &rule,
+            AssetKind::Audio,
+            relation,
+            ReferenceRequiredness::Required,
+        );
+    }
+}
+
 fn audit_tyrano_tag(
     ctx: &mut AuditContext,
     sc_path: &str,
@@ -711,7 +750,8 @@ fn audit_tyrano_tag(
 
     match tag_name.as_str() {
         "bg" => {
-            if let Some(storage) = attrs.get("storage") {
+            let storage_opt = attrs.get("storage").or_else(|| attrs.get("graphic"));
+            if let Some(storage) = storage_opt {
                 ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
                 ctx.graph.edges.push(ReferenceEdge {
                     source: sc_node_id.to_string(),
@@ -722,29 +762,30 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else if !trimmed.contains('.') {
                         CandidateRule::candidates([
-                            format!("data/bgimage/{storage}.jpg"),
-                            format!("data/bgimage/{storage}.png"),
-                            format!("data/bgimage/{storage}.webp"),
-                            format!("data/image/{storage}.jpg"),
-                            format!("data/image/{storage}.png"),
-                            format!("data/image/{storage}.webp"),
+                            format!("data/bgimage/{trimmed}.jpg"),
+                            format!("data/bgimage/{trimmed}.png"),
+                            format!("data/bgimage/{trimmed}.webp"),
+                            format!("data/image/{trimmed}.jpg"),
+                            format!("data/image/{trimmed}.png"),
+                            format!("data/image/{trimmed}.webp"),
                         ])
                     } else {
                         CandidateRule::candidates([
-                            format!("data/bgimage/{storage}"),
-                            format!("data/image/{storage}"),
+                            format!("data/bgimage/{trimmed}"),
+                            format!("data/image/{trimmed}"),
                         ])
                     };
                     ctx.resolve_and_record(
                         &cmd_node_id,
-                        storage,
+                        trimmed,
                         &rule,
                         AssetKind::Image,
                         "background",
@@ -754,7 +795,8 @@ fn audit_tyrano_tag(
             }
         }
         "image" => {
-            if let Some(storage) = attrs.get("storage") {
+            let storage_opt = attrs.get("storage").or_else(|| attrs.get("graphic"));
+            if let Some(storage) = storage_opt {
                 ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
                 ctx.graph.edges.push(ReferenceEdge {
                     source: sc_node_id.to_string(),
@@ -765,23 +807,24 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else if !trimmed.contains('.') {
                         CandidateRule::candidates([
-                            format!("data/image/{storage}.png"),
-                            format!("data/image/{storage}.jpg"),
-                            format!("data/image/{storage}.webp"),
+                            format!("data/image/{trimmed}.png"),
+                            format!("data/image/{trimmed}.jpg"),
+                            format!("data/image/{trimmed}.webp"),
                         ])
                     } else {
-                        CandidateRule::exact(format!("data/image/{storage}"))
+                        CandidateRule::exact(format!("data/image/{trimmed}"))
                     };
                     ctx.resolve_and_record(
                         &cmd_node_id,
-                        storage,
+                        trimmed,
                         &rule,
                         AssetKind::Image,
                         "image",
@@ -791,7 +834,8 @@ fn audit_tyrano_tag(
             }
         }
         "chara_new" | "chara_face" | "chara_mod" => {
-            if let Some(storage) = attrs.get("storage") {
+            let storage_opt = attrs.get("storage").or_else(|| attrs.get("graphic"));
+            if let Some(storage) = storage_opt {
                 ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
                 ctx.graph.edges.push(ReferenceEdge {
                     source: sc_node_id.to_string(),
@@ -802,27 +846,28 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else if !trimmed.contains('.') {
                         CandidateRule::candidates([
-                            format!("data/fgimage/{storage}.png"),
-                            format!("data/fgimage/{storage}.jpg"),
-                            format!("data/image/{storage}.png"),
-                            format!("data/image/{storage}.jpg"),
+                            format!("data/fgimage/{trimmed}.png"),
+                            format!("data/fgimage/{trimmed}.jpg"),
+                            format!("data/image/{trimmed}.png"),
+                            format!("data/image/{trimmed}.jpg"),
                         ])
                     } else {
                         CandidateRule::candidates([
-                            format!("data/fgimage/{storage}"),
-                            format!("data/image/{storage}"),
+                            format!("data/fgimage/{trimmed}"),
+                            format!("data/image/{trimmed}"),
                         ])
                     };
                     ctx.resolve_and_record(
                         &cmd_node_id,
-                        storage,
+                        trimmed,
                         &rule,
                         AssetKind::Image,
                         "character",
@@ -843,24 +888,25 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Audio);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else if !trimmed.contains('.') {
                         CandidateRule::candidates([
-                            format!("data/bgm/{storage}.ogg"),
-                            format!("data/bgm/{storage}.mp3"),
-                            format!("data/bgm/{storage}.m4a"),
-                            format!("data/bgm/{storage}.wav"),
+                            format!("data/bgm/{trimmed}.ogg"),
+                            format!("data/bgm/{trimmed}.mp3"),
+                            format!("data/bgm/{trimmed}.m4a"),
+                            format!("data/bgm/{trimmed}.wav"),
                         ])
                     } else {
-                        CandidateRule::exact(format!("data/bgm/{storage}"))
+                        CandidateRule::exact(format!("data/bgm/{trimmed}"))
                     };
                     ctx.resolve_and_record(
                         &cmd_node_id,
-                        storage,
+                        trimmed,
                         &rule,
                         AssetKind::Audio,
                         "bgm",
@@ -881,35 +927,7 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
-                    ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Audio);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
-                        CandidateRule::candidates([
-                            format!("data/sound/{storage}.ogg"),
-                            format!("data/sound/{storage}.mp3"),
-                            format!("data/sound/{storage}.wav"),
-                            format!("data/se/{storage}.ogg"),
-                            format!("data/se/{storage}.mp3"),
-                            format!("data/se/{storage}.wav"),
-                        ])
-                    } else {
-                        CandidateRule::candidates([
-                            format!("data/sound/{storage}"),
-                            format!("data/se/{storage}"),
-                        ])
-                    };
-                    ctx.resolve_and_record(
-                        &cmd_node_id,
-                        storage,
-                        &rule,
-                        AssetKind::Audio,
-                        "se",
-                        ReferenceRequiredness::Required,
-                    );
-                }
+                resolve_audio_reference(ctx, &cmd_node_id, storage, "se");
             }
         }
         "movie" => {
@@ -924,23 +942,24 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Video);
-                } else {
-                    let rule = if storage.starts_with("data/") {
-                        CandidateRule::exact(storage)
-                    } else if !storage.contains('.') {
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else if !trimmed.contains('.') {
                         CandidateRule::candidates([
-                            format!("data/video/{storage}.mp4"),
-                            format!("data/video/{storage}.webm"),
-                            format!("data/video/{storage}.ogv"),
+                            format!("data/video/{trimmed}.mp4"),
+                            format!("data/video/{trimmed}.webm"),
+                            format!("data/video/{trimmed}.ogv"),
                         ])
                     } else {
-                        CandidateRule::exact(format!("data/video/{storage}"))
+                        CandidateRule::exact(format!("data/video/{trimmed}"))
                     };
                     ctx.resolve_and_record(
                         &cmd_node_id,
-                        storage,
+                        trimmed,
                         &rule,
                         AssetKind::Video,
                         "movie",
@@ -1062,7 +1081,7 @@ fn audit_tyrano_tag(
                 }
             }
         }
-        "button" | "glink" => {
+        "button" | "glink" | "link" => {
             ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
             ctx.graph.edges.push(ReferenceEdge {
                 source: sc_node_id.to_string(),
@@ -1073,23 +1092,32 @@ fn audit_tyrano_tag(
                 resolution: ReferenceResolution::Resolved,
             });
 
-            if let Some(graphic) = attrs.get("graphic") {
-                if graphic.starts_with('&') {
-                    ctx.record_dynamic(&cmd_node_id, graphic, AssetKind::Image);
-                } else {
-                    let rule = if graphic.starts_with("data/") {
-                        CandidateRule::exact(graphic)
-                    } else {
-                        CandidateRule::exact(format!("data/image/{graphic}"))
-                    };
-                    ctx.resolve_and_record(
-                        &cmd_node_id,
-                        graphic,
-                        &rule,
-                        AssetKind::Image,
-                        "graphic",
-                        ReferenceRequiredness::Required,
-                    );
+            for attr_name in &["graphic", "enterimg", "clickimg"] {
+                if let Some(img_val) = attrs.get(*attr_name) {
+                    let trimmed = img_val.trim();
+                    if trimmed.starts_with('&') {
+                        ctx.record_dynamic(&cmd_node_id, img_val, AssetKind::Image);
+                    } else if !trimmed.is_empty() {
+                        let rule = if trimmed.starts_with("data/") {
+                            CandidateRule::exact(trimmed)
+                        } else {
+                            CandidateRule::exact(format!("data/image/{trimmed}"))
+                        };
+                        ctx.resolve_and_record(
+                            &cmd_node_id,
+                            trimmed,
+                            &rule,
+                            AssetKind::Image,
+                            attr_name,
+                            ReferenceRequiredness::Required,
+                        );
+                    }
+                }
+            }
+
+            for attr_name in &["enterse", "clickse", "leavese"] {
+                if let Some(se_val) = attrs.get(*attr_name) {
+                    resolve_audio_reference(ctx, &cmd_node_id, se_val, attr_name);
                 }
             }
 
@@ -1107,6 +1135,68 @@ fn audit_tyrano_tag(
             });
 
             audit_jump_or_call(ctx, sc_path, &cmd_node_id, &attrs, &tag_name, scenario_data);
+        }
+        "anim" => {
+            ctx.ensure_node(&cmd_node_id, AssetKind::Command, Some(sc_path.to_string()));
+            ctx.graph.edges.push(ReferenceEdge {
+                source: sc_node_id.to_string(),
+                target: cmd_node_id.clone(),
+                relation: "tag".to_string(),
+                requiredness: ReferenceRequiredness::Required,
+                evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                resolution: ReferenceResolution::Resolved,
+            });
+
+            if let Some(storage) = attrs.get("storage") {
+                let trimmed = storage.trim();
+                if trimmed.starts_with('&') {
+                    ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else {
+                        CandidateRule::candidates([
+                            format!("data/image/{trimmed}"),
+                            format!("data/fgimage/{trimmed}"),
+                            format!("data/bgimage/{trimmed}"),
+                        ])
+                    };
+                    ctx.resolve_and_record(
+                        &cmd_node_id,
+                        trimmed,
+                        &rule,
+                        AssetKind::Image,
+                        "anim",
+                        ReferenceRequiredness::Required,
+                    );
+                }
+            }
+            if let Some(graphic) = attrs.get("graphic") {
+                let trimmed = graphic.trim();
+                if trimmed.starts_with('&') {
+                    ctx.record_dynamic(&cmd_node_id, graphic, AssetKind::Image);
+                } else if !trimmed.is_empty() {
+                    let rule = if trimmed.starts_with("data/") {
+                        CandidateRule::exact(trimmed)
+                    } else {
+                        CandidateRule::exact(format!("data/image/{trimmed}"))
+                    };
+                    ctx.resolve_and_record(
+                        &cmd_node_id,
+                        trimmed,
+                        &rule,
+                        AssetKind::Image,
+                        "graphic",
+                        ReferenceRequiredness::Required,
+                    );
+                }
+            }
+            if let Some(target) = attrs.get("target") {
+                let trimmed = target.trim();
+                if trimmed.starts_with('&') {
+                    ctx.record_dynamic(&cmd_node_id, target, AssetKind::Command);
+                }
+            }
         }
         _ => {
             // Check for unknown tags that might be unsupported
@@ -1146,6 +1236,7 @@ fn audit_tyrano_tag(
                 "showsave",
                 "showload",
                 "showmenu",
+                "endlink",
             ];
             if !known_tyrano_control_tags.contains(&tag_name.as_str()) {
                 ctx.coverage
@@ -1172,23 +1263,24 @@ fn audit_jump_or_call(
 
     // Step A: Storage resolution
     let target_sc_path: Option<String> = if let Some(storage) = storage_opt {
-        if storage.starts_with('&') {
+        let trimmed_storage = storage.trim();
+        if trimmed_storage.starts_with('&') {
             ctx.record_dynamic(cmd_node_id, storage, AssetKind::Script);
             None
         } else {
-            let lower_storage = storage.to_ascii_lowercase();
-            let rule = if storage.starts_with("data/") {
+            let lower_storage = trimmed_storage.to_ascii_lowercase();
+            let rule = if trimmed_storage.starts_with("data/") {
                 if lower_storage.ends_with(".ks") {
-                    CandidateRule::exact(storage)
+                    CandidateRule::exact(trimmed_storage)
                 } else {
-                    CandidateRule::candidates([storage.clone(), format!("{storage}.ks")])
+                    CandidateRule::candidates([trimmed_storage.to_string(), format!("{trimmed_storage}.ks")])
                 }
             } else if lower_storage.ends_with(".ks") {
-                CandidateRule::exact(format!("data/scenario/{storage}"))
+                CandidateRule::exact(format!("data/scenario/{trimmed_storage}"))
             } else {
                 CandidateRule::candidates([
-                    format!("data/scenario/{storage}"),
-                    format!("data/scenario/{storage}.ks"),
+                    format!("data/scenario/{trimmed_storage}"),
+                    format!("data/scenario/{trimmed_storage}.ks"),
                 ])
             };
 
@@ -1213,11 +1305,11 @@ fn audit_jump_or_call(
                 } => {
                     ctx.ensure_node(&node.id, node.kind, node.logical_path.clone());
                     ctx.push_finding(
-                    DiagnosticCode::CMP_AUD_CASE_MISMATCH,
-                    ReferenceRequiredness::Required,
-                    format!("Case mismatch for referenced scenario: expected '{expected}', found on disk as '{actual}'"),
-                    vec![cmd_node_id.to_string()],
-                );
+                        DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                        ReferenceRequiredness::Required,
+                        format!("Case mismatch for referenced scenario: expected '{expected}', found on disk as '{actual}'"),
+                        vec![cmd_node_id.to_string()],
+                    );
                     ctx.graph.edges.push(ReferenceEdge {
                         source: cmd_node_id.to_string(),
                         target: node.id,
@@ -1297,10 +1389,12 @@ fn audit_jump_or_call(
 
     // Step B: Target label resolution
     if let Some(target) = target_opt {
-        if target.starts_with('&') {
+        let trimmed_target = target.trim();
+        let clean_for_dyn_check = trimmed_target.strip_prefix('*').unwrap_or(trimmed_target).trim();
+        if clean_for_dyn_check.starts_with('&') {
             ctx.record_dynamic(cmd_node_id, target, AssetKind::Command);
         } else if let Some(target_scenario) = target_sc_path {
-            let clean_label = target.strip_prefix('*').unwrap_or(target).trim();
+            let clean_label = clean_for_dyn_check;
             if !clean_label.is_empty() {
                 let label_node_id = format!("label:{target_scenario}#{clean_label}");
 

@@ -500,4 +500,30 @@ function createSandbox(initialStorageManager) {
     assert.strictEqual(videoEvent.outcome, "FAIL");
 }
 
+{
+    const sb = createSandbox();
+    sb.TYRANO = {
+        kag: {
+            tmp: {},
+            cache_scenario: {},
+            loadScenario: function(file_name, cb) {
+                throw new Error("Failed to load: " + file_name);
+            }
+        }
+    };
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.TYRANO.kag.loadScenario.__rp_patched, "loadScenario should be patched");
+
+    let callbackResult = null;
+    sb.TYRANO.kag.loadScenario("cg.ks", function(parsed) {
+        callbackResult = parsed;
+    });
+
+    assert(callbackResult, "Fallback scenario object should be provided for optional stub cg.ks");
+    assert(Array.isArray(callbackResult.array_s), "array_s should exist in fallback parsed scenario");
+    assert(callbackResult.array_s.some(tag => tag.name === "return"), "fallback scenario should have return tag");
+    assert(callbackResult.array_s.some(tag => tag.name === "jump"), "fallback scenario should have jump tag");
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");

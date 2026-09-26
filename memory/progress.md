@@ -1,12 +1,26 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 3 Plan 1 (Stabilize & Build *Fear & Hunger 2: Termina*) selesai. APK mandiri `dist/termina/Termina.apk` (1533.59 MB, SHA-256 `F2DBA813...`) sukses dibangun dan diverifikasi dengan Gradle exit code 0.
-- **Next step:** Game 2 (*[Kimochi] NTRdemic*) pada Target Game Queue.
+- **Sedang kerjain apa:** Task 1 Plan 2 (Audit & Dynamic Reference Handling for NTRdemic) selesai. Penanganan ekspresi dinamis TyranoScript (`&tf.*`, `&f.*`) pada tag button, link, image, bg, anim, jump, call, dan audio SE (`enterse`, `clickse`, `leavese`) telah terimplementasi dan lolos verifikasi TDD. Scenario safety stubs dipasang di `runtimepack_web_shims.js`.
+- **Next step:** Task 2 Plan 2: Build APK & Verify *[Kimochi] NTRdemic* (`dist/ntrdemic/NTRdemic.apk`).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Ditemukan dan diperbaiki 2 issue pada game berkarakter khusus (`&` dan `:`): (1) escaping XML attribute di `AndroidManifest.xml` via `AndroidProjectGenerator::escape_xml_attribute` mencegah SAXParseException pada manifest merger, dan (2) sanitasi nama APK via `derive_apk_filename` mencegah NTFS Alternate Data Stream (ADS) pada Windows.
+- **Catatan fokus:** Ekstraksi ASAR dan dynamic expressions pada TyranoScript diklasifikasikan sebagai `CMP-AUD-006` (`INDETERMINATE`), bukan fatal missing asset (`CMP-AUD-002`). Safety stubs mencegah freeze/crash pada tombol menu opsional (`cg.ks`, `replay.ks`, dll.).
 
 ## Selesai
+- [2026-09-26] Task 1 Plan 2 (Audit & Dynamic Reference Handling for NTRdemic) Selesai:
+  1. `engines/tyrano/src/asset_audit.rs`:
+     - Implementasi `resolve_audio_reference`: otomatis mendeteksi ekspresi dinamis diawali `&` (`AssetKind::Audio` -> `CMP-AUD-006`) dan meresolusi audio statis (`data/sound/`, `data/se/`) dengan `CandidateRule`.
+     - Dukungan tag `button`, `glink`, `link`: memeriksa atribut `graphic`, `enterimg`, `clickimg` (Image), `enterse`, `clickse`, `leavese` (Audio via `resolve_audio_reference`), serta `storage` & `target` (via `audit_jump_or_call`).
+     - Dukungan tag `anim`: memeriksa `storage`, `graphic`, dan `target` (mendukung ekspresi dinamis `&`).
+     - Penanganan `bg`, `image`, `chara_*`: mendukung fallback `storage` maupun `graphic` dengan sanitasi `trim()` dan klasifikasi dinamis `&`.
+     - `audit_jump_or_call`: memeriksa `storage.trim().starts_with('&')` dan `target` dengan strip prefix `*` untuk mendeteksi `*&tf.target` maupun `&tf.target` sebagai `AssetKind::Command` dinamis.
+     - Menambahkan `endlink` ke `known_tyrano_control_tags`.
+  2. `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js`:
+     - Di `setupTyranoHooks`: Meng-intercept `kag.loadScenario` untuk mendeteksi ketiadaan file skenario atau skenario opsional (`cg.ks`, `replay.ks`, `extra.ks`, `gallery.ks`, `memory.ks`, `cg_view.ks`, `scene.ks`). Jika file tidak ada di storage/VFS, mengembalikan parsed mock scenario stub (`*start\n[cm]\n[clearfix]\n[back]\n[return]\n[jump storage="title.ks"]`) secara anggun tanpa melempar fatal error atau membekukan game.
+  3. Integration & Unit Tests:
+     - `tests/integration/tyrano_asset_audit_test.rs`: Menambahkan `test_dynamic_expression_handling_in_scenario` dan `test_button_link_and_anim_audio_and_dynamic_references`.
+     - `android/shell/app/src/test/js/web_shims.test.js`: Menambahkan test suite untuk safety stub `kag.loadScenario("cg.ks")`.
+     - Seluruh 28 integration tests Tyrano, test JS web shims, dan 256 cargo workspace tests lulus 100%.
 - [2026-09-26] Task 3 Plan 1 (Stabilize & Build *Fear & Hunger 2: Termina*) Selesai:
   1. Static Asset Audit:
      - `runtimepack audit "Raw-Game\Fear & Hunger 2 Termina" --mode standard --output dist/termina/asset-audit-report.json`

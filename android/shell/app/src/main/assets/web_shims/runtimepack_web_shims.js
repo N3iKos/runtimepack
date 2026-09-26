@@ -640,8 +640,97 @@
                     jq.getStorage = patchedGet;
                 }
             }
-            if (w && w.TYRANO && w.TYRANO.kag && w.TYRANO.kag.tmp) {
-                w.TYRANO.kag.tmp.ready_audio = true;
+            var kag = (w && w.TYRANO && w.TYRANO.kag) || (root && root.TYRANO && root.TYRANO.kag);
+            if (kag) {
+                kag.tmp = kag.tmp || {};
+                kag.tmp.ready_audio = true;
+
+                if (kag.loadScenario && !kag.loadScenario.__rp_patched) {
+                    var origLoadScenario = kag.loadScenario;
+                    var patchedLoadScenario = function(file_name, call_back) {
+                        var baseName = "";
+                        if (typeof file_name === "string") {
+                            baseName = file_name.split("/").pop().split("\\").pop().toLowerCase();
+                        }
+                        var isOptionalStub = (
+                            baseName === "cg.ks" ||
+                            baseName === "replay.ks" ||
+                            baseName === "extra.ks" ||
+                            baseName === "gallery.ks" ||
+                            baseName === "memory.ks" ||
+                            baseName === "cg_view.ks" ||
+                            baseName === "scene.ks"
+                        );
+
+                        var cleanPath = file_name;
+                        if (cleanPath && typeof cleanPath === "string" && !cleanPath.startsWith("data/")) {
+                            cleanPath = "data/scenario/" + cleanPath;
+                        }
+                        var exists = syncExists(cleanPath) || syncExists("data/scenario/" + baseName) || syncExists(file_name);
+
+                        if (!exists && (isOptionalStub || !syncExists(cleanPath))) {
+                            if (root.console && typeof root.console.warn === "function") {
+                                root.console.warn("[RuntimePack] Using safety stub for optional/missing scenario: " + file_name);
+                            }
+                            var stubText = "*start\n[cm]\n[clearfix]\n[back]\n[return]\n[jump storage=\"title.ks\"]\n";
+                            var parsed = null;
+                            if (kag.parser && typeof kag.parser.parseScenario === "function") {
+                                parsed = kag.parser.parseScenario(stubText);
+                            } else {
+                                parsed = {
+                                    array_s: [
+                                        { pm: {}, val: "start", name: "*start" },
+                                        { pm: {}, val: "", name: "cm" },
+                                        { pm: {}, val: "", name: "clearfix" },
+                                        { pm: {}, val: "", name: "back" },
+                                        { pm: {}, val: {}, name: "return" },
+                                        { pm: { storage: "title.ks" }, val: "", name: "jump" }
+                                    ],
+                                    map_label: { "start": { index: 0, label_name: "start" } }
+                                };
+                            }
+                            kag.cache_scenario = kag.cache_scenario || {};
+                            kag.cache_scenario[file_name] = parsed;
+                            if (typeof call_back === "function") {
+                                return call_back(parsed);
+                            }
+                            return;
+                        }
+
+                        try {
+                            return origLoadScenario.call(this, file_name, function(parsed) {
+                                if (typeof call_back === "function") {
+                                    call_back(parsed);
+                                }
+                            });
+                        } catch (err) {
+                            if (root.console && typeof root.console.error === "function") {
+                                root.console.error("[RuntimePack] Failed to load scenario: " + file_name, err);
+                            }
+                            var stubText = "*start\n[cm]\n[clearfix]\n[back]\n[return]\n[jump storage=\"title.ks\"]\n";
+                            var fallbackParsed = (kag.parser && typeof kag.parser.parseScenario === "function")
+                                ? kag.parser.parseScenario(stubText)
+                                : {
+                                    array_s: [
+                                        { pm: {}, val: "start", name: "*start" },
+                                        { pm: {}, val: "", name: "cm" },
+                                        { pm: {}, val: "", name: "clearfix" },
+                                        { pm: {}, val: "", name: "back" },
+                                        { pm: {}, val: {}, name: "return" },
+                                        { pm: { storage: "title.ks" }, val: "", name: "jump" }
+                                    ],
+                                    map_label: { "start": { index: 0, label_name: "start" } }
+                                };
+                            kag.cache_scenario = kag.cache_scenario || {};
+                            kag.cache_scenario[file_name] = fallbackParsed;
+                            if (typeof call_back === "function") {
+                                return call_back(fallbackParsed);
+                            }
+                        }
+                    };
+                    patchedLoadScenario.__rp_patched = true;
+                    kag.loadScenario = patchedLoadScenario;
+                }
             }
         };
 

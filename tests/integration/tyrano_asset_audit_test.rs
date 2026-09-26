@@ -860,3 +860,181 @@ fn test_tyrano_asar_shadowed_file_size_not_double_counted() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_dynamic_expression_handling_in_scenario() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_dyn_expr_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[image storage=\"&tf.img_path\"]\n[button graphic=\"&tf.btn_path_off\" enterse=\"&tf.se_hover\"]\n[jump storage=\"&tf.next_scene\"]\n[s]\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Indeterminate,
+        "Expected Indeterminate, findings: {:#?}",
+        report.findings
+    );
+
+    // Must NOT emit missing reference errors
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING),
+        "Expected no missing reference errors, found: {:#?}",
+        report.findings
+    );
+
+    // Verify dynamic reference findings
+    let dynamic_findings: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED)
+        .collect();
+
+    assert!(
+        dynamic_findings
+            .iter()
+            .any(|f| f.message.contains("&tf.img_path") && f.message.contains("image")),
+        "Expected dynamic image finding for &tf.img_path: {:#?}",
+        dynamic_findings
+    );
+    assert!(
+        dynamic_findings
+            .iter()
+            .any(|f| f.message.contains("&tf.btn_path_off") && f.message.contains("image")),
+        "Expected dynamic image finding for &tf.btn_path_off: {:#?}",
+        dynamic_findings
+    );
+    assert!(
+        dynamic_findings
+            .iter()
+            .any(|f| f.message.contains("&tf.se_hover") && f.message.contains("audio")),
+        "Expected dynamic audio finding for &tf.se_hover: {:#?}",
+        dynamic_findings
+    );
+    assert!(
+        dynamic_findings
+            .iter()
+            .any(|f| f.message.contains("&tf.next_scene") && f.message.contains("script")),
+        "Expected dynamic script finding for &tf.next_scene: {:#?}",
+        dynamic_findings
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_button_link_and_anim_audio_and_dynamic_references() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_btn_link_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("sound")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
+    fs::write(temp_dir.join("data").join("sound").join("hover.ogg"), b"SE_HOVER").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[button graphic=\"btn.png\" enterse=\"hover.ogg\" clickse=\"&tf.click\"]\n[link storage=\"second.ks\" clickse=\"hover.ogg\" leavese=\"&tf.leave\"]Click Here[endlink]\n[anim storage=\"&tf.anim_img\" graphic=\"&tf.anim_gfx\" target=\"&tf.anim_target\"]\n[s]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("image")).unwrap();
+    fs::write(temp_dir.join("data").join("image").join("btn.png"), b"BTN_IMG").unwrap();
+    fs::write(
+        temp_dir.join("data").join("scenario").join("second.ks"),
+        "*start\n[s]\n",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Indeterminate,
+        "Expected Indeterminate, findings: {:#?}",
+        report.findings
+    );
+
+    // Static assets must be resolved
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "image:data/image/btn.png"),
+        "Expected btn.png in graph"
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "audio:data/sound/hover.ogg"),
+        "Expected hover.ogg in graph"
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "script:data/scenario/second.ks"),
+        "Expected second.ks in graph"
+    );
+
+    // Dynamic references recorded
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.message.contains("&tf.click") && f.message.contains("audio")),
+        "Expected dynamic audio finding for &tf.click"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.message.contains("&tf.leave") && f.message.contains("audio")),
+        "Expected dynamic audio finding for &tf.leave"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.message.contains("&tf.anim_img") && f.message.contains("image")),
+        "Expected dynamic image finding for &tf.anim_img"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.message.contains("&tf.anim_gfx") && f.message.contains("image")),
+        "Expected dynamic image finding for &tf.anim_gfx"
+    );
+
+    // Must NOT emit missing reference errors
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING),
+        "Expected no missing reference errors"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

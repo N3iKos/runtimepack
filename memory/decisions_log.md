@@ -1,5 +1,19 @@
 # Decisions Log
 
+## [2026-09-26] Tyrano Dynamic Scenario Reference Handling & Scenario Safety Stubs
+**Keputusan:**
+1. Di `engines/tyrano/src/asset_audit.rs`:
+   - Implementasi helper `resolve_audio_reference(ctx, cmd_node_id, sound_ref, relation)`: mengklasifikasikan ekspresi dinamis diawali `&` sebagai `AssetKind::Audio` (`CMP-AUD-006`, severity `Warning`, disposition `Indeterminate`), dan meresolusi audio statis terhadap direktori `data/sound/` dan `data/se/`.
+   - Menambahkan tag `link` ke dalam matcher tombol/link (`"button" | "glink" | "link"`), serta memindai atribut `graphic`, `enterimg`, `clickimg` (Image), `enterse`, `clickse`, `leavese` (Audio), dan `storage`/`target` (Scenario/Command).
+   - Menambahkan penanganan tag `anim` untuk atribut `storage`, `graphic`, dan `target`.
+   - Mengizinkan fallback attribute `graphic` pada tag `bg` dan `image` serta menerapkan `.trim()` sebelum pemeriksaan prefix `&`.
+   - Memeriksa prefix label `*&...` pada `audit_jump_or_call` target resolution.
+   - Menambahkan `"endlink"` ke dalam daftar `known_tyrano_control_tags`.
+2. Di `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js`:
+   - Di `setupTyranoHooks`: Intersepsi `kag.loadScenario` dengan pengecekan `syncExists`. Jika skenario tidak ada di disk/VFS dan termasuk skenario opsional (`cg.ks`, `replay.ks`, `extra.ks`, dll.), mengembalikan safety stub scenario (`*start\n[cm]\n[clearfix]\n[back]\n[return]\n[jump storage="title.ks"]`) sehingga interaksi tombol menu galeri/replay tidak memicu crash atau unhandled alert.
+**Alasan:** Game TyranoScript (seperti *[Kimochi] NTRdemic*) kerap menggunakan variabel runtime seperti `&tf.img_path`, `&tf.btn_path_off`, dan `&tf.se_hover` dalam tombol UI dan konfigurasi, serta memiliki tombol menu untuk konten opsional (galeri CG/replay) yang skenarionya belum tentu ada di paket rilis.
+**Dampak:** Memastikan audit mendiagnosis ekspresi dinamis dengan benar sebagai non-blocking `CMP-AUD-006` (`INDETERMINATE`) tanpa memicu false positive missing asset error (`CMP-AUD-002`), serta menjamin stabilitas runtime. 256 tests workspace Cargo dan test JS lulus 100%.
+
 ## [2026-09-26] XML Attribute Escaping & APK Filename Derivation for Special Characters
 **Keputusan:**
 1. Di `core/src/build_plan/generator.rs`:
