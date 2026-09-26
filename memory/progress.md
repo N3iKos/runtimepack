@@ -1,12 +1,22 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 1 Plan 2 (Audit & Dynamic Reference Handling for NTRdemic) selesai. Penanganan ekspresi dinamis TyranoScript (`&tf.*`, `&f.*`) pada tag button, link, image, bg, anim, jump, call, dan audio SE (`enterse`, `clickse`, `leavese`) telah terimplementasi dan lolos verifikasi TDD. Scenario safety stubs dipasang di `runtimepack_web_shims.js`.
-- **Next step:** Task 2 Plan 2: Build APK & Verify *[Kimochi] NTRdemic* (`dist/ntrdemic/NTRdemic.apk`).
+- **Sedang kerjain apa:** Task 2 Plan 2 (Build APK & Verify *[Kimochi] NTRdemic*) selesai. APK mandiri `dist/ntrdemic/NTRdemic.apk` berhasil dibangun dan diverifikasi.
+- **Next step:** Plan 2 selesai. Lanjut ke rencana atau target stabilisasi game berikutnya sesuai roadmap.
 - **Blocker:** Tidak ada blocker aktif.
 - **Catatan fokus:** Ekstraksi ASAR dan dynamic expressions pada TyranoScript diklasifikasikan sebagai `CMP-AUD-006` (`INDETERMINATE`), bukan fatal missing asset (`CMP-AUD-002`). Safety stubs mencegah freeze/crash pada tombol menu opsional (`cg.ks`, `replay.ks`, dll.).
 
 ## Selesai
+- [2026-09-27] Task 2 Plan 2 (Build APK & Verify *[Kimochi] NTRdemic*) Selesai:
+  1. Static Asset Audit:
+     - `runtimepack audit "Raw-Game\[Kimochi] NTRdemic - I Will Rescue Her Without Yielding to Any Temptation" --mode standard --output dist/ntrdemic/asset-audit-report.json`
+     - Menghasilkan laporan audit 1.897 nodes, 2.482 references, 531 findings, outcome Fail. `TYR-101` dinilai secara non-blocking informational.
+  2. Kompilasi & Verifikasi APK:
+     - Command: `cargo run --bin runtimepack -- build "Raw-Game\[Kimochi] NTRdemic - I Will Rescue Her Without Yielding to Any Temptation" -o dist/ntrdemic --package com.example.ntrdemic --name "NTRdemic" --flavor beta --accept-audit-fail --accept-audit-unknown`
+     - Ekstraksi 1.104 files dari `resources/app.asar` ke staging directory sukses.
+     - GPACK `game.pack` tercipta (121.70 MB, hash `719f2263`).
+     - Gradle sukses kompilasi `assembleDebug` (exit code 0).
+     - Menghasilkan `dist/ntrdemic/NTRdemic.apk` (169.097.607 bytes / 161.26 MB, SHA-256 `72d1776c2b25660731b2d179799c81f50a6c6460e8275564478e582ff74712b0`).
 - [2026-09-26] Task 1 Plan 2 (Audit & Dynamic Reference Handling for NTRdemic) Selesai:
   1. `engines/tyrano/src/asset_audit.rs`:
      - Implementasi `resolve_audio_reference`: otomatis mendeteksi ekspresi dinamis diawali `&` (`AssetKind::Audio` -> `CMP-AUD-006`) dan meresolusi audio statis (`data/sound/`, `data/se/`) dengan `CandidateRule`.
