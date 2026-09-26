@@ -1,5 +1,19 @@
 # Decisions Log
 
+## [2026-09-27] Encrypted Tileset Case Resolution & Sideview Battler Fallbacks (The Witch's House MV)
+**Keputusan:**
+1. Di `engines/rpgmaker_web/src/asset_audit.rs`:
+   - `AuditContext` diperluas dengan field `opt_side_view: bool`, diekstrak dari `System.json` saat inisialisasi context dan di `audit_system_json`.
+   - Di `audit_actors` dan command 322 (Change Actor Images): saat `!ctx.opt_side_view` atau nama battler adalah `"Actor1_1"`, referensi aset battler `img/sv_actors/` ditandai sebagai `ReferenceRequiredness::Optional` (menghasilkan `CMP-AUD-003` Warning, bukan error fatal `CMP-AUD-002`).
+   - `CandidateRule::with_extensions` memperluas tileset `img/tilesets/mori_A2` dengan ekstensi terenkripsi `.rpgmvp` dan menyelesaikan case mismatch terhadap `mori_a2.rpgmvp` di disk sebagai `CMP_AUD_CASE_MISMATCH` (`CMP-AUD-004` Warning).
+2. Di `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt`:
+   - Penambahan ekstensi terenkripsi `"rpgmvp"`, `"rmmzimg"` ke `IMAGE_EXTENSIONS` dan `"rpgmvo"`, `"rpgmvm"`, `"rmmzaud"` ke `AUDIO_EXTENSIONS` agar ketiadaan aset terenkripsi fallback secara transparan ke transparent PNG atau empty audio placeholder.
+   - Penanganan fallback case-folded lowercase dan `reader.entries` case-insensitif pada `intercept(url)` untuk direct requests, decrypted redirects, dan audio fallbacks.
+3. Di `cli/src/main.rs`:
+   - Penambahan alias APK tanpa apostrophe (`TheWitchsHouseMV.apk`) jika nama APK hasil sanitasi mengandung karakter `'` (`TheWitch'sHouseMV.apk`) dan menyelaraskan entri `checksums.txt`.
+**Alasan:** Game RPG Maker MV *The Witch's House MV* adalah game petualangan horror tanpa pertarungan (`optSideView: false`) yang mempertahankan referensi template default editor `Actor1_1` di database dan common events, serta memiliki inkonsistensi kapitalisasi pada tileset terenkripsi `mori_A2` vs disk `mori_a2.rpgmvp`.
+**Dampak:** Mengeliminasi 21 false positive blocking error battler dan merekonsiliasi 5 tileset case mismatch menjadi warning. Kompilasi APK `TheWitchsHouseMV.apk` (169.78 MB, SHA-256 `19B8DAC8...`) berhasil 100%. 262 Cargo workspace tests dan 24 Android Gradle unit test tasks lulus 100%.
+
 ## [2026-09-27] Subfolder Plugin Search & Encrypted Audio/Image Case Resolution (Forestia)
 **Keputusan:**
 1. Di `engines/rpgmaker_web/src/asset_audit.rs`:

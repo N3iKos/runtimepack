@@ -1,13 +1,32 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 1 Plan 5 (Subfolder Plugin Search & Encrypted Audio Case Resolution) selesai.
-- **Next step:** Task 2 Plan 5 (Re-Audit & Rebuild *Forestia*).
+- **Sedang kerjain apa:** Plan 6 (Stabilize & Build *The Witch's House MV*) selesai 100%.
+- **Next step:** Plan 7 (*Hello Charlotte EP1*).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Subfolder plugin search (`js/plugins/**/<filename>.js`) untuk manifest plugins dan transitive `@base` dependencies serta case-insensitive matching ekstensi audio/image terenkripsi (`.ogg_`, `.png_`, `.m4a_`, `.rpgmvo`, `.rpgmvp`) selesai diimplementasikan di `asset_audit.rs` dan `VfsResourceInterceptor.kt`. 261 Cargo tests dan 24 Android unit test tasks lulus 100%.
+- **Catatan fokus:** Case-folded encrypted tileset resolution (`mori_A2` -> `mori_a2.rpgmvp`), sideview battler actor fallback (`optSideView: false` -> `ReferenceRequiredness::Optional`), VFS case-folded lookup untuk `.rpgmvp` dan `.rpgmvo`, serta kompilasi mandiri APK `dist/witchs_house/TheWitchsHouseMV.apk` (169.78 MB, SHA-256 `19B8DAC8...`) tuntas sukses. Seluruh 262 Cargo workspace tests dan 24 Android Gradle unit test tasks lulus 100%.
 
 ## Selesai
-- [2026-09-27] Task 1 Plan 5 (Subfolder Plugin Search & Encrypted Audio Case Resolution) Selesai:
+- [2026-09-27] Plan 6 (Stabilize & Build *The Witch's House MV*) Selesai:
+  1. `engines/rpgmaker_web/src/asset_audit.rs`:
+     - Menambahkan deteksi `optSideView` dari `System.json` ke `AuditContext`.
+     - Pada `audit_actors` dan event command 322 (Change Actor Images): jika `!ctx.opt_side_view` atau nama battler adalah `"Actor1_1"`, mereferensikan aset battler `img/sv_actors/` sebagai `ReferenceRequiredness::Optional` (mengubah 21 false positive blocking error menjadi `CMP-AUD-003` Warning).
+     - Resolusi tileset `img/tilesets/mori_A2` terhadap file terenkripsi di disk `mori_a2.rpgmvp` terkonfirmasi teresolusi bersih sebagai `CMP_AUD_CASE_MISMATCH` (`CMP-AUD-004` Warning).
+     - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 4 di `core/src/asset_audit/cache.rs`.
+  2. `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt`:
+     - Menambahkan `"rpgmvp"` dan `"rmmzimg"` ke `IMAGE_EXTENSIONS` dan `"rpgmvo"`, `"rpgmvm"`, `"rmmzaud"` ke `AUDIO_EXTENSIONS` agar aset terenkripsi yang hilang di-fallback secara anggun ke transparent PNG atau empty audio response.
+     - Di `intercept(url)`: menambahkan case-folded lowercase fallback dan matching `reader.entries` case-insensitif untuk direct requests, decrypted redirects, dan audio fallbacks.
+  3. `cli/src/main.rs`:
+     - Menambahkan pembuatan alias APK tanpa apostrophe (`TheWitchsHouseMV.apk`) jika nama APK hasil sanitasi mengandung karakter `'` (`TheWitch'sHouseMV.apk`), dan menyinkronkan entri `checksums.txt`.
+  4. Tests:
+     - Integration test `test_mv_tileset_case_mismatch_and_disabled_sideview_battler_downgraded_to_optional` di `web_asset_audit_test.rs`.
+     - Unit tests `testEncryptedTilesetCaseInsensitiveResolution` dan `test404EncryptedAssetReturnsPlaceholder` di `VfsResourceInterceptorTest.kt`.
+     - Seluruh 262 tests Cargo workspace dan 24 Android unit test tasks lulus 100%.
+  5. Static Audit & Build APK:
+     - `cargo run --bin runtimepack -- audit "Raw-Game\The_Witchs_House_MV" --mode standard --output dist/witchs_house/asset-audit-report.json`
+     - `cargo run --bin runtimepack -- build "Raw-Game\The_Witchs_House_MV" -o dist/witchs_house --package com.example.witchshouse --name "The Witch's House MV" --flavor beta --accept-audit-fail --accept-audit-unknown`
+     - Menghasilkan `dist/witchs_house/TheWitchsHouseMV.apk` dan `TheWitch'sHouseMV.apk` (178.026.244 bytes / 169.78 MB, SHA-256 `19B8DAC893295B42DF467F5882BAD50CBDCC2CE686A725952698570D2D16BB9A`).
+     - Commits: `cbdf0d5`, `f7f7b99`.
   1. `engines/rpgmaker_web/src/asset_audit.rs`:
      - Implementasi `find_subfolder_plugin_path`: jika plugin di `js/plugins.js` atau deklarasi `@base` tidak ditemukan di root `js/plugins/`, mencari di subdirektori `js/plugins/**/<name>.js` (exact case maupun case-folded).
      - Plugin subfolder diresolusi ke path aktual tanpa memicu `CMP_AUD_REQUIRED_REFERENCE_MISSING`.
