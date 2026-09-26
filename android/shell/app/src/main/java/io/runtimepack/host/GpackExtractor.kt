@@ -235,24 +235,7 @@ object GpackExtractor {
 
         val finalExecName = detectedExecName ?: "Game"
 
-        // Ensure Game.* archive aliases exist for mkxp-z fallback
-        for (archive in archives) {
-            val ext = archive.name.substring(archive.name.lastIndexOf('.'))
-            val target = File(destDir, "Game$ext")
-            if (!target.exists() && archive.name != target.name) {
-                try {
-                    android.system.Os.symlink(archive.absolutePath, target.absolutePath)
-                    Log.i(TAG, "Symlinked ${archive.name} -> ${target.name}")
-                } catch (e: Throwable) {
-                    try {
-                        archive.copyTo(target, overwrite = false)
-                        Log.i(TAG, "Copied ${archive.name} -> ${target.name}")
-                    } catch (e2: Exception) {
-                        Log.w(TAG, "Could not alias archive: ${e2.message}")
-                    }
-                }
-            }
-        }
+        extractArchiveSymlinks(destDir, finalExecName)
 
         // Ensure game / Game directory aliases exist for case-sensitive filesystems
         val uppercaseGameDir = File(destDir, "Game")
@@ -425,6 +408,55 @@ object GpackExtractor {
             try {
                 inputStream?.close()
             } catch (_: Exception) {}
+        }
+    }
+
+    fun extractArchiveSymlinks(destDir: File, finalExecName: String = "Game") {
+        val archives = destDir.listFiles { _, name ->
+            val l = name.lowercase()
+            l.endsWith(".rgssad") || l.endsWith(".rgss2a") || l.endsWith(".rgss3a")
+        } ?: emptyArray()
+
+        // Ensure Game.* and finalExecName.* archive aliases exist for mkxp-z fallback
+        for (archive in archives) {
+            val ext = archive.name.substring(archive.name.lastIndexOf('.'))
+            val targetGame = File(destDir, "Game$ext")
+            if (!targetGame.exists() && archive.name != targetGame.name) {
+                try {
+                    android.system.Os.symlink(archive.absolutePath, targetGame.absolutePath)
+                    Log.i(TAG, "Symlinked ${archive.name} -> ${targetGame.name}")
+                } catch (e: Throwable) {
+                    // Symlink failed or not supported
+                }
+                if (!targetGame.exists()) {
+                    try {
+                        archive.copyTo(targetGame, overwrite = false)
+                        Log.i(TAG, "Copied ${archive.name} -> ${targetGame.name}")
+                    } catch (e2: Exception) {
+                        Log.w(TAG, "Could not alias archive: ${e2.message}")
+                    }
+                }
+            }
+
+            if (finalExecName.isNotBlank() && finalExecName != "Game") {
+                val targetExec = File(destDir, "$finalExecName$ext")
+                if (!targetExec.exists() && archive.name != targetExec.name) {
+                    try {
+                        android.system.Os.symlink(archive.absolutePath, targetExec.absolutePath)
+                        Log.i(TAG, "Symlinked ${archive.name} -> ${targetExec.name}")
+                    } catch (e: Throwable) {
+                        // Symlink failed or not supported
+                    }
+                    if (!targetExec.exists()) {
+                        try {
+                            archive.copyTo(targetExec, overwrite = false)
+                            Log.i(TAG, "Copied ${archive.name} -> ${targetExec.name}")
+                        } catch (e2: Exception) {
+                            Log.w(TAG, "Could not alias archive: ${e2.message}")
+                        }
+                    }
+                }
+            }
         }
     }
 

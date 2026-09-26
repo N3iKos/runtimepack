@@ -719,3 +719,94 @@ fn test_rgss3a_corrupt_archive_emits_malformed_resource() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_rgssad_valid_archive_and_bundled_fonts() {
+    let temp_dir = std::env::temp_dir().join(format!("rgssad_valid_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nLibrary=RGSS102E.dll\nScripts=Data\\Scripts.rxdata\nTitle=To the Moon Test\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    // Valid RGSSAD (version 1) header: RGSSAD\0\x01 followed by mock payload
+    let mut archive_bytes = Vec::new();
+    archive_bytes.extend_from_slice(b"RGSSAD\0\x01");
+    archive_bytes.extend_from_slice(&[0xec, 0xca, 0xad, 0xde, 0xb1, 0xd7, 0x89, 0x8f]);
+    archive_bytes.extend_from_slice(b"MOCK_ENCRYPTED_XP_PAYLOAD");
+    std::fs::write(temp_dir.join("To the Moon.rgssad"), archive_bytes).unwrap();
+
+    let fonts_dir = temp_dir.join("Fonts");
+    std::fs::create_dir_all(&fonts_dir).unwrap();
+    std::fs::write(fonts_dir.join("WenQuanYi_Zen_Hei.ttf"), b"mock wqy font").unwrap();
+    std::fs::write(fonts_dir.join("NanumBarunGothic.ttf"), b"mock nanum font").unwrap();
+    std::fs::write(fonts_dir.join("OpenSans.ttf"), b"mock opensans font").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerXp), &options);
+
+    // No malformed resource finding should be emitted
+    assert!(!report.findings.iter().any(|f| f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE));
+
+    // Archive node should be present in dependency graph
+    let has_archive_node = report.graph.nodes.iter().any(|n| {
+        n.id.contains("To the Moon.rgssad") && n.kind == AssetKind::ArchiveEntry
+    });
+    assert!(has_archive_node, "Expected archive node in graph");
+
+    // Bundled font nodes should be present in dependency graph
+    let has_wqy = report.graph.nodes.iter().any(|n| {
+        n.id.contains("WenQuanYi_Zen_Hei.ttf") && n.kind == AssetKind::Font
+    });
+    let has_nanum = report.graph.nodes.iter().any(|n| {
+        n.id.contains("NanumBarunGothic.ttf") && n.kind == AssetKind::Font
+    });
+    let has_opensans = report.graph.nodes.iter().any(|n| {
+        n.id.contains("OpenSans.ttf") && n.kind == AssetKind::Font
+    });
+    assert!(has_wqy, "Expected WenQuanYi_Zen_Hei.ttf in graph nodes");
+    assert!(has_nanum, "Expected NanumBarunGothic.ttf in graph nodes");
+    assert!(has_opensans, "Expected OpenSans.ttf in graph nodes");
+
+    // Fonts should be marked as covered in completeness
+    assert!(
+        report.completeness.covered_reference_classes.contains(&"fonts".to_string()),
+        "Expected fonts to be marked as covered"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_rgssad_corrupt_archive_emits_malformed_resource() {
+    let temp_dir = std::env::temp_dir().join(format!("rgssad_corrupt_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nLibrary=RGSS102E.dll\nScripts=Data\\Scripts.rxdata\nTitle=Corrupt XP Test\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    // Invalid header (corrupted magic)
+    std::fs::write(temp_dir.join("To the Moon.rgssad"), b"CORRUPT_NOT_RGSSAD").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerXp), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let malformed = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE)
+        .expect("Expected CMP_AUD_MALFORMED_RESOURCE finding for corrupt To the Moon.rgssad");
+
+    assert!(malformed.message.contains("To the Moon.rgssad"));
+    assert!(malformed.message.contains("invalid header magic or version"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

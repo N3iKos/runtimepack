@@ -791,10 +791,14 @@ impl AssetAuditor for RgssAssetAuditor {
             &mut finding_counter,
         );
 
-        // Archive header validation for .rgss3a
+        // Archive header validation for .rgssad, .rgss2a, .rgss3a
         for f in source.files.values() {
             let lower = f.logical_path.to_ascii_lowercase();
-            if lower.ends_with(".rgss3a") {
+            let is_rgssad = lower.ends_with(".rgssad");
+            let is_rgss2a = lower.ends_with(".rgss2a");
+            let is_rgss3a = lower.ends_with(".rgss3a");
+
+            if is_rgssad || is_rgss2a || is_rgss3a {
                 let archive_node_id = format!("archive:{}", f.logical_path);
                 if node_ids.insert(archive_node_id.clone()) {
                     graph.nodes.push(AssetNode {
@@ -810,16 +814,44 @@ impl AssetAuditor for RgssAssetAuditor {
                         use std::io::Read;
                         let mut header = [0u8; 8];
                         match file.read(&mut header) {
-                            Ok(n) if n >= 8 && header.starts_with(b"RGSSAD\0\x03") => Ok(()),
-                            Ok(n) if n >= 7 && header.starts_with(b"RGSSAD\x03") => Ok(()),
                             Ok(n) if n < 7 => Err(format!(
                                 "Encrypted archive '{}' is truncated (header size {} < 8 bytes)",
                                 f.logical_path, n
                             )),
-                            Ok(_) => Err(format!(
-                                "Encrypted archive '{}' has invalid header magic or version (expected RGSSAD\\0\\x03)",
-                                f.logical_path
-                            )),
+                            Ok(n) => {
+                                let (valid, expected) = if is_rgss3a {
+                                    (
+                                        (n >= 8 && header.starts_with(b"RGSSAD\0\x03"))
+                                            || (n >= 7 && header.starts_with(b"RGSSAD\x03")),
+                                        "RGSSAD\\0\\x03",
+                                    )
+                                } else if is_rgssad {
+                                    (
+                                        (n >= 8 && header.starts_with(b"RGSSAD\0\x01"))
+                                            || (n >= 7 && header.starts_with(b"RGSSAD\x01")),
+                                        "RGSSAD\\0\\x01",
+                                    )
+                                } else {
+                                    (
+                                        (n >= 8
+                                            && (header.starts_with(b"RGSSAD\0\x01")
+                                                || header.starts_with(b"RGSSAD\0\x02")))
+                                            || (n >= 7
+                                                && (header.starts_with(b"RGSSAD\x01")
+                                                    || header.starts_with(b"RGSSAD\x02"))),
+                                        "RGSSAD\\0\\x01 or RGSSAD\\0\\x02",
+                                    )
+                                };
+
+                                if valid {
+                                    Ok(())
+                                } else {
+                                    Err(format!(
+                                        "Encrypted archive '{}' has invalid header magic or version (expected {expected})",
+                                        f.logical_path
+                                    ))
+                                }
+                            }
                             Err(e) => Err(format!(
                                 "Failed to read encrypted archive '{}': {e}",
                                 f.logical_path

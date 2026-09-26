@@ -1,5 +1,17 @@
 # Decisions Log
 
+## [2026-09-27] RGSSAD Archive Validation & Bidirectional Symlink Aliasing (To the Moon)
+**Keputusan:**
+1. Di `engines/rgss/src/asset_audit.rs`:
+   - Validasi header arsip `.rgssad` (magic `RGSSAD\0`, version byte = 1: `b"RGSSAD\0\x01"` atau legacy mock `b"RGSSAD\x01"`) dan `.rgss2a`: Memeriksa file arsip terenkripsi pada disk. Jika valid, mendaftarkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry` ke graph. Jika header corrupt/terpotong (< 7 bytes atau byte magic tidak cocok), mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`, error fatal).
+   - Pengenalan font bundled: Memindai folder `Fonts/` pada `source.files`. Menemukan custom fonts (`WenQuanYi_Zen_Hei.ttf`, `NanumBarunGothic.ttf`, `OpenSans.ttf`), menandai coverage `fonts` sebagai covered dan mendaftarkan ketiga node `font:<path>` bertipe `AssetKind::Font` ke dependency graph.
+2. Di `android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt`:
+   - Refaktor `extractArchiveSymlinks(destDir: File, finalExecName: String = "Game")` menjadi method mandiri.
+   - Menjamin pembuatan alias dua arah untuk `Game$ext` dan `$finalExecName$ext` (misal `To the Moon.rgssad -> Game.rgssad` dan sebaliknya). Jika symlink sistem gagal atau tidak didukung pada host runner, otomatis fallback aman ke `copyTo` sehingga file target selalu terjamin ada.
+   - Menambahkan unit test JVM di `android/shell/app/src/test/java/io/runtimepack/host/GpackExtractorTest.kt`.
+**Alasan:** Game RPG Maker XP seperti *To the Moon* menggunakan arsip terenkripsi `To the Moon.rgssad` (RGSS1 version 1), menyertakan font multibahasa bundled di `Fonts/`, dan memerlukan aliasing `Game.rgssad` agar backend mkxp-z dapat melokalisasi content pack secara deterministik.
+**Dampak:** Memverifikasi integritas arsip `.rgssad`, mendeteksi font bundled tanpa false positive, dan mengompilasi APK `TotheMoon.apk` (154.94 MB, SHA-256 `B0A20CBB...`) sukses. 266 Cargo workspace tests dan 76 Android unit test tasks lulus 100%.
+
 ## [2026-09-27] RGSS3A Archive Header Validation & Bundled Font Registration (Hello Charlotte EP1)
 **Keputusan:**
 1. Di `engines/rgss/src/asset_audit.rs`:

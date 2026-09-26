@@ -1,12 +1,26 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Plan 7 (Validate RGSS3A Archive & Build *Hello Charlotte EP1*) selesai 100%.
-- **Next step:** Plan 8 (*To the Moon*).
+- **Sedang kerjain apa:** Plan 8 (Validate RGSSAD Archive & Build *To the Moon*) selesai 100%.
+- **Next step:** Menunggu instruksi atau target porting berikutnya dari user.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Validasi integritas header arsip terenkripsi `.rgss3a` (`RGSSAD\0\x03`), pengenalan otomatis font bundled (`Fonts/` mencakup `VL-Gothic-Regular.ttf`, `VL-PGothic-Regular.ttf`, `coders_crux.ttf`), serta kompilasi mandiri APK `dist/hc_ep1/HelloCharlotteEP1.apk` (331.28 MB, SHA-256 `EA50A620...`) tuntas sukses. Seluruh 264 Cargo workspace tests lulus 100%.
+- **Catatan fokus:** Validasi integritas header arsip terenkripsi `.rgssad` (`RGSSAD\0\x01`) dan `.rgss2a`, pengenalan otomatis font bundled (`Fonts/` mencakup `WenQuanYi_Zen_Hei.ttf`, `NanumBarunGothic.ttf`, `OpenSans.ttf`), aliasing symlink dua arah `extractArchiveSymlinks` di `GpackExtractor.kt`, serta kompilasi mandiri APK `dist/to_the_moon/TotheMoon.apk` (154.94 MB, SHA-256 `b0a20cbb...`) tuntas sukses. Seluruh 266 Cargo workspace tests dan 76 Android unit test tasks lulus 100%.
 
 ## Selesai
+- [2026-09-27] Plan 8 (Validate RGSSAD Archive & Build *To the Moon*) Selesai:
+  1. `engines/rgss/src/asset_audit.rs`:
+     - Validasi header arsip `.rgssad` (magic `RGSSAD\0`, version byte = 1: `b"RGSSAD\0\x01"` atau legacy mock `b"RGSSAD\x01"`) dan `.rgss2a`. Menambahkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry`. Jika header corrupt/terpotong (< 7 bytes atau magic tidak cocok), mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`).
+     - Font coverage: Memindai folder `Fonts/` pada `source.files`. Bundled fonts (`WenQuanYi_Zen_Hei.ttf`, `NanumBarunGothic.ttf`, `OpenSans.ttf`) terdaftar sebagai `AssetKind::Font` di dependency graph, dan coverage `fonts` ditandai sebagai covered.
+  2. `android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt`:
+     - Refaktor `extractArchiveSymlinks(destDir: File, finalExecName: String = "Game")`: menjamin pembuatan symlink/copy fallback untuk `Game$ext` dan `$finalExecName$ext` (misal `To the Moon.rgssad -> Game.rgssad` dan sebaliknya) untuk discovery mkxp-z.
+  3. Integration & Unit Tests:
+     - `rgss_asset_audit_test.rs`: Menambahkan `test_rgssad_valid_archive_and_bundled_fonts` dan `test_rgssad_corrupt_archive_emits_malformed_resource`.
+     - `GpackExtractorTest.kt`: Menambahkan unit test JVM `testExtractArchiveSymlinksToTheMoon`, `testExtractArchiveSymlinksRgss3a`, `testExtractArchiveSymlinksWhenGameAlreadyExists`, dan `testExtractArchiveSymlinksBidirectionalFromGameToExecName`.
+     - Seluruh 266 Cargo workspace tests dan 76 Android unit test tasks lulus 100%.
+  4. Static Audit & Build APK:
+     - `cargo run --bin runtimepack -- audit "Raw-Game\To the Moon" --mode standard --output dist/to_the_moon/asset-audit-report.json`: Outcome `Indeterminate` (terenkripsi `To the Moon.rgssad`), 4 graph nodes (1 archive, 3 fonts).
+     - `cargo run --bin runtimepack -- build "Raw-Game\To the Moon" -o dist/to_the_moon --package com.example.tothemoon --name "To the Moon" --flavor beta --accept-audit-fail --accept-audit-unknown`: GPACK `game.pack` tercipta (115.47 MB, hash `88afa6de`), Gradle kompilasi `assembleDebug` sukses (exit code 0).
+     - Menghasilkan `dist/to_the_moon/TotheMoon.apk` (162.467.180 bytes / 154.94 MB, SHA-256 `b0a20cbbb8ff22186d7b150522d4b8ea767fc469d6e753264e2a9744cf819332`).
 - [2026-09-27] Plan 7 (Validate RGSS3A Archive & Build *Hello Charlotte EP1*) Selesai:
   1. `engines/rgss/src/asset_audit.rs`:
      - Validasi header arsip `.rgss3a`: Memeriksa magic `RGSSAD\0` dan version byte `3` (`b"RGSSAD\0\x03"` atau legacy mock `b"RGSSAD\x03"`). Menambahkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry`. Jika header corrupt/terpotong, mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`).
