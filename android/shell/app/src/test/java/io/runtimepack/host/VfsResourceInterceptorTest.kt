@@ -277,4 +277,47 @@ class VfsResourceInterceptorTest {
             assertNull("Non-existent plugin should return null", notFoundResponse)
         }
     }
+
+    @Test
+    fun testEncryptedTilesetCaseInsensitiveResolution() {
+        val testTilesetData = "fake_encrypted_tileset_bytes".toByteArray(Charsets.UTF_8)
+        val gpackBytes = createTestGpack(
+            listOf(
+                "index.html" to "<!DOCTYPE html><html><body>Test</body></html>".toByteArray(Charsets.UTF_8),
+                "img/tilesets/mori_a2.rpgmvp" to testTilesetData
+            )
+        )
+
+        GpackStreamReader.open(ByteArrayInputStream(gpackBytes), null).use { reader ->
+            val interceptor = VfsResourceInterceptor(reader)
+
+            // Direct request with case mismatch (mori_A2 vs mori_a2)
+            val caseMismatchResponse = interceptor.intercept("https://game.local/img/tilesets/mori_A2.rpgmvp")
+            assertNotNull("Should resolve mori_A2.rpgmvp when disk has mori_a2.rpgmvp", caseMismatchResponse)
+
+            // Direct request with exact case
+            val exactResponse = interceptor.intercept("https://game.local/img/tilesets/mori_a2.rpgmvp")
+            assertNotNull("Should resolve mori_a2.rpgmvp directly", exactResponse)
+        }
+
+        // Test with custom streamProvider that only recognizes lowercase
+        val streamInterceptor = VfsResourceInterceptor { path ->
+            if (path == "img/tilesets/mori_a2.rpgmvp") {
+                ByteArrayInputStream(testTilesetData)
+            } else {
+                null
+            }
+        }
+        val streamResponse = streamInterceptor.intercept("https://game.local/img/tilesets/mori_A2.rpgmvp")
+        assertNotNull("streamProvider should resolve mori_A2.rpgmvp via lowercase fallback", streamResponse)
+    }
+
+    @Test
+    fun test404EncryptedAssetReturnsPlaceholder() {
+        val interceptor = VfsResourceInterceptor { null }
+        val imgResp = interceptor.intercept("https://game.local/img/tilesets/missing.rpgmvp")
+        assertNotNull("Missing .rpgmvp should return transparent PNG placeholder", imgResp)
+        val audioResp = interceptor.intercept("https://game.local/audio/se/missing.rpgmvo")
+        assertNotNull("Missing .rpgmvo should return empty audio placeholder", audioResp)
+    }
 }

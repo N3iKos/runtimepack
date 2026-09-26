@@ -81,6 +81,7 @@ struct AuditContext<'a> {
     image_exts: Vec<&'a str>,
     audio_exts: Vec<&'a str>,
     video_exts: Vec<&'a str>,
+    opt_side_view: bool,
     resolver: &'a AssetResolver<'a>,
     graph: &'a mut DependencyGraph,
     node_ids: &'a mut HashSet<String>,
@@ -582,7 +583,7 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
         // Determine candidate extensions based on engine and encryption state
         let is_mv = engine.id == EngineId::RpgMakerMv;
         let system_path = format!("{content_prefix}data/System.json");
-        let (has_enc_img, has_enc_audio) = if let Some(sys_file) = source.get_file(&system_path) {
+        let (has_enc_img, has_enc_audio, opt_side_view) = if let Some(sys_file) = source.get_file(&system_path) {
             if sys_file.size_bytes <= options.limits.max_single_file_bytes {
                 let full_path = source.root_path.join(&sys_file.relative_path);
                 if let Ok(bytes) = std::fs::read(&full_path) {
@@ -595,18 +596,22 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
                             .get("hasEncryptedAudio")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
-                        (img_enc, aud_enc)
+                        let side_view = sys
+                            .get("optSideView")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        (img_enc, aud_enc, side_view)
                     } else {
-                        (false, false)
+                        (false, false, false)
                     }
                 } else {
-                    (false, false)
+                    (false, false, false)
                 }
             } else {
-                (false, false)
+                (false, false, false)
             }
         } else {
-            (false, false)
+            (false, false, false)
         };
 
         let disk_has_enc_img = source.files.keys().any(|p| {
@@ -655,6 +660,7 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
             image_exts,
             audio_exts,
             video_exts,
+            opt_side_view,
             resolver: &resolver,
             graph: &mut graph,
             node_ids: &mut node_ids,
@@ -769,6 +775,10 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
 
 fn audit_system_json(ctx: &mut AuditContext, sys: &serde_json::Value) {
     let source_node = "Database:System";
+
+    if let Some(sv) = sys.get("optSideView").and_then(|v| v.as_bool()) {
+        ctx.opt_side_view = sv;
+    }
 
     // Title images
     if let Some(t1) = sys.get("title1Name").and_then(|v| v.as_str()) {
@@ -952,12 +962,17 @@ fn audit_actors(ctx: &mut AuditContext) {
                 if !battler_name.is_empty() {
                     let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
+                    let requiredness = if !ctx.opt_side_view || battler_name == "Actor1_1" {
+                        ReferenceRequiredness::Optional
+                    } else {
+                        ReferenceRequiredness::Required
+                    };
                     ctx.resolve_and_record(
                         &source_node,
                         &p,
                         &exts,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -1647,12 +1662,17 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                     if !battler_name.is_empty() {
                         let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
                         let exts = ctx.image_exts.clone();
+                        let requiredness = if !ctx.opt_side_view || battler_name == "Actor1_1" {
+                            ReferenceRequiredness::Optional
+                        } else {
+                            ReferenceRequiredness::Required
+                        };
                         ctx.resolve_and_record(
                             &cmd_node_id,
                             &p,
                             &exts,
                             AssetKind::Image,
-                            ReferenceRequiredness::Required,
+                            requiredness,
                         );
                     }
                 }

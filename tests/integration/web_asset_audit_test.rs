@@ -826,3 +826,102 @@ fn test_mz_encrypted_audio_and_image_case_mismatch_resolves_with_warning() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_mv_tileset_case_mismatch_and_disabled_sideview_battler_downgraded_to_optional() {
+    let temp_dir = std::env::temp_dir().join(format!("web_mv_witch_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/tilesets")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/characters")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/system")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+    std::fs::write(temp_dir.join("js/plugins.js"), "var $plugins = [];").unwrap();
+
+    // Standard required system images
+    std::fs::write(temp_dir.join("img/system/Window.png"), "WINDOW").unwrap();
+    std::fs::write(temp_dir.join("img/system/IconSet.png"), "ICONS").unwrap();
+
+    // System.json has optSideView: false, hasEncryptedImages: true
+    std::fs::write(
+        temp_dir.join("data/System.json"),
+        r#"{
+            "gameTitle": "Witch House Test",
+            "optSideView": false,
+            "hasEncryptedImages": true,
+            "hasEncryptedAudio": true,
+            "sounds": []
+        }"#,
+    ).unwrap();
+
+    // Tilesets.json specifies mori_A2 (uppercase A2)
+    std::fs::write(
+        temp_dir.join("data/Tilesets.json"),
+        r#"[null,
+            {"id": 1, "name": "Forest", "tilesetNames": ["", "mori_A2", "", "", "", "", "", "", ""]}
+        ]"#,
+    ).unwrap();
+
+    // Actors.json specifies battlerName Actor1_1 (missing on disk)
+    std::fs::write(
+        temp_dir.join("data/Actors.json"),
+        r#"[null,
+            {"id": 1, "name": "Viola", "characterName": "viola", "faceName": "", "battlerName": "Actor1_1"}
+        ]"#,
+    ).unwrap();
+
+    // Minimal dummy files for required databases so audit doesn't fail on missing db
+    for db in ["Enemies.json", "Animations.json", "CommonEvents.json", "Troops.json"] {
+        std::fs::write(temp_dir.join(format!("data/{db}")), "[null]").unwrap();
+    }
+
+    // On disk: lowercase mori_a2.rpgmvp and viola.rpgmvp
+    std::fs::write(temp_dir.join("img/tilesets/mori_a2.rpgmvp"), "ENCRYPTED_TILESET").unwrap();
+    std::fs::write(temp_dir.join("img/characters/viola.rpgmvp"), "ENCRYPTED_CHAR").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    // 1. mori_A2.rpgmvp must resolve with CMP_AUD_CASE_MISMATCH
+    let tileset_mismatch = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH && f.message.contains("mori_A2"));
+    assert!(
+        tileset_mismatch.is_some(),
+        "Expected case mismatch warning for mori_A2 -> mori_a2, findings: {:?}",
+        report.findings
+    );
+
+    // 2. Actor1_1 battler must NOT be a REQUIRED missing reference (because optSideView is false or Actor1_1)
+    let required_missing_actor: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Actor1_1")
+        })
+        .collect();
+    assert!(
+        required_missing_actor.is_empty(),
+        "Sideview battler Actor1_1 should not be required when optSideView is false, but got: {:?}",
+        required_missing_actor
+    );
+
+    // 3. Overall audit outcome should not be Fail
+    assert_ne!(
+        report.outcome,
+        AuditOutcome::Fail,
+        "Audit should not fail when only case mismatches and optional battlers exist: {:?}",
+        report.findings
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
