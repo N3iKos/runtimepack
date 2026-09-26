@@ -309,7 +309,7 @@ fn test_mv_unsafe_path_fails() {
         .find(|f| f.code == DiagnosticCode::CMP_AUD_UNSAFE_PATH)
         .expect("Expected CMP_AUD_UNSAFE_PATH finding");
 
-    assert!(unsafe_finding.message.contains("../../secret"));
+    assert!(unsafe_finding.message.contains("../../../secret"));
 }
 
 #[test]

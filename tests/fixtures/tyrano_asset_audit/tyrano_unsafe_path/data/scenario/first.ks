@@ -1,3 +1,3 @@
 *start
-[image storage="../../secret.png"]
+[image storage="../../../secret.png"]
 [s]

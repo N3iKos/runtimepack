@@ -73,7 +73,7 @@
               "indent": 0,
               "parameters": [
                 1,
-                "../../secret",
+                "../../../secret",
                 0,
                 0,
                 0,

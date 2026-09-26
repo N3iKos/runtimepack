@@ -1038,3 +1038,120 @@ fn test_button_link_and_anim_audio_and_dynamic_references() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_scenario_internal_relative_path_traversal_resolves_cleanly() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "tyrano_test_rel_path_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(temp_dir.join("data").join("scenario")).unwrap();
+    fs::create_dir_all(temp_dir.join("data").join("fgimage")).unwrap();
+
+    fs::write(
+        temp_dir.join("data").join("scenario").join("first.ks"),
+        "*start\n[image storage=\"data/image/../fgimage/char.png\"]\n[image storage=\"../fgimage/char2.png\"]\n[image storage=\"data/image/../fgimage/char3.png\"]\n[s]\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("data").join("fgimage").join("char.png"),
+        b"CHAR_DATA_1",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("data").join("fgimage").join("char2.png"),
+        b"CHAR_DATA_2",
+    )
+    .unwrap();
+    // char3 on disk has uppercase Char3.png to test CaseMismatch resolution
+    fs::write(
+        temp_dir.join("data").join("fgimage").join("Char3.png"),
+        b"CHAR_DATA_3",
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    // Exact matches
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "image:data/fgimage/char.png"),
+        "Expected image:data/fgimage/char.png in graph nodes. Nodes: {:#?}",
+        report.graph.nodes
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "image:data/fgimage/char2.png"),
+        "Expected image:data/fgimage/char2.png in graph nodes. Nodes: {:#?}",
+        report.graph.nodes
+    );
+
+    // Case mismatch match
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.id == "image:data/fgimage/Char3.png"),
+        "Expected image:data/fgimage/Char3.png in graph nodes. Nodes: {:#?}",
+        report.graph.nodes
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH && f.message.contains("Char3.png")),
+        "Expected Case Mismatch finding for char3.png"
+    );
+
+    // Edges must be resolved
+    assert!(
+        report
+            .graph
+            .edges
+            .iter()
+            .any(|e| e.target == "image:data/fgimage/char.png" && e.resolution == ReferenceResolution::Resolved),
+        "Expected resolved edge targeting char.png"
+    );
+    assert!(
+        report
+            .graph
+            .edges
+            .iter()
+            .any(|e| e.target == "image:data/fgimage/char2.png" && e.resolution == ReferenceResolution::Resolved),
+        "Expected resolved edge targeting char2.png"
+    );
+    assert!(
+        report
+            .graph
+            .edges
+            .iter()
+            .any(|e| e.target == "image:data/fgimage/Char3.png" && e.resolution == ReferenceResolution::Resolved),
+        "Expected resolved edge targeting Char3.png"
+    );
+
+    // Must NOT emit CMP_AUD_UNSAFE_PATH (CMP-AUD-009)
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_UNSAFE_PATH),
+        "Did not expect CMP-AUD-009 (CMP_AUD_UNSAFE_PATH) findings. Findings: {:#?}",
+        report.findings
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

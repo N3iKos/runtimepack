@@ -112,17 +112,34 @@ class VfsResourceInterceptor(
 
         fun urlToLogicalPath(url: String): String? {
             val clean = url.substringBefore('?').substringBefore('#')
-            if (clean.startsWith("https://game.local/")) {
-                return clean.removePrefix("https://game.local/")
+            val rawPath = if (clean.startsWith("https://game.local/")) {
+                clean.removePrefix("https://game.local/")
+            } else if (clean.startsWith("file:///android_asset/game/")) {
+                clean.removePrefix("file:///android_asset/game/")
+            } else {
+                val match = LOCALHOST_REGEX.find(clean)
+                if (match != null) {
+                    clean.substring(match.range.last + 1)
+                } else {
+                    return null
+                }
             }
-            if (clean.startsWith("file:///android_asset/game/")) {
-                return clean.removePrefix("file:///android_asset/game/")
+
+            val normalizedParts = mutableListOf<String>()
+            for (part in rawPath.replace('\\', '/').split('/')) {
+                if (part.isEmpty() || part == ".") {
+                    continue
+                }
+                if (part == "..") {
+                    if (normalizedParts.isEmpty()) {
+                        return null
+                    }
+                    normalizedParts.removeAt(normalizedParts.size - 1)
+                } else {
+                    normalizedParts.add(part)
+                }
             }
-            val match = LOCALHOST_REGEX.find(clean)
-            if (match != null) {
-                return clean.substring(match.range.last + 1)
-            }
-            return null
+            return normalizedParts.joinToString("/")
         }
     }
 

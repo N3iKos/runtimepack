@@ -84,26 +84,40 @@ impl CandidateRule {
 
     pub fn expand_candidates(&self) -> Vec<String> {
         match self {
-            Self::Exact(path) => vec![path.clone()],
-            Self::Candidates(list) => list.clone(),
+            Self::Exact(path) => {
+                let norm = normalize_relative_path(path).unwrap_or_else(|| path.clone());
+                vec![norm]
+            }
+            Self::Candidates(list) => {
+                let mut out = Vec::with_capacity(list.len());
+                for p in list {
+                    let norm = normalize_relative_path(p).unwrap_or_else(|| p.clone());
+                    if !out.contains(&norm) {
+                        out.push(norm);
+                    }
+                }
+                out
+            }
             Self::WithExtensions {
                 base_path,
                 extensions,
             } => {
+                let normalized_base =
+                    normalize_relative_path(base_path).unwrap_or_else(|| base_path.clone());
                 if extensions.is_empty() {
-                    return vec![base_path.clone()];
+                    return vec![normalized_base];
                 }
 
                 // File extension must occur within the filename component after the last path separator
-                let filename_start = base_path
+                let filename_start = normalized_base
                     .rfind(|c| c == '/' || c == '\\')
                     .map(|idx| idx + 1)
                     .unwrap_or(0);
-                let filename = &base_path[filename_start..];
+                let filename = &normalized_base[filename_start..];
 
                 if let Some(dot_offset) = filename.rfind('.') {
                     let dot_idx = filename_start + dot_offset;
-                    let existing_ext = &base_path[dot_idx + 1..];
+                    let existing_ext = &normalized_base[dot_idx + 1..];
 
                     let matches_any = extensions.iter().any(|ext| {
                         let cleaned = ext.strip_prefix('.').unwrap_or(ext);
@@ -111,13 +125,13 @@ impl CandidateRule {
                     });
 
                     if matches_any {
-                        let stem = &base_path[..dot_idx];
+                        let stem = &normalized_base[..dot_idx];
                         let mut list = Vec::with_capacity(extensions.len());
-                        list.push(base_path.clone());
+                        list.push(normalized_base.clone());
                         for ext in extensions {
                             let cleaned = ext.strip_prefix('.').unwrap_or(ext);
                             let candidate = format!("{stem}.{cleaned}");
-                            if !candidate.eq_ignore_ascii_case(base_path) {
+                            if !candidate.eq_ignore_ascii_case(&normalized_base) {
                                 list.push(candidate);
                             }
                         }
@@ -129,9 +143,9 @@ impl CandidateRule {
                 for ext in extensions {
                     let cleaned = ext.strip_prefix('.').unwrap_or(ext);
                     if cleaned.is_empty() {
-                        list.push(base_path.clone());
+                        list.push(normalized_base.clone());
                     } else {
-                        list.push(format!("{base_path}.{cleaned}"));
+                        list.push(format!("{normalized_base}.{cleaned}"));
                     }
                 }
                 list
@@ -275,15 +289,19 @@ fn case_fold(path: &str) -> String {
 }
 
 fn normalize_candidate(path: &str) -> String {
-    let replaced = normalize_path_slashes(path);
-    let mut components = Vec::new();
-    for part in replaced.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
+    if let Some(normalized) = normalize_relative_path(path) {
+        normalized
+    } else {
+        let replaced = normalize_path_slashes(path);
+        let mut components = Vec::new();
+        for part in replaced.split('/') {
+            if part.is_empty() || part == "." {
+                continue;
+            }
+            components.push(part);
         }
-        components.push(part);
+        components.join("/")
     }
-    components.join("/")
 }
 
 fn has_drive_letter(s: &str) -> bool {
@@ -291,52 +309,47 @@ fn has_drive_letter(s: &str) -> bool {
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
-fn is_unsafe_path(path: &str) -> bool {
+pub fn normalize_relative_path(path: &str) -> Option<String> {
     if path.contains('\0') {
-        return true;
+        return None;
     }
 
-    let normalized = normalize_path_slashes(path);
-
-    // Absolute Unix or UNC
-    if normalized.starts_with('/') || path.starts_with('\\') {
-        return true;
-    }
-
-    // Windows drive letter: C: or D:/
-    if has_drive_letter(&normalized) {
-        return true;
-    }
-
-    // Traversal: any path component equal to ".."
-    for component in normalized.split('/') {
-        if component == ".." {
-            return true;
-        }
-    }
+    let replaced = normalize_path_slashes(path);
 
     // Disguised path check: strip leading "./" prefixes
-    let mut stripped = normalized.as_str();
+    let mut stripped = replaced.as_str();
     while let Some(rest) = stripped.strip_prefix("./") {
         stripped = rest;
     }
 
-    // After stripping leading "./", check if it reveals an absolute path, drive letter, or traversal
-    if stripped.starts_with('/')
-        || has_drive_letter(stripped)
-        || stripped == ".."
-        || stripped.starts_with("../")
-    {
-        return true;
+    // Absolute Unix or UNC
+    if stripped.starts_with('/') || has_drive_letter(stripped) {
+        return None;
     }
 
-    for component in stripped.split('/') {
-        if component == ".." {
-            return true;
+    let mut components = Vec::new();
+    for part in stripped.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if components.pop().is_none() {
+                // Attempting to traverse above root
+                return None;
+            }
+        } else {
+            if has_drive_letter(part) {
+                return None;
+            }
+            components.push(part);
         }
     }
 
-    false
+    Some(components.join("/"))
+}
+
+fn is_unsafe_path(path: &str) -> bool {
+    normalize_relative_path(path).is_none()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -606,7 +619,7 @@ mod tests {
         for unsafe_path in [
             "../secret.txt",
             "Graphics/../../secret.txt",
-            "Data/../secret.txt",
+            "Data/../../secret.txt",
             "..\\windows\\system32",
             "./..",
             "./../secret",
@@ -837,7 +850,51 @@ mod tests {
         let resolver = AssetResolver::new(&index);
 
         let result = resolver.resolve_path("Audio/../Audio/BGM/Battle.ogg", AssetKind::Audio);
-        assert!(result.is_unsafe());
+        match result {
+            ResolutionResult::Exact(node) => {
+                assert_eq!(node.logical_path, Some("Audio/BGM/Battle.ogg".into()));
+            }
+            other => panic!("expected Exact Audio/BGM/Battle.ogg, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_relative_path() {
+        assert_eq!(
+            normalize_relative_path("data/image/../fgimage/char.png"),
+            Some("data/fgimage/char.png".to_string())
+        );
+        assert_eq!(
+            normalize_relative_path("a/b/c/../../d"),
+            Some("a/d".to_string())
+        );
+        assert_eq!(
+            normalize_relative_path("Audio/../Audio/BGM/Battle.ogg"),
+            Some("Audio/BGM/Battle.ogg".to_string())
+        );
+        assert_eq!(
+            normalize_relative_path("Data/../secret.txt"),
+            Some("secret.txt".to_string())
+        );
+        assert_eq!(normalize_relative_path("../secret.txt"), None);
+        assert_eq!(normalize_relative_path("Data/../../secret.txt"), None);
+        assert_eq!(normalize_relative_path("/etc/passwd"), None);
+        assert_eq!(normalize_relative_path("C:\\Windows"), None);
+        assert_eq!(normalize_relative_path("Graphics/Title\0.png"), None);
+    }
+
+    #[test]
+    fn test_internal_traversal_safe_resolution() {
+        let index = make_index(&["secret.txt"]);
+        let resolver = AssetResolver::new(&index);
+
+        let result = resolver.resolve_path("Data/../secret.txt", AssetKind::Image);
+        match result {
+            ResolutionResult::Exact(node) => {
+                assert_eq!(node.logical_path, Some("secret.txt".into()));
+            }
+            other => panic!("expected Exact secret.txt, got {other:?}"),
+        }
     }
 
     #[test]

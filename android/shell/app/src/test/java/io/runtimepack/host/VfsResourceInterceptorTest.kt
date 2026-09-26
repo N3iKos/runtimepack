@@ -214,4 +214,40 @@ class VfsResourceInterceptorTest {
         }
         return out.toByteArray()
     }
+
+    @Test
+    fun testInternalRelativePathNormalization() {
+        val normalPath = VfsResourceInterceptor.urlToLogicalPath("https://game.local/data/image/../fgimage/char.png")
+        assertEquals("data/fgimage/char.png", normalPath)
+
+        val localNormalPath = VfsResourceInterceptor.urlToLogicalPath("http://localhost:8080/data/image/../fgimage/char.png")
+        assertEquals("data/fgimage/char.png", localNormalPath)
+
+        val escapingPath1 = VfsResourceInterceptor.urlToLogicalPath("https://game.local/../secret.txt")
+        assertNull(escapingPath1)
+
+        val escapingPath2 = VfsResourceInterceptor.urlToLogicalPath("https://game.local/data/../../secret.txt")
+        assertNull(escapingPath2)
+
+        val escapingPath3 = VfsResourceInterceptor.urlToLogicalPath("file:///android_asset/game/data/../../secret.txt")
+        assertNull(escapingPath3)
+
+        val charPngData = "char_image_bytes".toByteArray(Charsets.UTF_8)
+        val interceptor = VfsResourceInterceptor { path ->
+            if (path == "data/fgimage/char.png") {
+                ByteArrayInputStream(charPngData)
+            } else {
+                null
+            }
+        }
+
+        val response = interceptor.intercept("https://game.local/data/image/../fgimage/char.png")
+        assertNotNull("Should serve data/fgimage/char.png via collapsed relative path", response)
+
+        val escapeResponse = interceptor.intercept("https://game.local/../secret.txt")
+        assertNull("Escaping root should return null", escapeResponse)
+
+        val escapeResponse2 = interceptor.intercept("https://game.local/data/../../secret.txt")
+        assertNull("Escaping root with multiple traversals should return null", escapeResponse2)
+    }
 }
