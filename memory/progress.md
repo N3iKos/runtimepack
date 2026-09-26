@@ -1,12 +1,23 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 2 Plan Remediasi Audit (Reachability Graph Filter for RPG Maker MV/MZ Database) selesai 100%.
-- **Next step:** Melanjutkan Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy).
+- **Sedang kerjain apa:** Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy) selesai 100%.
+- **Next step:** Melanjutkan Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Implementasi `DatabaseReachabilityIndex` pada `engines/rpgmaker_web/src/asset_audit.rs` memindai entitas aktif dari `Troops.json` members, `System.json` starting party (`partyMembers`) dan vehicle placement (`startMapId > 0` / event code 206), `Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, serta event command codes (129, 322, 311..321, 111, 212, 336, 337, 206) pada map dan common events. Entitas yang tidak aktif jika asetnya hilang di-downgrade secara anggun ke `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`) ber-severity `Info` dan requiredness `Optional` tanpa memicu fatal audit fail. Seluruh 267 Cargo workspace tests lulus 100%.
+- **Catatan fokus:** Case mismatch di disk kini diakui sebagai auto-aliased oleh VFS Android runtime (`VfsResourceInterceptor.kt` & `GpackExtractor.kt`). Pada `evaluate_audit_policy` (`core/src/build_plan/audit_policy.rs`), laporan audit dengan temuan hanya `CMP_AUD_CASE_MISMATCH` (maupun jika outcome bertanda `Fail` akibat casing mismatch) dievaluasi sebagai `AuditPolicyDecision::Allow` dengan 0 overrides tanpa mewajibkan `--accept-audit-fail`. `ResolutionResult::is_auto_aliased` ditambahkan pada `core/src/asset_audit/resolver.rs`. Seluruh 269 Cargo workspace tests lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy) Selesai (Commit `aa0b28c`):
+  1. `core/src/asset_audit/resolver.rs`:
+     - Menambahkan helper `pub fn is_auto_aliased(&self) -> bool` pada `ResolutionResult` yang mengembalikan `true` untuk `ResolutionResult::CaseMismatch`.
+     - Dokumentasi eksplisit bahwa case-folding built-in pada Android VFS (`VfsResourceInterceptor.kt` dan `GpackExtractor.kt`) menjamin case mismatch di disk teresolusi secara transparan dan aman saat runtime.
+     - Menambahkan unit test `assert!(result.is_auto_aliased())` di `test_case_mismatch_resolution`.
+  2. `core/src/build_plan/audit_policy.rs`:
+     - Refaktor `evaluate_audit_policy`: jika laporan audit bertanda `AuditOutcome::Fail` namun temuannya hanya terdiri dari `CMP_AUD_CASE_MISMATCH` (atau non-blocking warnings/info) tanpa true blocking errors, `effective_outcome` diperlakukan sebagai `AuditOutcome::Warning`, menghasilkan `AuditPolicyDecision::Allow { overrides: vec![] }` tanpa memblokir build dan tanpa perlu `--accept-audit-fail`.
+  3. `tests/integration/build_test.rs`:
+     - Menambahkan integration test `test_audit_policy_case_mismatch_evaluates_to_allow_without_override`: memverifikasi report dengan outcome `Warning` dan `CMP-AUD-004` mengevaluasi ke `Allow` dengan 0 overrides.
+     - Menambahkan integration test `test_audit_policy_case_mismatch_auto_aliased_when_report_outcome_is_fail`: memverifikasi report bertanda `Fail` yang temuannya hanya `CMP-AUD-004` otomatis teresolusi sebagai auto-aliased warnings dan mengevaluasi ke `Allow` dengan 0 overrides.
+  4. Verifikasi: 60 tests di `runtimepack-core`, 48 tests di `build_test`, dan seluruh 269 tests workspace Cargo lulus 100%.
 - [2026-09-27] Task 2 Plan Remediasi Audit (Reachability Graph Filter for RPG Maker MV/MZ Database) Selesai:
   1. `engines/rpgmaker_web/src/asset_audit.rs`:
      - Implementasi `DatabaseReachabilityIndex`: Melakukan static reachability scan sebelum database entity audit terhadap `Troops.json`, `System.json`, `Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, `CommonEvents.json`, dan `Map*.json`.

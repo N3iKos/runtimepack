@@ -1,5 +1,18 @@
 # Decisions Log
 
+## [2026-09-27] VFS Auto-Aliasing Resolution for Case Mismatches in Policy (Task 3)
+**Keputusan:**
+1. Di `core/src/asset_audit/resolver.rs`:
+   - Menambahkan method `pub fn is_auto_aliased(&self) -> bool` pada `ResolutionResult` yang mengembalikan `self.is_case_mismatch()`.
+   - Menegaskan secara eksplisit dalam dokumentasi kontrak bahwa case mismatch pada path aset game diresolusi secara otomatis oleh layer case-folding VFS Android runtime (`VfsResourceInterceptor.kt` dan `GpackExtractor.kt`), sehingga tidak boleh menghentikan proses build mandiri.
+2. Di `core/src/build_plan/audit_policy.rs`:
+   - Pada `evaluate_audit_policy`: saat laporan audit memiliki outcome `AuditOutcome::Fail` tetapi temuannya hanya terdiri dari `CMP_AUD_CASE_MISMATCH` (atau non-blocking warnings/info) tanpa error blocking sejati, memperlakukan `effective_outcome` sebagai `AuditOutcome::Warning`.
+   - Dengan ini, laporan dengan case mismatches otomatis mengevaluasi ke `AuditPolicyDecision::Allow { overrides: vec![] }` tanpa mengharuskan pengguna atau sub-agent memasukkan flag `--accept-audit-fail`.
+3. Di `tests/integration/build_test.rs`:
+   - Menambahkan unit/integration tests `test_audit_policy_case_mismatch_evaluates_to_allow_without_override` dan `test_audit_policy_case_mismatch_auto_aliased_when_report_outcome_is_fail`.
+**Alasan:** Layer VFS Android dan ekstraktor GPACK RuntimePack telah memiliki mekanisme case-folding dan pencarian case-insensitive otomatis. Menolak build atau mewajibkan bypass flag ketika seluruh file target sebenarnya ada di disk (hanya berbeda huruf besar/kecil) adalah restriksi berlebih yang menghalangi build otomatis game desktop ke Android.
+**Dampak:** Memungkinkan build game dengan case mismatch berjalan tanpa `--accept-audit-fail`. 48 integration tests `build_test`, 60 tests `runtimepack-core`, dan 269 tests workspace Cargo lulus 100%.
+
 ## [2026-09-27] Reachability Graph Filter for RPG Maker MV/MZ Database (Task 2)
 **Keputusan:**
 1. Di `engines/rpgmaker_web/src/asset_audit.rs`:
