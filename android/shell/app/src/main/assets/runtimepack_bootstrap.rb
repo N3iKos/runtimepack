@@ -1359,9 +1359,10 @@ module RuntimePackCheatRunner
     missing_assets = []
     exact_assets_count = 0
 
-    audit_asset = lambda do |asset_path, exts, asset_type|
+    verify_asset = lambda do |asset_path, exts, asset_type|
       next if asset_path.nil? || asset_path.to_s.strip.empty?
       clean = asset_path.to_s.strip
+      base_path = clean
       key = "#{clean}:#{exts.join(',')}"
       next if checked_assets.key?(key)
 
@@ -1374,8 +1375,10 @@ module RuntimePackCheatRunner
         case_mismatches << { "referenced" => clean, "resolved" => res["resolved"], "type" => asset_type }
       when "MISSING"
         missing_assets << { "referenced" => clean, "type" => asset_type }
+        report_stress_progress("FAIL: Missing #{asset_type}: #{base_path}")
       end
     end
+    audit_asset = verify_asset
 
     audit_commands = lambda do |cmd_list, from_id|
       next unless cmd_list.is_a?(Array)
@@ -1512,9 +1515,21 @@ module RuntimePackCheatRunner
     end
 
     all_transfers.each do |tr|
-      target_id = tr["target_map_id"]
-      if target_id > 0 && !known_map_ids.key?(target_id)
-        broken_transfers << tr
+      target_id = tr["target_map_id"] || tr[:target_map] || tr["target_map"]
+      if target_id && target_id > 0 && !known_map_ids.key?(target_id)
+        source_desc = tr[:source] || tr["source"] || "Map #{tr['from_map'] || tr[:from_map]}"
+        t = {
+          "from_map" => tr["from_map"] || tr[:from_map],
+          "target_map_id" => target_id,
+          "x" => tr["x"] || tr[:x],
+          "y" => tr["y"] || tr[:y],
+          :target_map => target_id,
+          :source => source_desc,
+          "target_map" => target_id,
+          "source" => source_desc
+        }
+        broken_transfers << t
+        report_stress_progress("FAIL: Broken transfer to Map #{t[:target_map]} at #{t[:source]}")
       end
     end
 

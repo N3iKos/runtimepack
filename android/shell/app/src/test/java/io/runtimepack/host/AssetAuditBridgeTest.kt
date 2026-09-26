@@ -129,4 +129,32 @@ class AssetAuditBridgeTest {
         val cancelled = activity.cancelAudit()
         assertTrue(cancelled)
     }
+
+    @Test
+    fun testRgssActivityAuditReportFallbackToFile() {
+        val testDir = tempFolder.newFolder("rgss_audit_report_fallback_test")
+        val activity = TestRgssActivity(testDir)
+
+        // When AssetAuditService is empty ("{}"), and no file exists:
+        assertEquals("{}", activity.getAuditReport())
+
+        // Create audit_report.json in dir
+        val reportFile = File(testDir, "audit_report.json")
+        reportFile.writeText("""{"stats":{"total_maps_scanned":10,"missing_count":2}}""", Charsets.UTF_8)
+
+        val reportFromDir = activity.getAuditReport()
+        assertTrue("Fallback report from dir should contain stats", reportFromDir.contains("total_maps_scanned"))
+        assertTrue(reportFromDir.contains("\"missing_count\":2"))
+
+        // Test fallback in game/ subdirectory
+        reportFile.delete()
+        val gameDir = File(testDir, "game")
+        gameDir.mkdirs()
+        val gameReportFile = File(gameDir, "audit_report.json")
+        gameReportFile.writeText("""{"stats":{"total_maps_scanned":25,"missing_count":5}}""", Charsets.UTF_8)
+
+        val reportFromGame = activity.getAuditReport()
+        assertTrue("Fallback report from game/ should contain stats", reportFromGame.contains("total_maps_scanned"))
+        assertTrue(reportFromGame.contains("\"missing_count\":5"))
+    }
 }

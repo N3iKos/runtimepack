@@ -750,7 +750,26 @@ open class RgssActivity : SDLActivity() {
 
     open fun getAuditReport(): String {
         ingestRgssAuditEventsFromFile()
-        return AssetAuditService.getAuditReport()
+        val report = AssetAuditService.getAuditReport()
+        if (report.isNotBlank() && report.trim() != "{}") {
+            return report
+        }
+        try {
+            val dir = getInputStateDirectory()
+            val f1 = File(dir, "audit_report.json")
+            if (f1.exists() && f1.length() > 0) {
+                val content = f1.readText()
+                if (content.isNotBlank()) return content
+            }
+            val f2 = File(File(dir, "game"), "audit_report.json")
+            if (f2.exists() && f2.length() > 0) {
+                val content = f2.readText()
+                if (content.isNotBlank()) return content
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read fallback audit_report.json: ${e.message}")
+        }
+        return report
     }
 
     open fun getCombinedSummary(): String {

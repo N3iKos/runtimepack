@@ -191,6 +191,52 @@ ev2 = RuntimePackAssetAudit.events.last
 assert_equal("TILESET_FALLBACK_DUMMY", ev2["fallback_action"])
 assert_equal("RTP tileset missing; Layer 0/1 map tiles will render transparent/black", ev2["error_message"])
 
+# Test 9: run_stress_test emits FAIL: lines for missing assets and broken transfers
+puts "Test 9: run_stress_test emits FAIL: progress lines"
+MockEventCmd = Struct.new(:code, :parameters) unless defined?(MockEventCmd)
+MockEventPage = Struct.new(:list) unless defined?(MockEventPage)
+MockEvent = Struct.new(:pages) unless defined?(MockEvent)
+MockRPGMap = Struct.new(:events, :autoplay_bgm, :bgm, :autoplay_bgs, :bgs) unless defined?(MockRPGMap)
+MockAudioFile = Struct.new(:name) unless defined?(MockAudioFile)
+
+tmp_test_dir = Dir.mktmpdir("rp_asset_audit_stress_")
+orig_pwd = Dir.pwd
+begin
+  Dir.chdir(tmp_test_dir)
+  FileUtils.mkdir_p("Data")
+  FileUtils.mkdir_p("Graphics/Pictures")
+
+  File.write("Graphics/Pictures/pic_present.png", "dummy")
+
+  commands = [
+    MockEventCmd.new(201, [0, 999, 0, 0]),
+    MockEventCmd.new(231, [1, "pic_present"]),
+    MockEventCmd.new(231, [2, "pic_missing_one"]),
+    MockEventCmd.new(241, [MockAudioFile.new("bgm_missing_one")])
+  ]
+  event = MockEvent.new([MockEventPage.new(commands)])
+  map001 = MockRPGMap.new({ 1 => event }, false, nil, false, nil)
+  File.open("Data/Map001.rvdata2", "wb") { |f| Marshal.dump(map001, f) }
+
+  report = RuntimePackCheatRunner.run_stress_test
+
+  assert(File.exist?("rp_audit_progress.txt"), "rp_audit_progress.txt must exist")
+  progress_lines = File.read("rp_audit_progress.txt").lines.map(&:strip)
+
+  fail_lines = progress_lines.select { |l| l.start_with?("FAIL:") }
+  assert(fail_lines.any? { |l| l.include?("Missing Picture: Graphics/Pictures/pic_missing_one") }, "Should emit FAIL for missing picture")
+  assert(fail_lines.any? { |l| l.include?("Missing BGM: Audio/BGM/bgm_missing_one") }, "Should emit FAIL for missing BGM")
+  assert(fail_lines.any? { |l| l.include?("Broken transfer to Map 999") }, "Should emit FAIL for broken transfer")
+
+  done_line = progress_lines.find { |l| l.start_with?("DONE:") }
+  assert(done_line, "DONE: line must be present")
+  assert(done_line.include?("Stress test completed: 1 maps,"), "DONE line must match completed stats format")
+  assert(done_line.include?("2 missing."), "DONE line must show 2 missing assets")
+ensure
+  Dir.chdir(orig_pwd)
+  FileUtils.remove_entry_secure(tmp_test_dir) rescue nil
+end
+
 # Cleanup
 [RuntimePackAssetAudit::EVENTS_FILE, "game/#{RuntimePackAssetAudit::EVENTS_FILE}"].each do |f|
   File.delete(f) if File.exist?(f)

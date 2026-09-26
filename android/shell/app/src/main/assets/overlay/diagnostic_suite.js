@@ -1076,12 +1076,40 @@
                     var isSynthetic = (targetPath === "root" || targetPath === "all" || evType === "START");
 
                     if (isDone) {
-                        var doneMsg = evMsg || (failureCount > 0
-                            ? "Audit Complete: " + failureCount + " issue(s) detected."
+                        var reportStr = null;
+                        if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditReport === "function") {
+                            reportStr = globalObj.RuntimePackVPad.getAuditReport();
+                        } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditReport === "function") {
+                            reportStr = globalObj.RuntimePackWeb.getAuditReport();
+                        }
+                        if (reportStr && reportStr !== "{}" && reportStr.trim().length > 0) {
+                            try {
+                                var report = JSON.parse(reportStr);
+                                if (report && report.stats) {
+                                    var s = report.stats;
+                                    var rExact = typeof s.exact_count === "number" ? s.exact_count : 0;
+                                    var rCase = typeof s.case_mismatch_count === "number" ? s.case_mismatch_count : 0;
+                                    var rMissing = typeof s.missing_count === "number" ? s.missing_count : 0;
+                                    validCount = rExact;
+                                    missingCount = rMissing;
+                                    scannedCount = rExact + rCase + rMissing;
+                                    failureCount = rMissing + rCase;
+                                    updateCountersUI();
+                                }
+                            } catch (e) {
+                            }
+                        }
+
+                        var doneMsg = evMsg || ((failureCount > 0 || missingCount > 0)
+                            ? "Audit Complete: " + (missingCount > 0 ? missingCount + " missing asset(s)" : failureCount + " failure(s)") + " detected."
                             : "Audit Complete: All references verified.");
-                        if (failureCount > 0) {
+                        if (failureCount > 0 || missingCount > 0) {
                             addLogEntry("WARN", doneMsg);
-                            if (stStatus) stStatus.textContent = "Audit Complete with " + failureCount + " failure(s).";
+                            if (stStatus) {
+                                stStatus.textContent = missingCount > 0
+                                    ? "Audit Complete with " + missingCount + " missing asset(s)!"
+                                    : "Audit Complete with " + failureCount + " failure(s).";
+                            }
                             if (badge) {
                                 badge.textContent = "FAILED";
                                 badge.style.background = "#dc2626";
@@ -1210,9 +1238,6 @@
                                 addLogEntry("AUDIT", stageText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = stageText;
                             } else if (line.indexOf("MAP:") === 0) {
-                                scannedCount++;
-                                validCount++;
-                                updateCountersUI();
                                 var mapText = line.replace(/^MAP:\s*/, "");
                                 addLogEntry("SCAN", mapText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = mapText;
@@ -1224,19 +1249,14 @@
                                     pbar.style.width = pct + "%";
                                 }
                             } else if (line.indexOf("DATABASE:") === 0) {
-                                scannedCount++;
-                                validCount++;
-                                updateCountersUI();
                                 var dbText = line.replace(/^DATABASE:\s*/, "");
                                 addLogEntry("AUDIT", dbText);
                                 if (stStatus && failureCount === 0) stStatus.textContent = dbText;
                                 if (pbar) pbar.style.width = "85%";
                             } else if (line.indexOf("FAIL:") === 0 || line.indexOf("ERROR:") === 0) {
-                                scannedCount++;
                                 failureCount++;
-                                if (line.toLowerCase().indexOf("not found") !== -1 || line.toLowerCase().indexOf("missing") !== -1) {
-                                    missingCount++;
-                                }
+                                missingCount++;
+                                scannedCount++;
                                 updateCountersUI();
                                 var errText = line.replace(/^(FAIL|ERROR):\s*/, "");
                                 addLogEntry("ERROR", errText);
@@ -1250,22 +1270,67 @@
                                 }
                             } else if (line.indexOf("DONE:") === 0) {
                                 var doneText = line.replace(/^DONE:\s*/, "");
-                                if (failureCount > 0) {
-                                    addLogEntry("WARN", "Audit Complete: " + failureCount + " failure(s) detected. " + doneText);
-                                    if (stStatus) stStatus.textContent = "Audit Complete with " + failureCount + " failure(s).";
+                                var m = line.match(/(\d+)\s+maps.*?(\d+)\s+exact assets.*?(\d+)\s+case mismatches.*?(\d+)\s+missing/i);
+                                if (m) {
+                                    var mapsCnt = parseInt(m[1], 10);
+                                    var exactCnt = parseInt(m[2], 10);
+                                    var caseCnt = parseInt(m[3], 10);
+                                    var missingCnt = parseInt(m[4], 10);
+                                    validCount = exactCnt;
+                                    missingCount = missingCnt;
+                                    scannedCount = exactCnt + caseCnt + missingCnt;
+                                    failureCount = missingCnt + caseCnt;
+                                } else {
+                                    var reportStr = null;
+                                    if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditReport === "function") {
+                                        reportStr = globalObj.RuntimePackVPad.getAuditReport();
+                                    } else if (globalObj.RuntimePackWeb && typeof globalObj.RuntimePackWeb.getAuditReport === "function") {
+                                        reportStr = globalObj.RuntimePackWeb.getAuditReport();
+                                    }
+                                    if (reportStr && reportStr !== "{}" && reportStr.trim().length > 0) {
+                                        try {
+                                            var report = JSON.parse(reportStr);
+                                            if (report && report.stats) {
+                                                var s = report.stats;
+                                                var rExact = typeof s.exact_count === "number" ? s.exact_count : 0;
+                                                var rCase = typeof s.case_mismatch_count === "number" ? s.case_mismatch_count : 0;
+                                                var rMissing = typeof s.missing_count === "number" ? s.missing_count : 0;
+                                                validCount = rExact;
+                                                missingCount = rMissing;
+                                                scannedCount = rExact + rCase + rMissing;
+                                                failureCount = rMissing + rCase;
+                                            }
+                                        } catch (e) {
+                                        }
+                                    }
+                                }
+                                updateCountersUI();
+
+                                if (failureCount > 0 || missingCount > 0) {
                                     if (badge) {
                                         badge.textContent = "FAILED";
                                         badge.style.background = "#dc2626";
                                         badge.style.color = "#ffffff";
                                     }
+                                    if (stStatus) {
+                                        stStatus.textContent = missingCount > 0
+                                            ? "Audit Complete with " + missingCount + " missing asset(s)!"
+                                            : "Audit Complete with " + failureCount + " failure(s).";
+                                    }
+                                    var warnPrefix = missingCount > 0
+                                        ? "Audit Complete: " + missingCount + " missing asset(s) detected. "
+                                        : "Audit Complete: " + failureCount + " failure(s) detected. ";
+                                    addLogEntry("WARN", warnPrefix + doneText);
                                 } else {
-                                    addLogEntry("SUCCESS", doneText);
-                                    if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
                                     if (badge) {
                                         badge.textContent = "COMPLETED";
                                         badge.style.background = "#16a34a";
                                         badge.style.color = "#ffffff";
                                     }
+                                    if (stStatus) {
+                                        stStatus.textContent = "Audit Completed Successfully.";
+                                    }
+                                    addLogEntry("SUCCESS", doneText);
                                 }
                                 if (pbar) pbar.style.width = "100%";
                                 isStressTestRunning = false;

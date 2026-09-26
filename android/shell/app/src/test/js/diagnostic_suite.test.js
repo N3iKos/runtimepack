@@ -615,4 +615,69 @@ function createDOMContext() {
     assert.strictEqual(parsed.combined_validation_summary.combined_outcome, "FAIL");
 }
 
+// Test 13: Stress Test Real-Time Progress, Counter Sync, and Failure Enforcement
+{
+    console.log("Test 13: Stress Test Real-Time Progress, Counter Sync, and Failure Enforcement");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 999;
+    };
+    sandbox.clearInterval = function (id) {
+        intervalCallback = null;
+    };
+
+    let mockProgress = "";
+    sandbox.RuntimePackVPad = {
+        postCheatCmd: function () { return true; },
+        getAuditProgress: function () { return mockProgress; }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+    sandbox.DiagnosticSuite.runStressTest();
+
+    const badge = sandbox.document.getElementById("diag-step-badge");
+    const stStatus = sandbox.document.getElementById("diag-stress-status");
+    const cntScanned = sandbox.document.getElementById("diag-cnt-scanned");
+    const cntValid = sandbox.document.getElementById("diag-cnt-valid");
+    const cntMissing = sandbox.document.getElementById("diag-cnt-missing");
+
+    // Feed MAP line: should NOT increment scanned or valid
+    mockProgress = "MAP: Scanning Map 1 (1/150)...\n";
+    intervalCallback();
+    assert.strictEqual(cntScanned.textContent, "0", "MAP line must not increment scannedCount");
+    assert.strictEqual(cntValid.textContent, "0", "MAP line must not increment validCount");
+
+    // Feed FAIL line: should increment failure and missing
+    mockProgress = "FAIL: Missing Tileset: Inside_A2\n";
+    intervalCallback();
+    assert.strictEqual(cntMissing.textContent, "1", "FAIL line must increment missingCount");
+    assert.strictEqual(cntScanned.textContent, "1", "FAIL line must increment scannedCount");
+    assert.strictEqual(badge.textContent, "ISSUES (1)", "Badge must show ISSUES (1)");
+    assert.strictEqual(badge.style.background, "#dc2626", "Badge background must be red #dc2626");
+
+    // Feed DONE line with authoritative counts
+    mockProgress = "DONE: Stress test completed: 150 maps, 543 exact assets, 0 case mismatches, 189 missing.\n";
+    intervalCallback();
+
+    assert.strictEqual(cntScanned.textContent, "732", "scannedCount should be exact + case + missing = 732");
+    assert.strictEqual(cntValid.textContent, "543", "validCount should be 543");
+    assert.strictEqual(cntMissing.textContent, "189", "missingCount should be 189");
+
+    assert.strictEqual(badge.textContent, "FAILED", "Badge must be FAILED, not COMPLETED");
+    assert.strictEqual(badge.style.background, "#dc2626", "Badge background must be red #dc2626");
+    assert(stStatus.textContent.toLowerCase().includes("missing"), `Status text must mention missing assets, got: ${stStatus.textContent}`);
+    assert(stStatus.textContent.includes("189"), `Status text must include 189 missing count, got: ${stStatus.textContent}`);
+
+    const logs = sandbox.DiagnosticSuite.getLogs();
+    const doneLogs = logs.filter(l => l.message && l.message.includes("Stress test completed"));
+    assert(doneLogs.length > 0, "Must have log entry for DONE completion");
+    assert.strictEqual(doneLogs[0].level, "WARN", "DONE log must have level WARN, NOT SUCCESS");
+    const successLogs = logs.filter(l => l.level === "SUCCESS");
+    assert.strictEqual(successLogs.length, 0, "There must be zero SUCCESS logs when missing assets exist");
+}
+
 console.log("All Diagnostic Suite JS unit tests passed successfully!");
