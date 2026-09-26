@@ -996,6 +996,11 @@ fn cmd_build(args: BuildArgs) {
                 if apk_source.exists() {
                     let dest_apk = output.join(&sanitized_apk_name);
                     if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
+                        if sanitized_apk_name.contains('\'') {
+                            let alt_name = sanitized_apk_name.replace('\'', "");
+                            let alt_apk = output.join(&alt_name);
+                            let _ = fs::copy(&dest_apk, &alt_apk);
+                        }
                         let mut apk_hasher = Sha256::new();
                         if let Ok(bytes) = fs::read(&dest_apk) {
                             apk_hasher.update(&bytes);
@@ -1050,6 +1055,10 @@ fn cmd_build(args: BuildArgs) {
     );
     if let Some(ref h) = apk_hash {
         checksums.push_str(&format!("{}\t{}\n", h, sanitized_apk_name));
+        if sanitized_apk_name.contains('\'') {
+            let alt_name = sanitized_apk_name.replace('\'', "");
+            checksums.push_str(&format!("{}\t{}\n", h, alt_name));
+        }
     }
     fs::write(output.join("checksums.txt"), checksums).unwrap();
 
