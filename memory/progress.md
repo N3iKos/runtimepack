@@ -1,12 +1,24 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 2 Plan 3 (Build APK & Verify *[Kimochi] show_off*) selesai.
-- **Next step:** Semua task Plan 3 selesai. Siap untuk instruksi atau evaluasi selanjutnya.
+- **Sedang kerjain apa:** Task 1 Plan 4 (Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing) selesai.
+- **Next step:** Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Traversal internal yang tetap berada di dalam game root dinormalisasi secara deterministik (`normalize_relative_path` & `urlToLogicalPath`), sedangkan traversal yang mencoba kabur di atas root ditolak (`CMP-AUD-009` / `null`). ASAR container `resources/app.asar` dikeluarkan dari `files` saat unpacking untuk mencegah false positive `CMP-AUD-008` (file size limit).
+- **Catatan fokus:** File desktop wrapper (.dll, .exe) di bawah `lib/` Ren'Py diklasifikasikan sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), status kompatibilitas tetap `Compatible`. Ren'Py color displayables (`#hex`, `black`, `white`, `Solid(...)`, `Color(...)`) serta Python stdlib modules (`inspect`, `zipfile`, `ast`, `subprocess`, `ctypes`, dll.) diresolusi sebagai `RuntimeProvidedResource` tanpa missing asset findings.
 
 ## Selesai
+- [2026-09-27] Task 1 Plan 4 (Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing) Selesai:
+  1. `engines/renpy/src/scanner.rs`:
+     - Normalisasi path di `is_desktop_wrapper_dll` mengenali seluruh DLL/EXE di bawah `lib/` (`lib/py3-windows-x86_64/`, `lib/py2-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, dll.) dan `steam_api*.dll` sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), status kompatibilitas tetap `Compatible`.
+     - Pemindaian versi Ren'Py diperluas mencakup file `.py` (`renpy/__init__.py`, `vc_version.py`).
+  2. `engines/renpy/src/asset_audit.rs`:
+     - Modul stdlib Python diperluas (`inspect`, `zipfile`, `ast`, `subprocess`, `ctypes`, `dataclasses`, `pathlib`, `codecs`, `shlex`, `posixpath`, `ntpath`, `genericpath`, `secrets`, `dis`, `token`, `tokenize`, `symtable`, `unittest`, `doctest`, `site`, dll.), `"ctypes"` dipindahkan dari `is_unsupported_native` ke `is_stdlib_or_renpy`, teresolusi sebagai `RuntimeProvidedResource`.
+     - Implementasi `is_renpy_color_spec` dan `strip_scene_show_modifiers`: hex colors (`#000`, `#ffffff`), warna named (`black`, `white`), dan `Solid(...)`/`Color(...)` diresolusi sebagai `RuntimeProvidedResource` (`runtime:color:<spec>`), transisi (`with fade`, `at center`, dll.) dibersihkan secara deterministik.
+  3. Verifikasi & Tests:
+     - Integration test `test_renpy_builtins_and_color_displayables_and_stdlib_imports_resolve_as_runtime_provided` di `renpy_asset_audit_test.rs`.
+     - Unit tests `test_is_desktop_wrapper_dll`, `test_is_renpy_color_spec`, dan `test_strip_scene_show_modifiers`.
+     - Integration test `test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal` di `compatibility_test.rs`.
+     - Seluruh 259 tests cargo workspace lulus 100%. Commit: `7cad29a`.
 - [2026-09-27] Task 2 Plan 3 (Build APK & Verify *[Kimochi] show_off*) Selesai:
   1. Static Asset Audit:
      - `cargo run --bin runtimepack -- audit "Raw-Game\[Kimochi] show_off" --mode standard --output dist/show_off/asset-audit-report.json`

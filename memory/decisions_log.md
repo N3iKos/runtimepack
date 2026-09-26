@@ -1,5 +1,16 @@
 # Decisions Log
 
+## [2026-09-27] Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing
+**Keputusan:**
+1. Di `engines/renpy/src/scanner.rs`:
+   - `RenPyAnalyzer::is_desktop_wrapper_dll`: Menormalisasi path dan mengenali seluruh binary desktop (.dll, .exe) di bawah `lib/` (e.g. `lib/py3-windows-x86_64/`, `lib/py2-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, `py3-windows-x86_64/`, dll.) dan `steam_api*.dll` sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), sehingga status kompatibilitas tetap `Compatible` dan tidak terblokir fatal `CMP-102`.
+   - Pemindaian generasi Ren'Py mendukung file `.py` (`renpy/__init__.py`, `vc_version.py`).
+2. Di `engines/renpy/src/asset_audit.rs`:
+   - Penambahan modul stdlib Python ke `is_stdlib_or_renpy`: `inspect`, `zipfile`, `ast`, `subprocess`, `ctypes`, `dataclasses`, `pathlib`, `codecs`, `shlex`, `posixpath`, `ntpath`, `genericpath`, `secrets`, `dis`, `token`, `tokenize`, `symtable`, `unittest`, `doctest`, `site`, dll. Memindahkan `"ctypes"` dari daftar native tidak didukung ke stdlib, diresolusi sebagai `AssetKind::RuntimeProvidedResource`.
+   - Helper `is_renpy_color_spec` dan `strip_scene_show_modifiers`: Mengenali hex colors (`#000`, `#ffffff`, `#000000ff`, dll.), warna named (`black`, `white`), dan `Solid(...)`/`Color(...)` sebagai displayable warna Ren'Py, diresolusi sebagai `RuntimeProvidedResource` (`runtime:color:<spec>`), bukan file disk. Transisi dan klausa posisi (`with fade`, `at center`, `as bg`, dll.) distrip sebelum evaluasi.
+**Alasan:** Game Ren'Py desktop menyertakan CPython desktop wrapper dan DLLs di folder `lib/` serta menggunakan sintaks warna solid (`scene "#000"`, `scene black with fade`) dan modul standar Python. Sebelumnya hal ini memicu false positive blocker `CMP-102` dan `CMP-AUD-002`.
+**Dampak:** Mengeliminasi seluruh false positive missing asset error pada Ren'Py displayable & stdlib imports dan memastikan status proyek Ren'Py tetap `Compatible`. 259 tests cargo workspace lulus 100%.
+
 ## [2026-09-27] Internal Relative Path Normalization in Tyrano Auditor & VFS
 **Keputusan:**
 1. Di `core/src/asset_audit/resolver.rs`:
