@@ -1,21 +1,134 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Plan 2 (Deep Asset Audit Adapters) Task 5 Selesai + Fix Round 1 Selesai (`TyranoAssetAuditor` untuk unpacked & Electron ASAR layout, decoupled dynamic jump targets, project-wide single file limit, audio aliases `fadeinbgm`/`playbgv`, dynamic plugin storage, case-insensitive `.ks`/`.node`, ASAR shadowing size deduplication, dan 25/25 integration tests passing). Siap lanjut ke Task 6 (Registry Integration & Cross-Engine Contracts).
-- **Next step:** Eksekusi Plan 2 Task 6 (`create_default_asset_auditor_registry` registration, cross-engine contract test, workspace lint/type check).
+- **Sedang kerjain apa:** Task 1 Plan Game Stabilization & Unblock Phase 0 (Remove Policy Hard Blockers `TYR-101` & Desktop DLLs `CMP-106`) selesai. Siap lanjut ke Task 2 (Gradle Project Name Sanitization in `generator.rs`).
+- **Next step:** Task 2 (Gradle Project Name Sanitization in `generator.rs`).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Tyrano asset audit adapter menjaga input immutability dengan zero-disk extraction pada ASAR archive, memisahkan technical outcome dari `TYRANO-LEGAL` gate (`TYR-101`), dan merekam line/column provenance ke dependency graph.
+- **Catatan fokus:** Penghapusan hard blocker tiruan telah berhasil: gerbang hukum Tyrano (`TYR-101`) diturunkan menjadi notice informasional sehingga build dapat berjalan dengan flag audit override, dan DLL desktop wrapper pada Ren'Py (`lib/py3-windows-x86_64/*.dll`) diklasifikasikan sebagai `CMP_DESKTOP_EXCLUDED` (`CMP-106`, Warning) tanpa memicu `UnsupportedDependency`.
 
 ## Selesai
-- [2026-09-25] Plan 2 Task 5 (Tyrano Static Adapter + Fix Round 1) Selesai:
-  1. Implementasi `TyranoAssetAuditor` pada `engines/tyrano/src/asset_audit.rs` (implementing `AssetAuditor` untuk `EngineId::Tyrano`).
-  2. Ekstensi `AsarArchive` di `engines/tyrano/src/asar.rs` dengan bounded list/read metadata APIs (`read_file_bytes_bounded`, `read_file_string_bounded`, `get_file`, `get_file_size`, `total_size_bytes`) dengan prinsip zero-disk extraction / source immutability.
-  3. Parser scenario `.ks` multi-pass mendukung sintaks baris `@tag key=val` dan inline bracket `[tag key=val]`, indeks label (`*label`), dan resolusi tag: `bg`, `image`, `chara_new`/`face`/`mod`, `playbgm`, `fadeinbgm`, `playse`, `playbgv`, `movie`, `loadjs`, `loadcss`, `jump`/`call`, `button`/`glink`, dan `plugin`.
-  4. Decoupling resolusi storage skenario dan target label pada `jump`/`call`: storage skenario diperiksa tanpa terpengaruh target dinamis, dan target dinamis dievaluasi independen (`CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`).
-  5. Pemeriksaan batas ukuran berkas tunggal (`max_single_file_bytes`) secara komprehensif di awal audit untuk seluruh file dalam proyek (`effective_source.files.values()`), memaksa `completeness.required_scope_complete = false` saat batas terlampaui.
-  6. Penanganan tag audio tambahan (`fadeinbgm` -> `data/bgm/`, `playbgv` -> `data/sound/`, `data/se/`), dynamic plugin storage (`storage="&..."`), ekstensi case-insensitive (`.ks`, `.node`), dan dedup kalkulasi ukuran berkas unpacked yang membayangi entri ASAR.
-  7. Penegakan informational finding `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) untuk dokumentasi legal gate tanpa mendegradasi technical pass.
-  8. 25/25 integration tests di `tests/integration/tyrano_asset_audit_test.rs` dan 197/197 workspace tests lulus 100%.
+- [2026-09-26] Task 1 Plan Game Stabilization & Unblock Phase 0 (Remove Policy Hard Blockers `TYR-101` & Desktop DLLs `CMP-106`) Selesai:
+  1. `core/src/diagnostics/mod.rs`: Menambahkan kode diagnostik `CMP_DESKTOP_EXCLUDED = "CMP-106"` dengan severity `Warning` untuk library desktop-specific wrapper/runner yang diabaikan pada packaging Android.
+  2. `engines/renpy/src/scanner.rs`: Mengimplementasikan `is_desktop_wrapper_dll` untuk mengklasifikasikan Windows DLL pada direktori wrapper desktop (`lib/py3-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, `py3-windows-x86_64/`, `lib/python`, dll.) sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), bukan fatal blocker `CMP_NATIVE_DLL_DEPENDENCY` (`Error`). Menjamin status kompatibilitas Ren'Py tetap `Compatible`.
+  3. `core/src/build_plan/audit_policy.rs` & `cli/src/main.rs`: Menghapus `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) dari daftar `hard_blockers`, menjadikannya informational note. Evaluasi audit policy dengan `--accept-audit-fail` / `--accept-audit-unknown` kini mengizinkan build TyranoScript berjalan tanpa terhalang.
+  4. Integration tests: Menambahkan `test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal` di `compatibility_test.rs`, memperbarui `audit_policy_never_bypasses_hard_blockers`, dan menambahkan `test_audit_policy_tyrano_legal_gate_not_hard_blocker` serta `test_build_tyrano_with_accept_audit_fail_succeeds_without_tyr_101_block` di `build_test.rs`. Seluruh 249 tests workspace lulus 100%.
+- [2026-09-26] Task 2 Plan RPG Maker VX Ace RTP Auto-Provisioning & Native Asset Ingestion Selesai:
+  1. `core/src/ingest/mod.rs` & `core/src/build_plan/mod.rs` & `schemas/build-manifest.schema.json`:
+     - Menambahkan `rtp_root: Option<PathBuf>` dan accessor `rtp_path(&self) -> Option<&Path>` pada `GameSourceIndex`.
+     - Menyimpan canonical path RTP saat auto-RTP atau explicit RTP berhasil di-ingest.
+     - Menambahkan field `rtp_source: Option<String>` pada `BuildManifest` dan `ProvenanceManifestEntry` (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
+     - Memperbarui schema JSON `schemas/build-manifest.schema.json` untuk memasukkan `rtp_source` di level manifest dan provenance.
+  2. `cli/src/audit_command.rs`:
+     - Mengganti pemanggilan manual `build_with_rtp` dengan `GameSourceIndex::build_with_auto_rtp(source, rtp_path)` di `StaticAuditExecutionContext`.
+     - Logging otomatis saat RTP terdeteksi atau dipassing: `println!("RTP resolved:   {} (auto-detected)", rtp_path.display())`.
+     - Memperbarui `AuditSummary` dan validasi output path agar memperhitungkan auto-detected RTP.
+  3. `cli/src/main.rs`:
+     - Di `cmd_build`: Menggunakan `GameSourceIndex::build_with_auto_rtp(path, rtp_path)`.
+     - Logging otomatis: `println!("RTP source:    {}", resolved_rtp.display())`.
+     - Mengisi `rtp_source` di `BuildManifest` dan `ProvenanceManifestEntry` dengan path RTP yang digunakan.
+  4. Integration tests `tests/integration/build_test.rs`:
+     - Menambahkan test `test_build_auto_rtp_discovery_and_packaging`: memverifikasi project dengan deklarasi `RTP=RPGVXAce` di `Game.ini` otomatis menemukan RTP via env var `RPGVXACE_RTP_PATH`, memaketkan aset yang hilang ke `game.pack` tanpa flag `--rtp-path`, mencatat `rtp_source` di `build-manifest.json`, dan menjaga sumber game asli 100% immutable.
+     - Memperbarui `test_build_manifest_schema_aligns_with_optional_audit` untuk memvalidasi ketiadaan field opsional `rtp_source` saat `None`.
+  5. Verifikasi: 41/41 tests `build_test`, 16/16 tests `asset_audit_cli_test`, dan seluruh 246 tests workspace Cargo lulus 100%.
+- [2026-09-26] Task 1 Plan RPG Maker VX Ace RTP Auto-Provisioning & Native Asset Ingestion Selesai:
+  1. `core/src/ingest/rtp.rs` & `core/src/ingest/mod.rs` & `core/src/lib.rs`:
+     - Implementasi `find_system_rtp_path(rtp_name: &str) -> Option<PathBuf>` dengan resolusi berurutan: env var (`{RTP_NAME}_RTP_PATH`), repository lokal (`runtimes/rtp/{rtp_name_lowercase}/`), Windows Common Files (`Enterbrain/RGSS3`, `RGSS2`, `RGSS`), dan Windows Registry query (`HKLM`/`HKCU` `SOFTWARE\WOW6432Node\Enterbrain\...`).
+     - Helper `matches_rtp_name` untuk case-insensitive & alias resolution (`vxace`, `rpgvxace`, `vx`, `xp`, `standard`).
+     - Parser `parse_ini_rtp_name` untuk section `[Game]` pada `Game.ini` membaca `RTP=...` / `rtp = ...` / `RTP1=...`.
+     - Implementasi `GameSourceIndex::build_with_auto_rtp(game_dir, explicit_rtp)`: memprioritaskan `explicit_rtp` yang ada, mendeteksi RTP dari `Game.ini` secara otomatis, atau fallback ke indeks normal.
+  2. Integration tests `tests/integration/asset_audit_cli_test.rs`:
+     - `test_find_system_rtp_path_via_env_var`, `test_find_system_rtp_path_nonexistent`, `test_find_system_rtp_path_system_windows`.
+     - `test_build_with_auto_rtp_without_rtp_declaration`, `test_build_with_auto_rtp_with_game_ini_declaration`, `test_build_with_auto_rtp_explicit_override`.
+  3. Verifikasi: 16/16 tests `asset_audit_cli_test` dan seluruh test workspace Cargo (240+ tests) lulus 100%.
+- [2026-09-26] Task 3 Plan Black Souls RTP & Rendering Fix (Subtractive Fog Plane Mitigations in OpenGL ES) Selesai:
+  1. `runtimepack_bootstrap.rb`:
+     - Deklarasi kelas fallback `Plane` (`unless defined?(Plane)`) lengkap dengan method standar RGSS (`viewport`, `bitmap`, `visible`, `z`, `ox`, `oy`, `zoom_x`, `zoom_y`, `opacity`, `blend_type`, `color`, `tone`, `dispose`, `disposed?`).
+     - `RuntimePackCompatibility.install_plane_subtractive_fog_hooks`: Meng-intercept `blend_type=`, `opacity=`, dan `z=` pada `Plane`:
+       - Saat `blend_type == 2` (subtractive blending) dan `z < 32` (fog layer di bawah karakter Z=32):
+         - Jika `opacity > limit` (80 normal, atau 60 jika floor tileset hilang), membatasi nilai opacity ke limit (`self.opacity = limit`).
+         - Mencatat notice diagnostik `puts "[RuntimePack] Subtractive fog Plane mitigation: clamped opacity to ..."` dan menyimpannya di `RuntimePackCompatibility.plane_mitigations`.
+       - Intersepsi `Plane#opacity=` dan `Plane#z=` menjamin clamping tetap ditegakkan saat opacity dinaikkan kembali atau Z diturunkan ke bawah 32.
+  2. `asset_audit_test.rb`:
+     - Test 11: Memverifikasi `Plane#blend_type = 2` dengan `z = 10` membatasi opacity ke <= 80, mencatat notice mitigasi, menguji intersepsi `opacity=` saat `blend_type == 2`, menguji relaksasi opacity saat `z >= 32` atau `blend_type == 0`, serta memastikan clamp 80 saat floor tidak hilang.
+     - Seluruh 88 tests `asset_audit_test.rb`, 100 tests `input_hook_test.rb`, 25 tests `cheat_runner_test.rb`, 27 tests `stress_test_and_diag_test.rb`, 27 tests Cargo `runtimepack-engine-rgss`, dan full JS test suite lulus 100%.
+- [2026-09-26] Task 2 Plan Black Souls RTP & Rendering Fix (Smart Autotile & Character Fallbacks in RGSS Bootstrap) Selesai:
+  1. `runtimepack_bootstrap.rb` & `runtimepack_asset_audit.rb`:
+     - `create_tileset_fallback(name)`: Menghasilkan 512x384 bitmap berpola checkered gelap (RGB 40,40,40 dan 70,70,70) 32x32 dengan border halus 1px (RGB 30,30,30) di sekeliling tiap tile agar autotile dan floor blits terhindar dari void transparan / pitch-black.
+     - `create_character_fallback(path_or_name)`: Menghasilkan 128x128 3x4 multi-frame sprite sheet:
+       - Objek interaktif `!` (`!Flame`, `!Chest`, `!Door`): Mengisi tiap frame dengan visual yang jelas (pedestal brazier flame kuning emas untuk `!Flame`/Save, kotak kayu cokelat dengan gembok emas dan strip besi untuk `!Chest`, bingkai kayu berpintu dan pegangan kuningan untuk `!Door`, atau cyan marker box bertanda seru untuk objek `!` generik).
+       - Karakter standar tanpa `!`: Menghasilkan 128x128 3x4 sprite sheet dengan siluet slate humanoid (kepala berwajah/rambut, mata direksional sesuai arah hadap, torso beroutline, dan animasi langkah kaki).
+     - Hook `normal_bitmap` dan `Bitmap.new` (serta `Cache.tileset` dan `Cache.character`) secara konsisten memanggil fallback cerdas ini dan mencatat `TILESET_FALLBACK_DUMMY` atau `CHARACTER_FALLBACK_DUMMY`.
+  2. `asset_audit_test.rb` & `input_hook_test.rb`:
+     - Test 10 di `asset_audit_test.rb`: Memvalidasi `create_tileset_fallback` menghasilkan 512x384, `create_character_fallback` menghasilkan multi-frame bitmap > 32x32 untuk `!Flame` dan `!Chest`, standard character menghasilkan 128x128, serta fallback otomatis via `Bitmap.new` dan `Cache.normal_bitmap`.
+     - Seluruh 75 tests `asset_audit_test.rb`, 100 tests `input_hook_test.rb`, 25 tests `cheat_runner_test.rb`, 27 tests `stress_test_and_diag_test.rb`, 23 tests `rgss_asset_audit_test`, dan full JS test suite (6/6 suites) lulus 100%.
+- [2026-09-26] Task 1 Plan Black Souls RTP Ingestion (`--rtp-path`) Selesai:
+  1. `core/src/ingest/mod.rs`:
+     - Menambahkan method `GameSourceIndex::build_with_rtp(game_dir: &Path, rtp_dir: Option<&Path>) -> Result<Self, IngestError>`.
+     - `IndexedFile` diperluas dengan field `pub source_root: Option<PathBuf>` dan helper `real_path(&default_root)`. Aset RTP dipetakan dengan `source_root = Some(canonical_rtp)`.
+     - File yang tidak ada di `game_dir` (atau case-folded matching) diambil dari RTP tanpa memodifikasi direktori `game_dir`.
+     - Hash sumber `source_hash` dan `total_size_bytes` otomatis menyertakan aset RTP secara deterministik.
+  2. `pack/src/gpack.rs` & `pack/src/lib.rs`:
+     - Menambahkan method `GpackPacker::pack_from_index` dan `pack_from_index_with_options` serta metode trait pada `ContentPacker`.
+     - Saat memaketkan berkas ke `game.pack`, membaca path absolut aktual via `p.file_info.real_path(&index.root_path)`.
+  3. CLI plumbing (`cli/src/main.rs` & `cli/src/audit_command.rs`):
+     - Menambahkan argumen CLI `--rtp-path <DIR>` ke `runtimepack audit` dan `runtimepack build`.
+     - `audit_command::run` dan `cmd_build` menggunakan `GameSourceIndex::build_with_rtp`.
+     - `cmd_build` memaketkan seluruh aset hasil index (termasuk RTP) langsung ke dalam `game.pack`.
+  4. Integration tests:
+     - `tests/integration/asset_audit_cli_test.rs`: `audit_resolves_missing_assets_with_rtp_path` (10/10 tests passing).
+     - `tests/integration/build_test.rs`: `test_build_with_rtp_path_packages_rtp_assets` (40/40 tests passing).
+     - Seluruh test workspace Cargo (240+ tests) lulus 100%.
+- [2026-09-26] Task 2 Plan Real-Time Diagnostic Stress Test Reporting Selesai:
+  1. Real-time Diagnostic Overlay Update (`diagnostic_suite.js` & `preview/diagnostic_suite.js`):
+     - Baris `MAP:` dan `DATABASE:` tidak lagi menginkremen `scannedCount` atau `validCount` secara salah.
+     - Baris `FAIL:` / `ERROR:` secara live menginkremen `failureCount++`, `missingCount++`, `scannedCount++`, memperbarui live UI counters, dan menampilkan badge `ISSUES (N)` berlatar merah `#dc2626`.
+     - Baris `DONE:` mem-parse angka pasti `maps`, `exact assets`, `case mismatches`, `missing` via regex atau fallback ke `getAuditReport()`, menyinkronkan UI counters ke angka otoritatif (`scanned = exact + case + missing`, `valid = exact`, `missing = missing`).
+     - Jika `missingCount > 0` atau `failureCount > 0`, status badge dipaksa menjadi `FAILED` (merah `#dc2626`), pesan status menampilkan jumlah missing assets, dan log dicatat sebagai `WARN` (tanpa log fake `SUCCESS`).
+  2. Sinkronisasi 100% byte-for-byte antara `android/shell/app/src/main/assets/overlay/diagnostic_suite.js` dan `preview/diagnostic_suite.js` (SHA-256: `EF71198072F292B512F80D2889E280C7B5F4AE58C941BBA0CC70C7721145C666`).
+  3. Tests: Test 13 di `diagnostic_suite.test.js` memverifikasi `MAP:` no-op counter, `FAIL:` live streaming, `DONE:` regex parsing, dan red `FAILED` badge / `WARN` log level. Seluruh 13 test JS lulus 100%.
+- [2026-09-26] Task 1 Plan Real-Time Diagnostic Stress Test Reporting Selesai:
+  1. Real-time Missing Asset Streaming (`runtimepack_bootstrap.rb`): Di dalam `run_stress_test`, saat `verify_asset` mendeteksi missing asset (`when "MISSING"`), langsung memancarkan `report_stress_progress("FAIL: Missing #{asset_type}: #{base_path}")`. Saat ada broken transfer terdeteksi, memancarkan `report_stress_progress("FAIL: Broken transfer to Map #{t[:target_map]} at #{t[:source]}")`. Format baris penyelesaian dipastikan `"DONE: Stress test completed: #{stats['total_maps_scanned']} maps, #{stats['exact_count']} exact assets, #{stats['case_mismatch_count']} case mismatches, #{stats['missing_count']} missing."`.
+  2. Report Fallback di RgssActivity (`RgssActivity.kt`): Saat `AssetAuditService.getAuditReport()` kosong atau `"{}"`, membaca dan mengembalikan langsung konten `audit_report.json` dari `getInputStateDirectory()` atau `game/audit_report.json`.
+  3. Tests: Unit test `asset_audit_test.rb` (57/57 tests passing) dan Android Gradle unit test `AssetAuditBridgeTest.kt` (3/3 tests passing, total 24 actionable tasks) lulus 100%.
+- [2026-09-26] Task 3 Plan Black Souls 2 (Missing Floor Tileset & Darkness Occlusion Detection) Selesai:
+  1. Map Layer 0 & 1 Tileset Inspection (`engines/rgss/src/asset_audit.rs`): Parsing map data Table 3D (`width x height x depth`) dan pemetaan range tile ID RPG Maker VX/VX Ace ke slot tileset (A1 2048..2815, A2 2816..4351, A3 4352..5887, A4 5888..7423, A5 1536..2047, B 1..255, C 256..511, D 512..767, E 768..1023). Jika tile ditempatkan pada Layer 0 atau Layer 1 namun berkas tileset pada `Graphics/Tilesets/` tidak ada di disk, emisi finding `CMP_AUD_REQUIRED_REFERENCE_MISSING`: `"Map {map_id} Layer {layer} has {count} tiles referencing missing tileset '{tileset_name}'; floor/walls will render transparent/black"`.
+  2. Subtractive Fog Occlusion Tag Detection (`engines/rgss/src/asset_audit.rs`): Memeriksa note tag map terhadap pola `==マップフォグ.*\[.*,.*,(\d+),.*,2\]==`. Jika Z-layer < 32 (di bawah layer karakter), emisi warning `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`: `"Map {map_id} has subtractive fog Plane at Z={z} (below character layer Z=32); may cause black occlusion under OpenGL ES"`.
+  3. Tileset Fallback Pattern & Diagnostics (`runtimepack_bootstrap.rb`, `runtimepack_asset_audit.rb`): Di `Cache.normal_bitmap` dan `Bitmap.new`, saat tileset gagal dimuat (`path.include?("Graphics/Tilesets/")`), catat event audit `TILESET_FALLBACK_DUMMY` dengan pesan `"RTP tileset missing; Layer 0/1 map tiles will render transparent/black"`, serta hasilkan fallback bitmap 512x384 dengan pola checkered grid gelap (24, 24, 28) dan (40, 40, 46) 32x32 agar sampling tile tidak menghasilkan void transparan total.
+  4. Tests: 23/23 tests `rgss_asset_audit_test`, 50/50 unit tests Ruby `asset_audit_test.rb`, 100/100 tests `input_hook_test.rb`, dan 239/239 cargo tests workspace lulus 100%.
+- [2026-09-26] Task 2 Plan Black Souls 2 (Font & Glyph Coverage Audit + CJK Font Provisioning) Selesai:
+  1. Font Bundling: Menyalin `VL-Gothic-Regular.ttf` ke `android/shell/app/src/main/assets/fonts/VL-Gothic-Regular.ttf`.
+  2. Build Generator (`core/src/build_plan/generator.rs`): Menyalin `assets/fonts` ke Android project output `app/src/main/assets/fonts`.
+  3. Gpack Extractor (`GpackExtractor.kt`): Mengekstrak fallback CJK font `fonts/VL-Gothic-Regular.ttf` ke `<destDir>/Fonts/` jika folder `Fonts/` belum ada atau kosong.
+  4. Font Substitutions (`GpackExtractor.kt`): Mengarahkan `defaultFontSubs` (`"UmePlus Gothic"`, `"VL PGothic"`, `"MS Gothic"`, `"MS Mincho"`) ke `"VL Gothic"`.
+  5. RGSS Static Asset Audit (`engines/rgss/src/asset_audit.rs`): Memindai teks dialog/event map (code 401, 102, 108/408, 355/655), entitas database, dan Ruby scripts (`Data/Scripts.*`) untuk tanda petik Jepang (`「`, `」`), pungtuasi CJK, dan font declarations (`Font.default_name`, `VL Gothic`, `UmePlus Gothic`). Jika terdeteksi namun `<source>/Fonts/` kosong/tidak ada, mengemisikan `CMP_AUD_REQUIRED_REFERENCE_MISSING` fail-closed.
+  6. Runtime Font Probe (`runtimepack_asset_audit.rb`): Menambahkan `probe_fonts!` untuk memverifikasi ketersediaan font via `Font.exist?` dan mencatat event `FONT_FALLBACK_LIBERATION_SANS` saat font tidak ditemukan.
+  7. Verification: 21/21 integration tests `rgss_asset_audit_test`, 39/39 integration tests `build_test`, 31/31 unit tests Ruby `asset_audit_test.rb`, dan 24 Gradle Android unit tasks lulus 100%.
+- [2026-09-26] Task 1 Plan Black Souls 2 (Probe Asset Discovery & Media Filter Fix) Selesai:
+  1. Build-time generator (`core/src/build_plan/generator.rs`) dan `cli/src/main.rs`: menyalin `asset-dependency-graph.json` dan `asset-audit-report.json` ke APK assets (`src/main/assets/`).
+  2. `AssetProbeRunner.kt`: mendukung pemuatan `asset-dependency-graph.json` langsung dari Android assets via `Context.assets` (fallback disk).
+  3. `AssetProbeRunner.kt`: fallback directory discovery strictly memfilter file non-media (`.bin`, `.rb`, `.txt`, `.json`, `.tmp`, `.bak`, `.ds_store`, `.gitignore`, `.gpack_extracted`) dan hanya mengizinkan resource/media valid (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.ogg`, `.wav`, `.mp3`, `.m4a`, `.webm`, `.mp4`, `.ttf`, `.otf`, `.woff`, `.efkefc`, `.rxdata`, `.rvdata`, `.rvdata2`).
+  4. Stage 4: hanya mengemisikan `DECODE_SUCCESS` untuk berkas gambar (`isImageExtension(relPath)` yang lolos decode bitmap); berkas media non-gambar (audio, fonts, data) mengemisikan `FILE_READABLE`.
+  5. Integration & Unit Tests: `test_emit_project_packages_asset_dependency_graph` di `tests/integration/build_test.rs` (38/38 passing) dan 2 test baru di `AssetProbeRunnerTest.kt` (10/10 passing). Seluruh Gradle unit tests dan Cargo tests lulus 100%.
+- [2026-09-25] Plan 4 Task 3 (Sampled & Exhaustive Runtime Probe Engine with Checkpoints + Fix Round 1 & Polish) Selesai:
+  1. Review Polish: Dynamic scaling `maxPollCount` (260 polls / ~65s untuk exhaustive probe & stress test vs 60 polls / 15s untuk sampled) di `diagnostic_suite.js` (byte-for-byte identical, SHA-256: `A90BA6CA0C50C8D983F857184E717AB0324D12DC4CBE985F13A467CA9FFD84F5`), pembatasan retry timer hook di `runtimepack_asset_audit.js` (max 100 attempts / 5s), evaluasi `finalOutcome = INDETERMINATE` untuk probe 0 aset, dan auto-delete `probe_checkpoint.json` saat probe tuntas sukses.
+  2. Fix Round 1: Standardisasi path output probe ke `filesDir/runtime-state/audit/` (`probe_checkpoint.json`, `runtime-validation-report.json`, `combined-validation-summary.json`), dukungan packaging `game/` subdirectory di `AssetAuditService.startAudit()`, penambahan `is_complete` ke schema `runtime-validation-report.schema.json`, penggantian fixed mark buffer pada `DefaultBitmapProbeDecoder` dengan `readBytes()` + `decodeByteArray()`, thread executor daemon dengan uncaught exception handler di `AssetAuditService.kt`, update `doneEv` message mencerminkan failure count/status, dan pencegahan inflasi live counter pada event sintetis `asset_path = "root"`.
+  3. Implementasi `AssetProbeRunner.kt`: probe mode `SAMPLED` dan `EXHAUSTIVE`, deterministik per kategori aset, sequential decode dengan `Bitmap.recycle()`, crash checkpointing ke `filesDir/runtime-state/audit/probe_checkpoint.json`, auto-resume dari checkpoint, bounded timeout, dan clean cancellation.
+  4. Pembuatan JSON schemas: `schemas/runtime-validation-report.schema.json` dan `schemas/combined-validation-summary.schema.json` serta persistensi atomik kedua laporan di `filesDir/runtime-state/audit/`.
+  5. Integrasi Diagnostic Suite overlay: tab di-rename menjadi "Asset Audit & Probe", penambahan tombol `[ Run Sampled Probe ]` dan `[ Run Exhaustive Probe ]`, counter live otentik (Scanned, Valid, Missing, Fallback), dan integrasi `combined_validation_summary` ke dalam ekspor bug report.
+  6. Dokumentasi kanonikal diperbarui di `Docs/TEST_PLAN.md` (Section 16.4) dan `Docs/RUNTIME_CONTRACT.md` (Section 11).
+  7. Unit tests lulus: `AssetProbeRunnerTest.kt` (8 test cases), `diagnostic_suite.test.js` (12 test cases), seluruh 67 unit test Android Gradle, dan seluruh 210 cargo test workspace.
+- [2026-09-25] Plan 4 Task 2 (Multi-Engine Loader Instrumentation & Activity Bridges) Selesai:
+  1. RGSS loader instrumentation: `runtimepack_asset_audit.rb`, `runtimepack_bootstrap.rb` dummy fallback 32x32, audio suppression.
+  2. Web loader instrumentation: `runtimepack_asset_audit.js` intercepting `ImageManager`, `AudioManager`, `Graphics.playVideo`.
+  3. Activity bridges: `RgssActivity` & `WebActivity` expose audit methods.
+  4. Build plan generator packaging scripts into output project assets.
+- [2026-09-25] Plan 4 Task 1 (Runtime Audit Protocol, Native VFS Evidence & In-Game Overlay Cleanup + Fix Round 1) Selesai:
+  1. Implementasi model data domain audit runtime di `AssetAuditModels.kt`: `RuntimeAuditStage`, `RuntimeAuditOutcome`, `RuntimeAuditEvent`, dan `RuntimeAuditReport` dengan serializer JSON mandiri.
+  2. Implementasi host service `AssetAuditService.kt`: antrean bounded FIFO 5000 event, ID sequence atomik (`AtomicLong`), reduksi outcome otomatis fail-closed, invalidasi cache pada `recordEvent()`, method bridge `getAuditReport()`, dan persistensi atomik laporan di `filesDir/runtime-state/audit/runtime-audit-report.json`.
+  3. Instrumentasi VFS `VfsResourceInterceptor.kt`: pencatatan tunggal terotorisasi untuk `FILE_EXISTS` & `FILE_READABLE` saat aset disajikan, dan emisi event terminal `FILE_EXISTS` + `FAIL` + `PLACEHOLDER_SUBSTITUTED` saat 404 image/audio fallback aktif (deduplikasi dengan mencopot pencatatan redundan di `GpackStreamReader.kt`).
+  4. Pembersihan total fake progress dan peniadaan premature completion di `diagnostic_suite.js`: event `PASS` tidak menghentikan audit, kegagalan aset (`FAIL` / fallback) dicatat dan dihitung tanpa mengaborsi polling, penyelesaian audit hanya via sinyal eksplisit `DONE`, mapping nama canonical stage ke UI label, dan query bridge via `getAuditEvents(lastEventSeq)`.
+  5. Sinkronisasi identik 100% byte-for-byte `diagnostic_suite.js` antara Android assets dan `preview/` (SHA-256: `F0F7F3BDAFC6F781670D05683676BABF061B747897724FBDA95CB22F6595D1F4`).
+  6. Unit test Android `AssetAuditServiceTest.kt` dan `VfsResourceInterceptorTest.kt` lulus via Gradle (`testDebugUnitTest`), 9 unit tests Node `diagnostic_suite.test.js` lulus, dan seluruh 198 cargo tests workspace lulus 100%.
 - [2026-09-24] Eksekusi Plan 1 (Deep Asset Audit Foundation) Selesai & Merge ke `master`:
   1. Kontrak domain audit engine-neutral & Dependency Graph (`core/src/asset_audit/mod.rs`, `graph.rs`, `schemas/asset-audit-report.schema.json`).
   2. Auditor registry dengan panic-containment & fail-closed behavior saat adapter belum tersedia (`CMP-AUD-001`).

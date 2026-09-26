@@ -1,5 +1,6 @@
 use runtimepack_core::compatibility::AnalyzerRegistry;
 use runtimepack_core::detection::DetectorRegistry;
+use runtimepack_core::diagnostics::{DiagnosticCode, DiagnosticSeverity};
 use runtimepack_core::domain::{CompatibilityStatus, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_engine_rgss::{RgssAnalyzer, RpgMakerVxAceDetector};
@@ -226,5 +227,67 @@ fn test_rpgmaker_mz_root_nwjs_wrapper_normalizes_desktop_dlls() {
             .iter()
             .any(|i| i.code == "CMP-DESKTOP-EXCLUDED"),
         "Desktop runner DLLs should emit CMP-DESKTOP-EXCLUDED info diagnostics"
+    );
+}
+
+#[test]
+fn test_renpy_desktop_wrapper_dlls_excluded_and_not_fatal() {
+    use runtimepack_core::compatibility::Analyzer;
+    use runtimepack_core::detection::Detector;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "runtimepack_renpy_desktop_dll_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    std::fs::create_dir_all(temp_dir.join("game")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("renpy")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("lib/py3-windows-x86_64")).unwrap();
+
+    std::fs::write(temp_dir.join("renpy/__init__.py"), "version = \"8.2.0\"").unwrap();
+    std::fs::write(temp_dir.join("game/script.rpy"), "label start:\n    return\n").unwrap();
+    std::fs::write(temp_dir.join("game/options.rpy"), "define config.name = 'Test'\n").unwrap();
+
+    std::fs::write(temp_dir.join("lib/py3-windows-x86_64/python3.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("lib/py3-windows-x86_64/python310.dll"), b"MZ").unwrap();
+    std::fs::write(temp_dir.join("lib/py3-windows-x86_64/vcruntime140.dll"), b"MZ").unwrap();
+
+    let idx = GameSourceIndex::build(&temp_dir).unwrap();
+    let candidate = runtimepack_engine_renpy::RenPyDetector.probe(&idx);
+    assert_eq!(candidate.engine, EngineId::RenPy);
+
+    let desc = runtimepack_core::detection::EngineDescriptor {
+        id: candidate.engine,
+        confidence: candidate.confidence,
+        score: candidate.score,
+        evidence: candidate.evidence,
+        conflicts: candidate.conflicts,
+        detected_version: None,
+        overridden: false,
+    };
+
+    let analyzer = runtimepack_engine_renpy::RenPyAnalyzer;
+    let report = analyzer.analyze(&idx, &desc);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert_ne!(
+        report.status,
+        CompatibilityStatus::UnsupportedDependency,
+        "Ren'Py desktop wrapper DLLs must not mark the project as UnsupportedDependency"
+    );
+    assert!(
+        !report.issues.iter().any(|i| i.code == DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY),
+        "Desktop wrapper DLLs should not emit fatal CMP-102"
+    );
+    assert!(
+        report.issues.iter().any(|i| {
+            i.code == DiagnosticCode::CMP_DESKTOP_EXCLUDED
+                && i.severity == DiagnosticSeverity::Warning
+        }),
+        "Desktop wrapper DLLs must emit CMP-106 (CMP_DESKTOP_EXCLUDED) with DiagnosticSeverity::Warning"
     );
 }

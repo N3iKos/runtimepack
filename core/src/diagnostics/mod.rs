@@ -56,6 +56,7 @@ impl DiagnosticCode {
     pub const CMP_NODE_NATIVE_MODULE: &'static str = "CMP-103";
     pub const CMP_NODE_UNSUPPORTED_REQUIRE: &'static str = "CMP-104";
     pub const CMP_PYTHON_NATIVE_EXTENSION: &'static str = "CMP-105";
+    pub const CMP_DESKTOP_EXCLUDED: &'static str = "CMP-106";
     pub const CMP_AUDITOR_UNAVAILABLE: &'static str = "CMP-AUD-001";
     pub const CMP_AUD_REQUIRED_REFERENCE_MISSING: &'static str = "CMP-AUD-002";
     pub const CMP_AUD_OPTIONAL_REFERENCE_MISSING: &'static str = "CMP-AUD-003";

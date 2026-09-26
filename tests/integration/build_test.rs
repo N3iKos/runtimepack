@@ -143,7 +143,6 @@ fn audit_policy_never_bypasses_hard_blockers() {
     for code in [
         "SEC-101",
         DiagnosticCode::CNT_CORRUPTED_PACK,
-        DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
         DiagnosticCode::DET_AMBIGUOUS,
         DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED,
         DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY,
@@ -159,6 +158,60 @@ fn audit_policy_never_bypasses_hard_blockers() {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code.0, code);
     }
+}
+
+#[test]
+fn test_audit_policy_tyrano_legal_gate_not_hard_blocker() {
+    let tyrano_blocker = Diagnostic::error(
+        DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
+        "Tyrano packaging remains blocked by the TYRANO-LEGAL gate",
+    );
+    let decision = evaluate_audit_policy(
+        &audit_report(AuditOutcome::Fail),
+        true,
+        false,
+        &[tyrano_blocker],
+    );
+    assert!(
+        decision.is_allowed(),
+        "TYR-101 must not act as a hard blocker when --accept-audit-fail is supplied"
+    );
+}
+
+#[test]
+fn test_build_tyrano_with_accept_audit_fail_succeeds_without_tyr_101_block() {
+    let out_dir = test_temp_dir("tyrano-build-unblock");
+    let fixture = test_workspace_root().join("tests/fixtures/tyrano_min");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stderr.contains("Hard blockers cannot be bypassed"),
+        "Tyrano must not be rejected by hard blockers: {stderr}\n{stdout}"
+    );
+    assert!(
+        !stderr.contains("TYR-101"),
+        "TYR-101 must not appear in hard blocker errors on stderr: {stderr}\n{stdout}"
+    );
+    assert!(
+        output.status.success(),
+        "build for tyrano_min must succeed with audit override: {stderr}\n{stdout}"
+    );
+    assert!(out_dir.join("build-manifest.json").exists());
+    let _ = std::fs::remove_dir_all(&out_dir);
 }
 
 fn test_workspace_root() -> PathBuf {

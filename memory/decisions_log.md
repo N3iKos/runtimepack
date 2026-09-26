@@ -1,5 +1,136 @@
 # Decisions Log
 
+## [2026-09-26] Removal of Policy Hard Blockers for Tyrano (TYR-101) & Desktop Wrapper DLLs (CMP-106)
+**Keputusan:**
+1. Di `core/src/diagnostics/mod.rs`: Menambahkan konstanta `CMP_DESKTOP_EXCLUDED = "CMP-106"` dengan tingkat keparahan `DiagnosticSeverity::Warning`.
+2. Di `engines/renpy/src/scanner.rs`: Menambahkan helper `RenPyAnalyzer::is_desktop_wrapper_dll` untuk mengenali direktori runner desktop (`lib/py3-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, `py3-windows-x86_64/`, `lib/python`) dan system/runtime DLLs (`python3*.dll`, `vcruntime*.dll`, `msvcr*.dll`, `msvcp*.dll`, `ucrtbase.dll`, dll.). DLL ini dievaluasi sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), bukan fatal blocker `CMP_NATIVE_DLL_DEPENDENCY` (`Error`).
+3. Di `core/src/build_plan/audit_policy.rs` & `cli/src/main.rs`: Menghapus penambahan `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) ke dalam `hard_blockers`, menjadikannya notice informasional. Evaluasi audit policy kini menyaring `TYR_LEGAL_GATE_BLOCKED` sehingga penggunaan flag `--accept-audit-fail` / `--accept-audit-unknown` mengizinkan pembuatan paket build tanpa penolakan sepihak.
+**Alasan:** Mengadopsi prinsip compiler alih-alih policy enforcer kaku: alat build harus transparan mendiagnosis masalah, tetapi menghormati kehendak pengguna untuk memaketkan game saat flag override diberikan.
+**Dampak:** 249/249 unit dan integration tests di seluruh workspace Cargo lulus 100%.
+
+## [2026-09-26] Auto-RTP Build Packaging & Provenance Tracking
+**Keputusan:**
+1. Di `core/src/ingest/mod.rs`:
+   - `GameSourceIndex` diperluas dengan field `pub rtp_root: Option<PathBuf>` dan helper `pub fn rtp_path(&self) -> Option<&Path>`.
+   - `build_with_rtp` merekam canonical path dari RTP yang digunakan ke dalam `rtp_root`.
+2. Di `core/src/build_plan/mod.rs` & `schemas/build-manifest.schema.json`:
+   - Menambahkan field `pub rtp_source: Option<String>` pada `BuildManifest` dan `ProvenanceManifestEntry` (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
+   - Menyinkronkan schema JSON `build-manifest.schema.json` agar `rtp_source` diakui valid dan opsional di level manifest dan provenance.
+3. Di `cli/src/audit_command.rs` & `cli/src/main.rs`:
+   - `StaticAuditExecutionContext::index_source` dan `cmd_build` menggunakan `GameSourceIndex::build_with_auto_rtp(source, rtp_path)`.
+   - Menambahkan logging otomatis: `RTP resolved:   {} (auto-detected)` pada `runtimepack audit` dan `RTP source:    {}` pada `runtimepack build`.
+   - Mengisi `rtp_source` pada `BuildManifest` dan `ProvenanceManifestEntry` saat packaging.
+4. Di `tests/integration/build_test.rs`:
+   - Menambahkan test `test_build_auto_rtp_discovery_and_packaging` yang mengonfirmasi bahwa game dengan `RTP=RPGVXAce` di `Game.ini` otomatis menemukan RTP dan memaketkan aset yang hilang ke `game.pack` tanpa flag CLI `--rtp-path`, dan mencatat `rtp_source` pada manifest.
+**Alasan:** Memastikan build pipeline mandiri, tidak memerlukan copy aset manual, dan tetap mempertahankan transparansi build provenance mengenai aset eksternal yang di-bundle ke APK.
+**Dampak:** 41/41 tests `build_test`, 16/16 tests `asset_audit_cli_test`, dan 246/246 tests workspace Cargo lulus 100%.
+
+## [2026-09-26] Canonical RTP Discovery & GameSourceIndex Auto-Provisioning
+**Keputusan:**
+1. Di `core/src/ingest/rtp.rs` (diekspor melalui `core/src/ingest/mod.rs` & `core/src/lib.rs`):
+   - `find_system_rtp_path(rtp_name)`: Mendeteksi lokasi direktori RTP berdasarkan urutan presedensi:
+     a. Environment variable `{RTP_NAME}_RTP_PATH` (misal `RPGVXACE_RTP_PATH`).
+     b. Direktori repository lokal `runtimes/rtp/{rtp_name_lowercase}/` (dengan pengecekan alias `vxace`, `vx`, `xp`, `standard`).
+     c. Direktori Windows Common Files standar (`CommonProgramFiles(x86)`, `CommonProgramFiles`, `C:\Program Files (x86)\Common Files`, `C:\Program Files\Common Files` pada subfolder Enterbrain `RGSS3`, `RGSS2`, atau `RGSS`).
+     d. Windows Registry key `SOFTWARE\WOW6432Node\Enterbrain\...` dan `SOFTWARE\Enterbrain\...`.
+   - `parse_ini_rtp_name(ini_content)`: Mengekstrak deklarasi `RTP = ...` / `rtp = ...` / `RTP1 = ...` dari section `[Game]` pada `Game.ini`.
+2. Di `core/src/ingest/mod.rs`:
+   - `GameSourceIndex::build_with_auto_rtp(game_dir, explicit_rtp)`: Memprioritaskan `explicit_rtp` jika valid/ada di disk; jika tidak, mem-parse `Game.ini` untuk mendeteksi deklarasi RTP dan mencari jalurnya via `find_system_rtp_path`. Jika ditemukan, menggabungkan aset RTP secara virtual tanpa memutasi direktori sumber game asli.
+**Alasan:** Menghilangkan keharusan user/pengembang untuk menyalin ratusan megabyte aset RTP ke setiap folder game atau menambahkan argumen CLI manual `--rtp-path`, sekaligus memastikan folder game input tetap 100% immutable.
+**Dampak:** 16/16 tests `asset_audit_cli_test` dan 240+ tests workspace Cargo lulus 100%.
+
+## [2026-09-26] Subtractive Fog Plane Mitigations in OpenGL ES
+**Keputusan:**
+1. Di `runtimepack_bootstrap.rb`:
+   - Deklarasi kelas fallback `Plane` (`unless defined?(Plane)`) dengan method RGSS standar (`viewport`, `bitmap`, `visible`, `z`, `ox`, `oy`, `zoom_x`, `zoom_y`, `opacity`, `blend_type`, `color`, `tone`, `dispose`, `disposed?`).
+   - `RuntimePackCompatibility.install_plane_subtractive_fog_hooks`: Memasang interceptor pada `blend_type=`, `opacity=`, dan `z=` pada `Plane`:
+     - Ketika `blend_type == 2` (subtractive blending) dan `z < 32` (lapisan fog di bawah karakter Z=32):
+       - Membatasi nilai opacity maksimal ke limit (80 normal, atau 60 jika tileset lantai hilang/dummy).
+       - Mengemisikan notice `puts "[RuntimePack] Subtractive fog Plane mitigation: clamped opacity to ..."` dan mencatat riwayat mitigasi di `RuntimePackCompatibility.plane_mitigations`.
+     - Meng-intercept `Plane#opacity=` dan `Plane#z=` sehingga jika Z diturunkan atau opacity dinaikkan saat `blend_type == 2`, clamp opacity tetap terjaga.
+2. Di `asset_audit_test.rb`:
+   - Menambahkan Test 11 yang memverifikasi bahwa `Plane#blend_type = 2` dengan `z = 10` membatasi opacity ke <= 80, mencatat mitigation notice, menjaga clamp pada `opacity=` dan `z=`, serta mengizinkan opacity penuh saat `z >= 32` atau `blend_type = 0`.
+**Alasan:** Pada OpenGL ES di Android mobile, subtractive blending (`blend_type = 2`) pada Z-layer rendah (di bawah karakter Z=32) mengurangi nilai warna framebuffer secara agresif. Terlebih bila tileset lantai gelap atau mengandalkan fallback, hal ini menghapus pixel framebuffer hingga menjadi hitam pekat (pitch-black screen). Membatasi opacity ke <= 80 mencegah layar menjadi gelap gulita sembari mempertahankan efek kabut visual yang diinginkan pembuat game.
+**Dampak:** 88/88 tests `asset_audit_test.rb`, 100/100 tests `input_hook_test.rb`, 25/25 tests `cheat_runner_test.rb`, 27/27 tests `stress_test_and_diag_test.rb`, 27/27 tests Cargo `runtimepack-engine-rgss`, dan seluruh test JS lulus 100%.
+
+## [2026-09-26] Smart Autotile & Interactive Character Fallbacks in RGSS Bootstrap
+**Keputusan:**
+1. Di `runtimepack_bootstrap.rb` & `runtimepack_asset_audit.rb`:
+   - `RuntimePackCompatibility.create_tileset_fallback(name)`: Menghasilkan 512x384 bitmap berpola checkered gelap (RGB 40,40,40 dan 70,70,70) 32x32 dengan border halus 1px (RGB 30,30,30) di sekeliling tiap tile. Memastikan autotiles dan floor blits di RPG Maker XP/VX/Ace merender tekstur ubin nyata ketimbang void transparan / pitch-black.
+   - `RuntimePackCompatibility.create_character_fallback(path_or_name)`: Menghasilkan 128x128 3x4 multi-frame sprite sheet:
+     - Objek interaktif `!` (`!Flame`, `!Chest`, `!Door`): Mengisi tiap frame dengan visual yang jelas (pedestal brazier flame kuning emas untuk `!Flame`/Save, kotak kayu cokelat dengan gembok emas dan strip besi untuk `!Chest`, bingkai kayu berpintu dan pegangan kuningan untuk `!Door`, atau cyan marker box bertanda seru untuk objek `!` generik).
+     - Karakter standar tanpa `!`: Menghasilkan 128x128 3x4 sprite sheet dengan siluet slate humanoid (kepala berwajah/rambut, mata direksional sesuai arah hadap, torso beroutline, dan animasi langkah kaki).
+   - Mengarahkan `normal_bitmap`, `Bitmap.new`, dan `Cache` hook (`Cache.tileset`, `Cache.character`) untuk memanggil fallback ini dan mencatat `TILESET_FALLBACK_DUMMY` atau `CHARACTER_FALLBACK_DUMMY`.
+2. Di `asset_audit_test.rb`:
+   - Menambahkan Test 10 yang memverifikasi `create_tileset_fallback` menghasilkan 512x384 bitmap, serta `create_character_fallback` menghasilkan multi-frame bitmap > 32x32 untuk `!Flame`, `!Chest`, dan character standar.
+**Alasan:** Objek interaktif (Save point flame, peti harta karun, pintu) dan tileset lantai yang hilang dari folder game karena mengandalkan RTP tidak boleh menjadi tak kasat mata (invisible). Menyediakan fallback multi-frame bertekstur menjamin permainan tetap dapat dinavigasi dan dimainkan secara visual.
+**Dampak:** 75/75 tests `asset_audit_test.rb`, 100/100 tests `input_hook_test.rb`, dan seluruh test suite RGSS/JS lulus 100%.
+
+## [2026-09-26] Non-Intrusive RTP Ingestion via Virtual Source Indexing (`--rtp-path`)
+**Keputusan:**
+1. Di `core/src/ingest/mod.rs`:
+   - Menambahkan `pub fn build_with_rtp(game_dir: &Path, rtp_dir: Option<&Path>) -> Result<Self, IngestError>`.
+   - Mengembangkan `IndexedFile` dengan `pub source_root: Option<PathBuf>` dan `real_path(&default_root)`. Berkas yang berasal dari RTP diberi `source_root = Some(canonical_rtp)`.
+   - Jika berkas RTP belum ada di `game_dir` (pencocokan case-folded), berkas dimasukkan ke `files` map tanpa menyentuh atau menduplikasi file di `game_dir`.
+2. Di `pack/src/gpack.rs` & `pack/src/lib.rs`:
+   - Menambahkan `pack_from_index` dan `pack_from_index_with_options` yang membaca berkas langsung dari `p.file_info.real_path(&index.root_path)`.
+3. Di `cli/src/main.rs` & `cli/src/audit_command.rs`:
+   - Menambahkan argumen `--rtp-path <DIR>` ke subperintah `audit` dan `build`.
+   - `build` memaketkan seluruh aset terindeks (aset game + aset RTP yang digabung) ke dalam kontainer `game.pack`.
+**Alasan:** Game RPG Maker (seperti *Black Souls*) mengandalkan aset standar RTP yang tidak disertakan dalam folder game, menyebabkan ribuan missing asset errors dan missing tileset/sprite void rendering. Menyediakan mekanisme penambahan aset RTP secara non-intrusif pada saat build menjaga folder game tetap 100% immutable.
+**Dampak:** Audit statis dan build packaging dapat menyelesaikan aset RTP eksternal secara seamless; 10/10 tests `asset_audit_cli_test`, 40/40 tests `integration_build`, dan 240+ workspace tests lulus 100%.
+**Keputusan:**
+1. Di `diagnostic_suite.js` (dan tersinkronisasi 100% byte-for-byte di `preview/diagnostic_suite.js`):
+   - Pada baris `MAP:` dan `DATABASE:`, jangan menginkremen `scannedCount` atau `validCount`; hanya perbarui status teks dan progress bar.
+   - Pada baris `FAIL:` / `ERROR:`, inkremen `failureCount++`, `missingCount++`, `scannedCount++`, perbarui UI counters seketika, dan ubah badge menjadi `ISSUES (failureCount)` berlatar merah `#dc2626`.
+   - Pada baris `DONE:`, ekstrak angka statistik otoritatif via regex (`(\d+)\s+maps.*?(\d+)\s+exact assets.*?(\d+)\s+case mismatches.*?(\d+)\s+missing/i`) atau fallback ke `getAuditReport()` jika tidak cocok; perbarui `validCount = exact`, `missingCount = missing`, `scannedCount = exact + case + missing`, `failureCount = missing + case`.
+   - Jika `failureCount > 0` atau `missingCount > 0`: kunci badge ke `FAILED` (`#dc2626`), tampilkan status `"Audit Complete with N missing asset(s)!"`, dan catat log berkategori `WARN`, bukan `SUCCESS`.
+2. Di `diagnostic_suite.test.js`: tambahkan unit test Test 13 yang memvalidasi `MAP:`, `FAIL:`, dan `DONE:`.
+**Alasan:** Mencegah progress bar `MAP:` menggelembungkan counter valid aset secara palsu, serta memberantas badge hijau `COMPLETED` dan log `[SUCCESS]` palsu saat masih ada aset game yang hilang.
+**Dampak:** Angka aset di UI Diagnostic Suite akurat 100% dengan hasil audit otoritatif, dan status audit mematuhi fail-closed reporting; seluruh 13 test JS unit tests lulus.
+
+## [2026-09-26] Real-Time Stress Test Progress Streaming & RgssActivity Report Fallback
+**Keputusan:**
+1. Di `runtimepack_bootstrap.rb`: di dalam `run_stress_test`, emisi progress real-time `report_stress_progress("FAIL: Missing #{asset_type}: #{base_path}")` seketika saat `verify_asset` mendeteksi file hilang pada disk, dan `report_stress_progress("FAIL: Broken transfer to Map #{t[:target_map]} at #{t[:source]}")` saat target map ID tidak ditemukan di corpus peta. Memformat pesan akhir menjadi `"DONE: Stress test completed: #{stats['total_maps_scanned']} maps, #{stats['exact_count']} exact assets, #{stats['case_mismatch_count']} case mismatches, #{stats['missing_count']} missing."`.
+2. Di `RgssActivity.kt`: saat `AssetAuditService.getAuditReport()` mengembalikan string kosong atau `"{}"`, lakukan fallback membaca berkas `audit_report.json` dari `getInputStateDirectory()` atau subdirektori `game/`.
+**Alasan:** Stress test RGSS sebelumnya hanya mencatat missing assets ke array tanpa streaming real-time ke UI console, dan Diagnostic Suite tidak dapat mengambil laporan akhir jika tidak ada event audit in-memory di `AssetAuditService`.
+**Dampak:** Diagnostic Suite dapat menampilkan progres kegagalan secara live saat pemindaian berlangsung dan mengambil laporan audit disk dengan andal; 57 unit tests Ruby dan 3 bridge tests Android lulus 100%.
+
+## [2026-09-26] Map Layer 0/1 Missing Floor Tileset Audit, Subtractive Fog Occlusion Warning & Checkered Tileset Fallback
+**Keputusan:**
+1. Di `RgssAssetAuditor` (`engines/rgss/src/asset_audit.rs`): saat memproses data map `data[x, y, z]` (3D Table width x height x depth), pindai tile IDs pada Layer 0 (`z=0`) dan Layer 1 (`z=1`). Petakan range ID RPG Maker VX/VX Ace ke 9 slot tileset (A1 2048..2815, A2 2816..4351, A3 4352..5887, A4 5888..7423, A5 1536..2047, B 1..255, C 256..511, D 512..767, E 768..1023). Jika tile ditempatkan namun berkas tileset pada `Graphics/Tilesets/` tidak ada, emisi finding `CMP_AUD_REQUIRED_REFERENCE_MISSING`: `"Map {map_id} Layer {layer} has {count} tiles referencing missing tileset '{tileset_name}'; floor/walls will render transparent/black"`.
+2. Di `RgssAssetAuditor`: periksa note tag map (`@note`) terhadap pola `==マップフォグ.*\[.*,.*,(\d+),.*,2\]==`. Jika Z-layer < 32 (subtractive fog di bawah layer karakter Z=32), emisi warning `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`: `"Map {map_id} has subtractive fog Plane at Z={z} (below character layer Z=32); may cause black occlusion under OpenGL ES"`.
+3. Di `runtimepack_bootstrap.rb` dan `runtimepack_asset_audit.rb`: saat bitmap tileset (`path.include?("Graphics/Tilesets/")`) gagal dimuat, catat event audit dengan `fallback_action = "TILESET_FALLBACK_DUMMY"` dan pesan `"RTP tileset missing; Layer 0/1 map tiles will render transparent/black"`. Sediakan fallback bitmap 512x384 berpola checkered grid gelap (24, 24, 28) dan (40, 40, 46) 32x32 agar sampling UV tidak menghasilkan void transparan 100%.
+**Alasan:** Map lantai/dinding RPG Maker VX Ace yang mereferensikan RTP tileset hilang (seperti `Inside_A2`) jatuh ke bitmap transparan, dan kombinasi dengan Plane kabut subtraktif (`blend == 2`) pada Z rendah menyebabkan layar game di OpenGL ES menjadi gelap gulita (pitch-black screen).
+**Dampak:** Audit statis mendeteksi secara dini map yang kehilangan tileset lantai/dinding serta potensi oklusi kabut subtraktif; runtime menyediakan fallback tekstur netral dan diagnostik akurat; 23 tests `rgss_asset_audit_test`, 50 unit tests Ruby, dan 239 cargo tests lulus 100%.
+
+## [2026-09-26] Font & Glyph Coverage Audit + CJK Font Provisioning (Resolve Mojibake)
+**Keputusan:**
+1. Menyertakan font CJK terbuka `VL-Gothic-Regular.ttf` ke `android/shell/app/src/main/assets/fonts/` dan memaketkannya ke aset Android project pada generator build-time (`generator.rs`).
+2. Di `GpackExtractor.kt`: jika direktori `Fonts/` pada storage game tidak ada atau tidak memiliki berkas font (`.ttf`/`.otf`/`.ttc`), otomatis buat direktori `Fonts/` dan salin `VL-Gothic-Regular.ttf` dari aset aplikasi.
+3. Memperbaiki `defaultFontSubs` di `GpackExtractor.kt` agar font umum RPG Maker (`UmePlus Gothic`, `VL PGothic`, `MS Gothic`, `MS Mincho`) dipetakan ke `"VL Gothic"`, bukan ke `"Noto Sans CJK TC"` phantom yang tidak ada di Android.
+4. Di `RgssAssetAuditor` (`engines/rgss/src/asset_audit.rs`): memindai skrip game, dialog event map, pilihan, komentar, dan entitas database terhadap karakter tanda petik Jepang (`「`, `」`), pungtuasi CJK, dan permintaan font. Jika terdeteksi namun direktori `Fonts/` di sumber game tidak memuat berkas font, emisi finding `CMP_AUD_REQUIRED_REFERENCE_MISSING` fail-closed.
+5. Di `runtimepack_asset_audit.rb`: menambahkan `probe_fonts!` untuk memeriksa `Font.exist?` terhadap font aktif dan mencatat event `FONT_FALLBACK_LIBERATION_SANS` saat font tidak ditemukan.
+**Alasan:** Game RPG Maker berbahasa Jepang (seperti *Black Souls*) merender tanda petik `「`, `」` dan glyph CJK sebagai kotak kosong (`□`) jika font desktop Windows (MS Gothic dsb.) tidak tersedia dan runtime mkxp-z jatuh ke Liberation Sans Android yang tidak memiliki glyph CJK.
+**Dampak:** Eliminasi total rendering glyph mojibake `□`; font CJK otomatis terpasang di runtime RGSS; deteksi statis fail-closed terhadap missing font; seluruh unit & integration test lulus 100%.
+
+## [2026-09-26] Probe Asset Discovery Fix: APK Asset Graph Packaging & Strict Media Filtering
+**Keputusan:**
+1. Menyalin `asset-dependency-graph.json` dan `asset-audit-report.json` ke `src/main/assets/` aplikasi Android saat eksekusi `AndroidProjectGenerator::emit_project_with_source` dan CLI build.
+2. Membaca `asset-dependency-graph.json` langsung dari Android assets via `Context.assets` (dengan fallback ke `gameDir` / `auditDir`) pada `AssetProbeRunner.kt` sehingga probe mengaudit dependensi aset riil hasil analisis statis.
+3. Mengetatkan filter fallback directory discovery di `AssetProbeRunner.kt`: mengecualikan secara tegas berkas non-media (`.bin`, `.rb`, `.txt`, `.json`, `.tmp`, `.bak`, `.ds_store`, `.gitignore`, `.gpack_extracted`) dan hanya mengizinkan ekstensi media/resource valid (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.ogg`, `.wav`, `.mp3`, `.m4a`, `.webm`, `.mp4`, `.ttf`, `.otf`, `.woff`, `.efkefc`, `.rxdata`, `.rvdata`, `.rvdata2`).
+4. Membatasi status `DECODE_SUCCESS` pada Stage 4 hanya untuk berkas gambar riil (`isImageExtension(relPath)` yang lolos verifikasi bitmap decoder). Berkas resource non-gambar (audio, font, data archive) diverifikasi keterbacaannya (`read() > 0`) dan diberi status `FILE_READABLE`.
+**Alasan:** Mencegah anomali laporan probe palsu pada game (*Black Souls 2*) yang mengaudit 996 file non-media internal (`rp_input_state.bin`, `runtimepack_asset_audit.rb`, `script_165_Main.txt`) dan melabelinya secara salah sebagai `Decode Succeeded`.
+**Dampak:** Eliminasi total probe audit palsu pada file non-media; grafik dependensi statis terdistribusi ke APK assets; 38 integration build tests dan 10 unit tests Android lulus 100%.
+
+## [2026-09-25] Tyrano Asset Audit: Zero-Disk ASAR In-Memory Indexing & Decoupled Legal Gate Finding
+**Keputusan:**
+1. Mendukung paket Electron ASAR (`resources/app.asar`) pada `TyranoAssetAuditor` dengan mengekspos API bounded metadata/read pada `AsarArchive` (`read_file_bytes_bounded`, `read_file_string_bounded`, `get_file`, `total_size_bytes`) dan menyusun `GameSourceIndex` virtual tanpa pernah mengekstrak arsip ke disk.
+2. Memisahkan *technical outcome* audit (misalnya `PASS` saat semua referensi skenario/aset valid) dari status legal gate `TYRANO-LEGAL` dengan mengemisikan diagnostik `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) berspesifikasi `FindingSeverity::Info` dan `FindingDisposition::Informational`.
+3. Membangun scenario tokenizer multi-pass untuk file `.ks` yang mengindeks seluruh label (`*label`) pada Pass 1 dan menyelesaikan jump/call target storage serta label target pada Pass 2, sekaligus mempertahankan provenance 1-based baris dan kolom.
+**Alasan:** Direktori input game user wajib 100% immutable (pantang mengekstrak ASAR ke storage sumber), dan audit statis bertujuan mengevaluasi integritas aset teknis secara deterministik tanpa menutupi kewajiban kepatuhan lisensi redistribusi TyranoScript.
+**Dampak:** Game Tyrano berbasis unpacked folder maupun paket Electron `.asar` dapat diaudit statis secara instan dan aman. Seluruh 18 integration tests Tyrano dan 190 tests workspace lulus 100%.
+
 ## [2026-09-24] Centralized Panel Registry, Ghost Click Suppression, dan Matte Theme Stability
 **Keputusan:**
 1. Menyediakan registry modal terpusat `window.RuntimePackModalRegistry` (berbasis `Set`) dengan helper universal `setModalState(id, isOpen)` dan `registerModal(id, isOpen)` di `vpad.js`.

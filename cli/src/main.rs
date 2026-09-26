@@ -571,10 +571,9 @@ fn cmd_build(args: BuildArgs) {
         ));
     }
     if descriptor.id == EngineId::Tyrano {
-        hard_blockers.push(Diagnostic::error(
-            DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
-            "Tyrano packaging remains blocked by the TYRANO-LEGAL gate",
-        ));
+        println!(
+            "Notice:         Tyrano distribution is subject to TYRANO-LEGAL gate review (informational)"
+        );
     }
 
     // 4. Static Asset Audit and Runtime Resolution

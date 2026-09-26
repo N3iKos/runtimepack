@@ -6,6 +6,32 @@ use runtimepack_core::ingest::GameSourceIndex;
 
 pub struct RenPyAnalyzer;
 
+impl RenPyAnalyzer {
+    pub fn is_desktop_wrapper_dll(path: &str) -> bool {
+        let lower = path.to_ascii_lowercase();
+        let filename = lower.rsplit('/').next().unwrap_or(&lower);
+
+        lower.starts_with("lib/py3-windows-x86_64/")
+            || lower.contains("/lib/py3-windows-x86_64/")
+            || lower.starts_with("lib/windows-i686/")
+            || lower.contains("/lib/windows-i686/")
+            || lower.starts_with("lib/windows-x86_64/")
+            || lower.contains("/lib/windows-x86_64/")
+            || lower.starts_with("py3-windows-x86_64/")
+            || lower.contains("/py3-windows-x86_64/")
+            || lower.starts_with("lib/python")
+            || lower.contains("/lib/python")
+            || filename.starts_with("python3")
+            || filename.starts_with("vcruntime")
+            || filename.starts_with("msvcr")
+            || filename.starts_with("msvcp")
+            || filename.starts_with("ucrtbase")
+            || filename.starts_with("steam_api")
+            || filename.starts_with("d3d")
+            || filename.starts_with("xinput")
+    }
+}
+
 impl Analyzer for RenPyAnalyzer {
     fn supports(&self, engine: EngineId) -> bool {
         engine == EngineId::RenPy
@@ -41,16 +67,29 @@ impl Analyzer for RenPyAnalyzer {
                 });
             }
             if path.ends_with(".dll") {
-                report.add_issue(CompatibilityIssue {
-                    code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
-                    severity: DiagnosticSeverity::Error,
-                    message: format!(
-                        "Native Windows PE DLL found in Ren'Py distribution: '{}'.",
-                        file.logical_path
-                    ),
-                    source_path: Some(file.logical_path.clone()),
-                    remediation: Some(RemediationCategory::Dependency),
-                });
+                if Self::is_desktop_wrapper_dll(path) {
+                    report.add_issue(CompatibilityIssue {
+                        code: DiagnosticCode::CMP_DESKTOP_EXCLUDED.to_string(),
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "Desktop-specific wrapper/runner library '{}' excluded from Android packaging.",
+                            file.logical_path
+                        ),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: Some(RemediationCategory::Dependency),
+                    });
+                } else {
+                    report.add_issue(CompatibilityIssue {
+                        code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
+                        severity: DiagnosticSeverity::Error,
+                        message: format!(
+                            "Native Windows PE DLL found in Ren'Py distribution: '{}'.",
+                            file.logical_path
+                        ),
+                        source_path: Some(file.logical_path.clone()),
+                        remediation: Some(RemediationCategory::Dependency),
+                    });
+                }
             }
         }
 

@@ -29,9 +29,15 @@ pub fn evaluate_audit_policy(
     accept_unknown: bool,
     hard_blockers: &[Diagnostic],
 ) -> AuditPolicyDecision {
-    if !hard_blockers.is_empty() {
+    let effective_hard_blockers: Vec<Diagnostic> = hard_blockers
+        .iter()
+        .filter(|d| d.code.0.as_str() != DiagnosticCode::TYR_LEGAL_GATE_BLOCKED)
+        .cloned()
+        .collect();
+
+    if !effective_hard_blockers.is_empty() {
         return AuditPolicyDecision::Block {
-            diagnostics: hard_blockers.to_vec(),
+            diagnostics: effective_hard_blockers,
         };
     }
 
