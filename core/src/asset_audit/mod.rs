@@ -1148,6 +1148,7 @@ mod tests {
             files: HashMap::new(),
             total_size_bytes: 0,
             source_hash: String::new(),
+            rtp_root: None,
         }
     }
 

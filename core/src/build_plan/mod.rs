@@ -173,6 +173,8 @@ pub struct BuildManifest {
     pub flavor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audit: Option<AuditManifestEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtp_source: Option<String>,
     pub app: AppConfig,
     pub engine: EngineManifestEntry,
     pub runtime: RuntimeManifestEntry,
@@ -241,5 +243,7 @@ pub struct ProvenanceManifestEntry {
     pub flavor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audit: Option<AuditManifestEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtp_source: Option<String>,
     pub toolchain: ToolchainProvenance,
 }

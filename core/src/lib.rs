@@ -9,6 +9,7 @@ pub mod provenance;
 pub mod runtime_registry;
 
 pub use domain::*;
+pub use ingest::{find_system_rtp_path, rtp};
 
 #[cfg(test)]
 mod tests {

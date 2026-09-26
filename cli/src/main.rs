@@ -508,13 +508,16 @@ fn cmd_build(args: BuildArgs) {
     println!("Output target: {}", output.display());
 
     // 1. Ingest
-    let source_index = match GameSourceIndex::build_with_rtp(path, rtp_path) {
+    let source_index = match GameSourceIndex::build_with_auto_rtp(path, rtp_path) {
         Ok(idx) => idx,
         Err(e) => {
             eprintln!("[ING-101] Failed to ingest source: {}", e);
             std::process::exit(1);
         }
     };
+    if let Some(resolved_rtp) = source_index.rtp_path() {
+        println!("RTP source:    {}", resolved_rtp.display());
+    }
     println!(
         "Indexed {} files ({:.2} MB, source_hash: {})",
         source_index.file_count(),
@@ -807,9 +810,9 @@ fn cmd_build(args: BuildArgs) {
             }
         }
     } else {
-        let normalized_index = match GameSourceIndex::build_with_rtp(
+        let normalized_index = match GameSourceIndex::build_with_auto_rtp(
             &content_source_dir,
-            rtp_path,
+            source_index.rtp_path().or(rtp_path),
         ) {
             Ok(idx) => idx,
             Err(e) => {
@@ -862,6 +865,7 @@ fn cmd_build(args: BuildArgs) {
         outcome: audit_report.outcome,
         overrides: audit_overrides,
     };
+    let rtp_source_str = source_index.rtp_path().map(|p| p.to_string_lossy().to_string());
     let manifest = BuildManifest {
         schema_version: 1,
         runtimepack_version: "0.1.0".to_string(),
@@ -869,6 +873,7 @@ fn cmd_build(args: BuildArgs) {
         build_timestamp: Utc::now().to_rfc3339(),
         flavor: Some(normalized_flavor.clone()),
         audit: Some(audit_manifest.clone()),
+        rtp_source: rtp_source_str.clone(),
         app: AppConfig {
             name: app_name.clone(),
             package: pkg_id.clone(),
@@ -906,6 +911,7 @@ fn cmd_build(args: BuildArgs) {
             apk_hash: None,
             flavor: Some(normalized_flavor.clone()),
             audit: Some(audit_manifest),
+            rtp_source: rtp_source_str,
             toolchain: ToolchainProvenance {
                 agp_version: Some("8.3.0".to_string()),
                 gradle_version: Some("8.7".to_string()),

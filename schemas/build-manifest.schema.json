@@ -20,6 +20,7 @@
     "build_timestamp": { "type": "string", "format": "date-time" },
     "flavor": { "type": ["string", "null"] },
     "audit": { "$ref": "#/definitions/audit" },
+    "rtp_source": { "type": ["string", "null"] },
     "app": {
       "type": "object",
       "required": ["name", "package", "version_name", "version_code"],
@@ -80,6 +81,7 @@
         "apk_hash": { "type": ["string", "null"] },
         "flavor": { "type": ["string", "null"] },
         "audit": { "$ref": "#/definitions/audit" },
+        "rtp_source": { "type": ["string", "null"] },
         "toolchain": {
           "type": "object",
           "properties": {

@@ -38,7 +38,7 @@ pub struct StaticAuditExecutionContext;
 
 impl AuditExecutionContext for StaticAuditExecutionContext {
     fn index_source(&self, source: &Path, rtp_path: Option<&Path>) -> Result<GameSourceIndex, String> {
-        GameSourceIndex::build_with_rtp(source, rtp_path).map_err(|error| error.to_string())
+        GameSourceIndex::build_with_auto_rtp(source, rtp_path).map_err(|error| error.to_string())
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, String> {
@@ -72,6 +72,9 @@ pub fn run(
     let source_index = context
         .index_source(&request.source, request.rtp_path.as_deref())
         .map_err(|error| format!("[ING-101] Failed to ingest source: {error}"))?;
+    if let Some(rtp_path) = source_index.rtp_path() {
+        println!("RTP resolved:   {} (auto-detected)", rtp_path.display());
+    }
     let descriptor = create_detector_registry().resolve(&source_index);
     validate_detection(&descriptor)?;
 
@@ -82,7 +85,11 @@ pub fn run(
     if output.starts_with(&source_root) {
         return Err("[CMP-AUD-010] Audit output must be outside the immutable source root.".into());
     }
-    if let Some(ref rtp) = request.rtp_path {
+    let effective_rtp = request
+        .rtp_path
+        .as_deref()
+        .or_else(|| source_index.rtp_path());
+    if let Some(rtp) = effective_rtp {
         if rtp.exists() {
             if let Ok(rtp_root) = context.canonicalize(rtp) {
                 if output.starts_with(&rtp_root) {
@@ -227,13 +234,17 @@ pub fn run(
             })?;
     }
 
+    let resolved_rtp = request
+        .rtp_path
+        .or_else(|| source_index.rtp_path().map(|p| p.to_path_buf()));
+
     Ok(AuditSummary {
         engine: descriptor.id,
         mode,
         allow_network: request.allow_network,
         outcome,
         output,
-        rtp_path: request.rtp_path,
+        rtp_path: resolved_rtp,
     })
 }
 

@@ -913,6 +913,7 @@ fn test_orphan_analysis_unreferenced_assets_become_info_possibly_unused() {
         files,
         total_size_bytes: 1234 * 5,
         source_hash: "mockhash".into(),
+        rtp_root: None,
     };
 
     let mut graph = DependencyGraph::default();
@@ -1033,6 +1034,7 @@ fn test_orphan_analysis_dynamic_coverage_keeps_orphan_informational_with_clarifi
         files,
         total_size_bytes: 500,
         source_hash: "mockhash".into(),
+        rtp_root: None,
     };
 
     let graph = DependencyGraph::default();

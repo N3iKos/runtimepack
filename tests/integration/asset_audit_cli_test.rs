@@ -1,3 +1,4 @@
+use runtimepack_core::ingest::{find_system_rtp_path, GameSourceIndex};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
@@ -386,4 +387,114 @@ fn audit_resolves_missing_assets_with_rtp_path() {
 
     fs::remove_dir_all(working_dir).unwrap();
     fs::remove_dir_all(rtp_dir).unwrap();
+}
+
+#[test]
+fn test_find_system_rtp_path_via_env_var() {
+    let temp_rtp = temp_dir("env-rtp-test");
+    let marker = temp_rtp.join("marker.txt");
+    fs::write(&marker, b"test rtp").unwrap();
+
+    std::env::set_var("RPGVXACE_RTP_PATH", &temp_rtp);
+    let resolved = find_system_rtp_path("RPGVXAce");
+    std::env::remove_var("RPGVXACE_RTP_PATH");
+
+    assert!(resolved.is_some(), "Expected find_system_rtp_path to detect env var");
+    let resolved_path = resolved.unwrap();
+    assert!(resolved_path.join("marker.txt").exists());
+
+    fs::remove_dir_all(temp_rtp).unwrap();
+}
+
+#[test]
+fn test_find_system_rtp_path_nonexistent() {
+    let resolved = find_system_rtp_path("NONEXISTENT_RTP_NAME_XYZ_99999");
+    assert!(resolved.is_none());
+}
+
+#[test]
+fn test_find_system_rtp_path_system_windows() {
+    if cfg!(windows) {
+        let system_common = Path::new(r"C:\Program Files (x86)\Common Files\Enterbrain\RGSS3\RPGVXAce");
+        if system_common.exists() {
+            let resolved = find_system_rtp_path("RPGVXAce");
+            assert!(resolved.is_some(), "Expected find_system_rtp_path to find installed Enterbrain RTP");
+            let p = resolved.unwrap();
+            assert!(p.exists());
+            assert!(p.join("Graphics").exists() || p.join("Audio").exists() || p.join("Fonts").exists());
+        }
+    }
+}
+
+#[test]
+fn test_build_with_auto_rtp_without_rtp_declaration() {
+    let source = fixture("vxace_min");
+    let index = GameSourceIndex::build_with_auto_rtp(&source, None).unwrap();
+    assert!(index.has_file("Game.ini"));
+    assert!(index.has_file("Data/Scripts.rvdata2"));
+}
+
+#[test]
+fn test_build_with_auto_rtp_with_game_ini_declaration() {
+    let mock_game = temp_dir("mock-game-auto-rtp");
+    let mock_rtp = temp_dir("mock-rtp-auto-rtp");
+
+    let game_ini_content = "[Game]\r\nLibrary=System\\RGSS301.dll\r\nScripts=Data\\Scripts.rvdata2\r\nTitle=Test Game\r\nRTP=RPGVXAce\r\n";
+    fs::write(mock_game.join("Game.ini"), game_ini_content).unwrap();
+    fs::create_dir_all(mock_game.join("Data")).unwrap();
+    fs::write(mock_game.join("Data/Scripts.rvdata2"), b"mock scripts").unwrap();
+
+    let rtp_mist = mock_rtp.join("Graphics/Titles2");
+    fs::create_dir_all(&rtp_mist).unwrap();
+    fs::write(rtp_mist.join("Mist.png"), b"fake mist").unwrap();
+
+    std::env::set_var("RPGVXACE_RTP_PATH", &mock_rtp);
+    let index = GameSourceIndex::build_with_auto_rtp(&mock_game, None).unwrap();
+    std::env::remove_var("RPGVXACE_RTP_PATH");
+
+    assert!(index.has_file("Game.ini"));
+    assert!(index.has_file("Data/Scripts.rvdata2"));
+    assert!(index.has_file("Graphics/Titles2/Mist.png"), "Expected auto-RTP to merge Mist.png");
+
+    let file_info = index.get_file("Graphics/Titles2/Mist.png").unwrap();
+    assert!(file_info.source_root.is_some());
+
+    // Game directory must remain untouched (immutable)
+    assert!(!mock_game.join("Graphics").exists());
+
+    fs::remove_dir_all(mock_game).unwrap();
+    fs::remove_dir_all(mock_rtp).unwrap();
+}
+
+#[test]
+fn test_build_with_auto_rtp_explicit_override() {
+    let mock_game = temp_dir("mock-game-explicit-override");
+    let auto_rtp = temp_dir("mock-rtp-auto");
+    let explicit_rtp = temp_dir("mock-rtp-explicit");
+
+    let game_ini_content = "[Game]\r\nLibrary=System\\RGSS301.dll\r\nScripts=Data\\Scripts.rvdata2\r\nTitle=Test Game\r\nRTP=RPGVXAce\r\n";
+    fs::write(mock_game.join("Game.ini"), game_ini_content).unwrap();
+    fs::create_dir_all(mock_game.join("Data")).unwrap();
+    fs::write(mock_game.join("Data/Scripts.rvdata2"), b"mock scripts").unwrap();
+
+    // Auto RTP has Mist.png
+    let auto_titles = auto_rtp.join("Graphics/Titles2");
+    fs::create_dir_all(&auto_titles).unwrap();
+    fs::write(auto_titles.join("Mist.png"), b"auto mist").unwrap();
+
+    // Explicit RTP has Overridden.png
+    let explicit_titles = explicit_rtp.join("Graphics/Titles2");
+    fs::create_dir_all(&explicit_titles).unwrap();
+    fs::write(explicit_titles.join("Overridden.png"), b"explicit asset").unwrap();
+
+    std::env::set_var("RPGVXACE_RTP_PATH", &auto_rtp);
+    let index = GameSourceIndex::build_with_auto_rtp(&mock_game, Some(&explicit_rtp)).unwrap();
+    std::env::remove_var("RPGVXACE_RTP_PATH");
+
+    assert!(index.has_file("Graphics/Titles2/Overridden.png"));
+    assert!(!index.has_file("Graphics/Titles2/Mist.png"));
+
+    fs::remove_dir_all(mock_game).unwrap();
+    fs::remove_dir_all(auto_rtp).unwrap();
+    fs::remove_dir_all(explicit_rtp).unwrap();
 }

@@ -14,7 +14,7 @@ name = "integration_detection"
 path = "../tests/integration/detection_test.rs"
 
 [[test]]
-name = "integration_build"
+name = "build_test"
 path = "../tests/integration/build_test.rs"
 
 [[test]]

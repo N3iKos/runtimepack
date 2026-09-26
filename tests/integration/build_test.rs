@@ -197,6 +197,10 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         !top_required.contains(&"audit"),
         "audit must not be required in top-level build manifest schema"
     );
+    assert!(
+        !top_required.contains(&"rtp_source"),
+        "rtp_source must not be required in top-level build manifest schema"
+    );
 
     let prov_required = schema_json["properties"]["provenance"]["required"]
         .as_array()
@@ -207,6 +211,10 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
     assert!(
         !prov_required.contains(&"audit"),
         "audit must not be required in provenance schema"
+    );
+    assert!(
+        !prov_required.contains(&"rtp_source"),
+        "rtp_source must not be required in provenance schema"
     );
 
     assert!(schema_json["definitions"]["audit"].is_object());
@@ -219,6 +227,7 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "No Audit Game".to_string(),
             package: "com.example.noaudit".to_string(),
@@ -256,6 +265,7 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
             apk_hash: None,
             flavor: Some("beta".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -273,8 +283,16 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         "audit must be omitted when None"
     );
     assert!(
+        parsed_no_audit.get("rtp_source").is_none(),
+        "rtp_source must be omitted when None"
+    );
+    assert!(
         parsed_no_audit["provenance"].get("audit").is_none(),
         "provenance.audit must be omitted when None"
+    );
+    assert!(
+        parsed_no_audit["provenance"].get("rtp_source").is_none(),
+        "provenance.rtp_source must be omitted when None"
     );
 
     let deserialized_no_audit: BuildManifest = serde_json::from_str(&serialized_no_audit).unwrap();
@@ -635,6 +653,97 @@ fn test_build_with_rtp_path_packages_rtp_assets() {
 }
 
 #[test]
+fn test_build_auto_rtp_discovery_and_packaging() {
+    let out_dir = test_temp_dir("build-auto-rtp-pack");
+    let rtp_dir = test_temp_dir("build-auto-rtp-source");
+    let fixture = test_workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_missing_asset");
+
+    // Provision missing PictureAce.png in temporary RTP folder
+    let rtp_pic_dir = rtp_dir.join("Graphics/Pictures");
+    std::fs::create_dir_all(&rtp_pic_dir).unwrap();
+    let src_pic = test_workspace_root()
+        .join("tests/fixtures/rgss_asset_audit/vxace_valid/Graphics/Pictures/PictureAce.png");
+    std::fs::copy(&src_pic, rtp_pic_dir.join("PictureAce.png")).unwrap();
+
+    // Verify fixture has RTP=RPGVXAce in Game.ini
+    let ini_content = std::fs::read_to_string(fixture.join("Game.ini")).unwrap();
+    assert!(
+        ini_content.to_lowercase().contains("rtp=rpgvxace")
+            || ini_content.to_lowercase().contains("rtp = rpgvxace"),
+        "Fixture Game.ini must declare RTP=RPGVXAce"
+    );
+
+    // Invoke build WITHOUT --rtp-path, using RPGVXACE_RTP_PATH env var to simulate system/discovered RTP
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--no-compile")
+        .env("RPGVXACE_RTP_PATH", &rtp_dir)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "build with auto RTP discovery must succeed without --rtp-path, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("RTP source:"),
+        "stdout must log resolved RTP source, stdout:\n{}",
+        stdout
+    );
+
+    let pack_path = out_dir.join("game.pack");
+    assert!(pack_path.exists(), "game.pack must be created");
+
+    // Inspect game.pack with GpackReader to verify auto-discovered RTP asset is bundled!
+    let mut reader = runtimepack_pack::GpackReader::open(&pack_path)
+        .expect("game.pack must be a valid GPACK");
+    assert!(
+        reader.has_file("Graphics/Pictures/PictureAce.png"),
+        "game.pack must contain auto-discovered RTP asset Graphics/Pictures/PictureAce.png"
+    );
+
+    let pic_data = reader
+        .read_file("Graphics/Pictures/PictureAce.png")
+        .expect("must read RTP asset from game.pack");
+    let expected_data = std::fs::read(&src_pic).unwrap();
+    assert_eq!(
+        pic_data, expected_data,
+        "bundled RTP asset data must match exactly"
+    );
+
+    // Verify build-manifest.json records rtp_source
+    let manifest_path = out_dir.join("build-manifest.json");
+    assert!(manifest_path.exists(), "build-manifest.json must exist");
+    let manifest_text = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest_json: serde_json::Value = serde_json::from_str(&manifest_text).unwrap();
+    assert!(
+        manifest_json.get("rtp_source").is_some(),
+        "build manifest must record rtp_source"
+    );
+    assert!(
+        manifest_json["provenance"].get("rtp_source").is_some(),
+        "provenance must record rtp_source"
+    );
+
+    // Source fixture must remain 100% untouched
+    assert!(
+        !fixture.join("Graphics/Pictures/PictureAce.png").exists(),
+        "source fixture must remain 100% immutable"
+    );
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let _ = std::fs::remove_dir_all(&rtp_dir);
+}
+
+#[test]
 fn test_forbidden_storage_permissions_rejected() {
     let forbidden = vec![
         "android.permission.INTERNET".to_string(),
@@ -983,6 +1092,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         flavor: None,
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Test VFS".to_string(),
             package: "com.example.testvfs".to_string(),
@@ -1020,6 +1130,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
             apk_hash: None,
             flavor: None,
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1077,6 +1188,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         flavor: None,
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Test Web Game".to_string(),
             package: "com.example.testwebgame".to_string(),
@@ -1114,6 +1226,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
             apk_hash: None,
             flavor: None,
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1149,6 +1262,7 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Audit Script Test Game".to_string(),
             package: "com.example.auditscripttest".to_string(),
@@ -1186,6 +1300,7 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
             apk_hash: None,
             flavor: Some("beta".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1230,6 +1345,7 @@ fn test_emit_project_packages_cjk_fonts() {
         build_timestamp: "2026-09-26T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Font Test Game".to_string(),
             package: "com.example.fonttest".to_string(),
@@ -1267,6 +1383,7 @@ fn test_emit_project_packages_cjk_fonts() {
             apk_hash: None,
             flavor: Some("beta".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1303,6 +1420,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: None,
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Neutral Game".to_string(),
             package: "com.example.neutral".to_string(),
@@ -1340,6 +1458,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
             apk_hash: None,
             flavor: None,
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1396,6 +1515,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
             build_timestamp: "2026-09-23T00:00:00Z".to_string(),
             flavor: None,
             audit: None,
+            rtp_source: None,
             app: AppConfig {
                 name: "Custom Game".to_string(),
                 package: "com.example.custom".to_string(),
@@ -1433,6 +1553,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
                 apk_hash: None,
                 flavor: None,
                 audit: None,
+                rtp_source: None,
                 toolchain: ToolchainProvenance {
                     agp_version: None,
                     gradle_version: None,
@@ -1501,6 +1622,7 @@ fn test_emit_project_packages_asset_dependency_graph() {
         build_timestamp: "2026-09-25T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Graph Test Game".to_string(),
             package: "com.example.graphtest".to_string(),
@@ -1538,6 +1660,7 @@ fn test_emit_project_packages_asset_dependency_graph() {
             apk_hash: None,
             flavor: Some("beta".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1663,6 +1786,7 @@ fn test_build_flavor_beta_injects_watermark() {
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Beta Flavor Game".to_string(),
             package: "com.example.betaflavor".to_string(),
@@ -1700,6 +1824,7 @@ fn test_build_flavor_beta_injects_watermark() {
             apk_hash: None,
             flavor: Some("beta".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1774,6 +1899,7 @@ fn test_build_flavor_release_omits_watermark() {
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
+        rtp_source: None,
         app: AppConfig {
             name: "Release Flavor Game".to_string(),
             package: "com.example.releaseflavor".to_string(),
@@ -1811,6 +1937,7 @@ fn test_build_flavor_release_omits_watermark() {
             apk_hash: None,
             flavor: Some("release".to_string()),
             audit: None,
+            rtp_source: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,

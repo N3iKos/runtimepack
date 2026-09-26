@@ -5,6 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+pub mod rtp;
+pub use rtp::{find_system_rtp_path, matches_rtp_name, parse_ini_rtp_name};
+
 pub type IngestError = DiagnosticError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,11 +60,59 @@ pub struct GameSourceIndex {
     pub files: HashMap<String, IndexedFile>,
     pub total_size_bytes: u64,
     pub source_hash: String,
+    pub rtp_root: Option<PathBuf>,
 }
 
 impl GameSourceIndex {
+    pub fn rtp_path(&self) -> Option<&Path> {
+        self.rtp_root.as_deref()
+    }
+
     pub fn build(root: &Path) -> Result<Self, IngestError> {
         Self::build_with_rtp(root, None)
+    }
+
+    pub fn build_with_auto_rtp(
+        game_dir: &Path,
+        explicit_rtp: Option<&Path>,
+    ) -> Result<Self, IngestError> {
+        // 1. If explicit_rtp is provided and exists, use that.
+        if let Some(explicit) = explicit_rtp {
+            if explicit.exists() {
+                return Self::build_with_rtp(game_dir, Some(explicit));
+            }
+        }
+
+        // 2. Inspect game_dir/Game.ini (or game.ini case-insensitively)
+        let ini_path = if game_dir.join("Game.ini").exists() {
+            Some(game_dir.join("Game.ini"))
+        } else if game_dir.join("game.ini").exists() {
+            Some(game_dir.join("game.ini"))
+        } else if let Ok(read_dir) = fs::read_dir(game_dir) {
+            read_dir.filter_map(Result::ok).find_map(|entry| {
+                if entry.file_name().to_string_lossy().eq_ignore_ascii_case("Game.ini") {
+                    Some(entry.path())
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        if let Some(path) = ini_path {
+            if let Ok(bytes) = fs::read(&path) {
+                let content = String::from_utf8_lossy(&bytes);
+                if let Some(rtp_name) = rtp::parse_ini_rtp_name(&content) {
+                    if let Some(system_rtp) = rtp::find_system_rtp_path(&rtp_name) {
+                        return Self::build_with_rtp(game_dir, Some(&system_rtp));
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: normal build without RTP
+        Self::build_with_rtp(game_dir, None)
     }
 
     pub fn build_with_rtp(
@@ -142,6 +193,7 @@ impl GameSourceIndex {
             files.insert(logical_path.to_ascii_lowercase(), indexed);
         }
 
+        let mut rtp_root = None;
         if let Some(rtp_path) = rtp_dir {
             if rtp_path.exists() {
                 let canonical_rtp = fs::canonicalize(rtp_path).map_err(|_| {
@@ -214,6 +266,7 @@ impl GameSourceIndex {
                         files.insert(case_folded, indexed);
                     }
                 }
+                rtp_root = Some(canonical_rtp);
             }
         }
 
@@ -231,6 +284,7 @@ impl GameSourceIndex {
             files,
             total_size_bytes: total_size,
             source_hash,
+            rtp_root,
         })
     }
 

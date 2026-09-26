@@ -545,6 +545,7 @@ mod tests {
             files,
             total_size_bytes: 100 * paths.len() as u64,
             source_hash: "mock_hash".into(),
+            rtp_root: None,
         }
     }
 
