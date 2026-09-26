@@ -1,12 +1,25 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Plan 6 (Stabilize & Build *The Witch's House MV*) selesai 100%.
-- **Next step:** Plan 7 (*Hello Charlotte EP1*).
+- **Sedang kerjain apa:** Plan 7 (Validate RGSS3A Archive & Build *Hello Charlotte EP1*) selesai 100%.
+- **Next step:** Plan 8 (*To the Moon*).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Case-folded encrypted tileset resolution (`mori_A2` -> `mori_a2.rpgmvp`), sideview battler actor fallback (`optSideView: false` -> `ReferenceRequiredness::Optional`), VFS case-folded lookup untuk `.rpgmvp` dan `.rpgmvo`, serta kompilasi mandiri APK `dist/witchs_house/TheWitchsHouseMV.apk` (169.78 MB, SHA-256 `19B8DAC8...`) tuntas sukses. Seluruh 262 Cargo workspace tests dan 24 Android Gradle unit test tasks lulus 100%.
+- **Catatan fokus:** Validasi integritas header arsip terenkripsi `.rgss3a` (`RGSSAD\0\x03`), pengenalan otomatis font bundled (`Fonts/` mencakup `VL-Gothic-Regular.ttf`, `VL-PGothic-Regular.ttf`, `coders_crux.ttf`), serta kompilasi mandiri APK `dist/hc_ep1/HelloCharlotteEP1.apk` (331.28 MB, SHA-256 `EA50A620...`) tuntas sukses. Seluruh 264 Cargo workspace tests lulus 100%.
 
 ## Selesai
+- [2026-09-27] Plan 7 (Validate RGSS3A Archive & Build *Hello Charlotte EP1*) Selesai:
+  1. `engines/rgss/src/asset_audit.rs`:
+     - Validasi header arsip `.rgss3a`: Memeriksa magic `RGSSAD\0` dan version byte `3` (`b"RGSSAD\0\x03"` atau legacy mock `b"RGSSAD\x03"`). Menambahkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry`. Jika header corrupt/terpotong, mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`).
+     - Font coverage: Memindai folder `Fonts/` pada `source.files`. Jika font `.ttf`/`.otf` ada (seperti `coders_crux.ttf`, `VL-Gothic-Regular.ttf`, `VL-PGothic-Regular.ttf`), menandai coverage `fonts` sebagai covered dan mendaftarkan node `font:<path>` bertipe `AssetKind::Font` ke dependency graph. Jika tidak ada dan CJK/custom font terdeteksi, menandai `fonts` sebagai unsupported dengan finding `CMP_AUD_REQUIRED_REFERENCE_MISSING`.
+  2. Integration tests:
+     - `test_rgss3a_valid_archive_and_bundled_fonts`: Memvalidasi header RGSS3A valid dan bundled fonts lolos tanpa malformed error dan terdaftar di dependency graph.
+     - `test_rgss3a_corrupt_archive_emits_malformed_resource`: Memvalidasi header corrupt memicu `CMP_AUD_MALFORMED_RESOURCE` dan gagal (Fail).
+     - Seluruh 264 Cargo workspace tests lulus 100%.
+  3. Static Audit & Build APK:
+     - `cargo run --bin runtimepack -- audit "Raw-Game\HC_EP1" --mode standard --output dist/hc_ep1/asset-audit-report.json`: Outcome `Indeterminate` (karena data game tersimpan dalam encrypted archive `Game.rgss3a`), 4 node graph (`Game.rgss3a`, 3 font).
+     - `cargo run --bin runtimepack -- build "Raw-Game\HC_EP1" -o dist/hc_ep1 --package com.example.hellocharlotte1 --name "Hello Charlotte EP1" --flavor beta --accept-audit-fail --accept-audit-unknown`: GPACK `game.pack` tercipta (291.61 MB), Gradle kompilasi `assembleDebug` sukses (exit code 0).
+     - Menghasilkan `dist/hc_ep1/HelloCharlotteEP1.apk` (347.375.247 bytes / 331.28 MB, SHA-256 `EA50A620C8A1BFECF9CDA43A562A3478EF945FF60BD8C948A02ED19357CDC8F7`).
+  4. Commits: `8105df8`, `42c75ef`.
 - [2026-09-27] Plan 6 (Stabilize & Build *The Witch's House MV*) Selesai:
   1. `engines/rpgmaker_web/src/asset_audit.rs`:
      - Menambahkan deteksi `optSideView` dari `System.json` ke `AuditContext`.

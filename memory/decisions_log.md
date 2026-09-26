@@ -1,5 +1,15 @@
 # Decisions Log
 
+## [2026-09-27] RGSS3A Archive Header Validation & Bundled Font Registration (Hello Charlotte EP1)
+**Keputusan:**
+1. Di `engines/rgss/src/asset_audit.rs`:
+   - Validasi header arsip `.rgss3a`: Memeriksa file `.rgss3a` pada disk apakah diawali dengan magic byte `RGSSAD\0\x03` (atau legacy mock `RGSSAD\x03`).
+   - Jika valid, mendaftarkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry` ke graph.
+   - Jika corrupt atau terpotong (< 7 bytes atau byte magic tidak cocok), mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`, error fatal).
+   - Pengenalan font bundled: Memindai folder `Fonts/` secara proaktif. Jika ada font `.ttf`/`.otf` (seperti `coders_crux.ttf`, `VL-Gothic-Regular.ttf`, `VL-PGothic-Regular.ttf`), menandai coverage `fonts` sebagai covered dan mendaftarkan node `font:<logical_path>` bertipe `AssetKind::Font` ke dependency graph.
+**Alasan:** Game RPG Maker VX Ace yang dipaketkan dengan arsip terenkripsi `Game.rgss3a` (seperti *Hello Charlotte EP1*) menyimpan data map dan skrip di dalam arsip, sehingga auditor statis tidak dapat memindai teks dialog secara langsung, namun integritas file arsip dan font pendukung wajib divalidasi secara deterministik.
+**Dampak:** Memverifikasi integritas arsip `Game.rgss3a` dan mengenali 3 custom font bundled tanpa false positive missing font error. Kompilasi APK `HelloCharlotteEP1.apk` (331.28 MB, SHA-256 `EA50A620...`) berhasil 100%. 264 Cargo workspace tests lulus 100%.
+
 ## [2026-09-27] Encrypted Tileset Case Resolution & Sideview Battler Fallbacks (The Witch's House MV)
 **Keputusan:**
 1. Di `engines/rpgmaker_web/src/asset_audit.rs`:
