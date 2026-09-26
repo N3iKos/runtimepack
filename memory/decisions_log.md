@@ -1,5 +1,17 @@
 # Decisions Log
 
+## [2026-09-27] Subfolder Plugin Search & Encrypted Audio/Image Case Resolution (Forestia)
+**Keputusan:**
+1. Di `engines/rpgmaker_web/src/asset_audit.rs`:
+   - `find_subfolder_plugin_path`: Melakukan pencarian rekursif pada `js/plugins/**/<filename>.js` saat plugin dari `js/plugins.js` atau deklarasi `@base` tidak ditemukan di root `js/plugins/`. Mengutamakan exact case match lalu case-folded match.
+   - Deteksi `effective_enc_img` dan `effective_enc_audio` menggabungkan flag `System.json` dan pemindaian ekstensi terenkripsi aktual di disk (`.rpgmvp`, `.png_`, `.rmmzimg`, `.rpgmvo`, `.rpgmvm`, `.ogg_`, `.m4a_`, `.rmmzaud`).
+   - Ekstensi terenkripsi MZ (`.ogg_`, `.png_`, `.m4a_`) dan MV (`.rpgmvo`, `.rpgmvp`) disertakan dalam `audio_exts` dan `image_exts`, memungkinkan case mismatch terenkripsi (misal `jump1.ogg_` vs `Jump1.ogg_`) diresolusi sebagai `CMP_AUD_CASE_MISMATCH` (warning) dan bukan missing asset.
+2. Di `android/shell/app/src/main/java/io/runtimepack/host/GpackStreamReader.kt` & `VfsResourceInterceptor.kt`:
+   - `GpackStreamReader.entries` diekspos sebagai public accessor koleksi `IndexEntry`.
+   - `VfsResourceInterceptor.intercept`: saat request `js/plugins/*.js` menghasilkan stream null, VFS mencari entry yang cocok di `reader.entries` di bawah `js/plugins/**/<filename>` (exact match lalu case-insensitive) dan menyajikannya sebagai fallback response.
+**Alasan:** Game RPG Maker MZ seperti *Forestia* mengorganisir puluhan plugin ke dalam subfolder (misal `js/plugins/develop/`, `js/plugins/triacontane/`, dll.) namun deklarasi `@base` dan manifest plugin hanya mereferensikan nama file dasar, dan aset audio terenkripsi (`Jump1.ogg_`) mengalami ketidakcocokan casing dari file event database.
+**Dampak:** Mengeliminasi seluruh 22 false positive error missing plugin dan merekonsiliasi encrypted audio case mismatch menjadi warning. 261 Cargo tests dan 24 Android unit test tasks lulus 100%.
+
 ## [2026-09-27] Ren'Py Desktop Library Packaging Filter & Directory Casing Symlinks (Mizuki And Me)
 **Keputusan:**
 1. Di `pack/src/gpack.rs`:

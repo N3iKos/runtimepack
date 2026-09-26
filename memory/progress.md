@@ -1,12 +1,24 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*) selesai.
-- **Next step:** Menunggu konfirmasi user untuk langkah selanjutnya / rilis.
+- **Sedang kerjain apa:** Task 1 Plan 5 (Subfolder Plugin Search & Encrypted Audio Case Resolution) selesai.
+- **Next step:** Task 2 Plan 5 (Re-Audit & Rebuild *Forestia*).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Game Ren'Py 8 desktop *Mizuki And Me* sukses dipaketkan menjadi APK mandiri (`dist/mizuki_and_me/MizukiAndMe.apk`, 886.47 MB). Desktop wrapper libraries di bawah `lib/*windows*` dan `lib/*linux*` dikecualikan dari `game.pack`, direktori `Game/` dinormalisasi menjadi `game/` dengan symlink fallback, missing assets drop ke 0, dan 259 tests cargo serta 24 Android unit test tasks lulus 100%.
+- **Catatan fokus:** Subfolder plugin search (`js/plugins/**/<filename>.js`) untuk manifest plugins dan transitive `@base` dependencies serta case-insensitive matching ekstensi audio/image terenkripsi (`.ogg_`, `.png_`, `.m4a_`, `.rpgmvo`, `.rpgmvp`) selesai diimplementasikan di `asset_audit.rs` dan `VfsResourceInterceptor.kt`. 261 Cargo tests dan 24 Android unit test tasks lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 1 Plan 5 (Subfolder Plugin Search & Encrypted Audio Case Resolution) Selesai:
+  1. `engines/rpgmaker_web/src/asset_audit.rs`:
+     - Implementasi `find_subfolder_plugin_path`: jika plugin di `js/plugins.js` atau deklarasi `@base` tidak ditemukan di root `js/plugins/`, mencari di subdirektori `js/plugins/**/<name>.js` (exact case maupun case-folded).
+     - Plugin subfolder diresolusi ke path aktual tanpa memicu `CMP_AUD_REQUIRED_REFERENCE_MISSING`.
+     - `effective_enc_img` dan `effective_enc_audio` memeriksa flag `System.json` dan keberadaan file terenkripsi di disk, memperluas `image_exts` (`png_`, `rmmzimg`, `rpgmvp`) dan `audio_exts` (`ogg_`, `m4a_`, `rmmzaud`, `rpgmvo`, `rpgmvm`). Casing mismatch terenkripsi (e.g. `jump1.ogg_` vs `Jump1.ogg_`) diresolusi sebagai `CMP_AUD_CASE_MISMATCH` (warning).
+  2. `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt` & `GpackStreamReader.kt`:
+     - Expose `entries` di `GpackStreamReader`.
+     - Di `intercept(url)`: saat request `js/plugins/*.js` mengembalikan stream null, mencari fallback entry di `reader.entries` yang berada di bawah `js/plugins/**/<filename>` dan menyajikannya secara transparan ke WebView.
+  3. Tests:
+     - Integration tests `test_mz_subfolder_plugin_and_transitive_base_dependency_resolved` dan `test_mz_encrypted_audio_and_image_case_mismatch_resolves_with_warning` di `web_asset_audit_test.rs`.
+     - Unit test `testSubfolderPluginResolutionFallback` di `VfsResourceInterceptorTest.kt`.
+     - Seluruh 261 tests Cargo workspace dan 24 Android unit test tasks lulus 100%. Commit: `e737997`.
 - [2026-09-27] Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*) Selesai:
   1. Static Asset Audit:
      - `cargo run --bin runtimepack -- audit "Raw-Game\Mizuki And Me" --mode standard --output dist/mizuki_and_me/asset-audit-report.json`
