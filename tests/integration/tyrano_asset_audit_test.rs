@@ -277,6 +277,7 @@ fn test_tyrano_case_collision_fails() {
         logical_path: "data/bgimage/ROOM.jpg".to_string(),
         relative_path: std::path::PathBuf::from("data/bgimage/ROOM.jpg"),
         size_bytes: 50,
+        source_root: None,
     };
     index.files.insert(
         "data/bgimage/ROOM.jpg_collision".to_string(),
@@ -512,11 +513,13 @@ fn test_tyrano_case_insensitive_ks_and_node_extensions() {
         logical_path: "data/scenario/FIRST.KS".to_string(),
         relative_path: std::path::PathBuf::from("data/scenario/FIRST.KS"),
         size_bytes: 15,
+        source_root: None,
     };
     let node_entry = runtimepack_core::ingest::IndexedFile {
         logical_path: "data/others/addon.NODE".to_string(),
         relative_path: std::path::PathBuf::from("data/others/addon.NODE"),
         size_bytes: 12,
+        source_root: None,
     };
     index
         .files

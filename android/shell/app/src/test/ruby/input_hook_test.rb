@@ -327,8 +327,16 @@ begin
     cbmp = Cache.send(method_name, *args)
     assert !cbmp.nil?, "Cache.#{method_name} should return dummy bitmap on missing file"
     assert cbmp.is_a?(Bitmap), "Cache.#{method_name} should return Bitmap instance"
-    assert_equal 32, cbmp.width, "Cache.#{method_name} dummy bitmap width should be 32"
-    assert_equal 32, cbmp.height, "Cache.#{method_name} dummy bitmap height should be 32"
+    if method_name == :tileset
+      assert_equal 512, cbmp.width, "Cache.tileset dummy bitmap width should be 512"
+      assert_equal 384, cbmp.height, "Cache.tileset dummy bitmap height should be 384"
+    elsif method_name == :character
+      assert cbmp.width > 32, "Cache.character dummy bitmap width should be > 32"
+      assert cbmp.height > 32, "Cache.character dummy bitmap height should be > 32"
+    else
+      assert_equal 32, cbmp.width, "Cache.#{method_name} dummy bitmap width should be 32"
+      assert_equal 32, cbmp.height, "Cache.#{method_name} dummy bitmap height should be 32"
+    end
   end
 
 ensure

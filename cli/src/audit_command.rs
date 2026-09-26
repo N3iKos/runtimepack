@@ -11,6 +11,7 @@ use std::path::{Component, Path, PathBuf};
 
 pub struct AuditRequest {
     pub source: PathBuf,
+    pub rtp_path: Option<PathBuf>,
     pub mode: String,
     pub allow_network: bool,
     pub output: PathBuf,
@@ -23,10 +24,11 @@ pub struct AuditSummary {
     pub allow_network: bool,
     pub outcome: AuditOutcome,
     pub output: PathBuf,
+    pub rtp_path: Option<PathBuf>,
 }
 
 pub trait AuditExecutionContext {
-    fn index_source(&self, source: &Path) -> Result<GameSourceIndex, String>;
+    fn index_source(&self, source: &Path, rtp_path: Option<&Path>) -> Result<GameSourceIndex, String>;
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, String>;
     fn create_dir_all(&self, path: &Path) -> Result<(), String>;
     fn write_report(&self, path: &Path, contents: &[u8]) -> Result<(), String>;
@@ -35,8 +37,8 @@ pub trait AuditExecutionContext {
 pub struct StaticAuditExecutionContext;
 
 impl AuditExecutionContext for StaticAuditExecutionContext {
-    fn index_source(&self, source: &Path) -> Result<GameSourceIndex, String> {
-        GameSourceIndex::build(source).map_err(|error| error.to_string())
+    fn index_source(&self, source: &Path, rtp_path: Option<&Path>) -> Result<GameSourceIndex, String> {
+        GameSourceIndex::build_with_rtp(source, rtp_path).map_err(|error| error.to_string())
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, String> {
@@ -68,7 +70,7 @@ pub fn run(
         }
     };
     let source_index = context
-        .index_source(&request.source)
+        .index_source(&request.source, request.rtp_path.as_deref())
         .map_err(|error| format!("[ING-101] Failed to ingest source: {error}"))?;
     let descriptor = create_detector_registry().resolve(&source_index);
     validate_detection(&descriptor)?;
@@ -79,6 +81,15 @@ pub fn run(
         .map_err(|error| format!("[ING-101] Failed to resolve source path: {error}"))?;
     if output.starts_with(&source_root) {
         return Err("[CMP-AUD-010] Audit output must be outside the immutable source root.".into());
+    }
+    if let Some(ref rtp) = request.rtp_path {
+        if rtp.exists() {
+            if let Ok(rtp_root) = context.canonicalize(rtp) {
+                if output.starts_with(&rtp_root) {
+                    return Err("[CMP-AUD-010] Audit output must be outside the RTP directory.".into());
+                }
+            }
+        }
     }
     let output_parent = output.parent().unwrap_or_else(|| Path::new("."));
     context
@@ -222,6 +233,7 @@ pub fn run(
         allow_network: request.allow_network,
         outcome,
         output,
+        rtp_path: request.rtp_path,
     })
 }
 

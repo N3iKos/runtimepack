@@ -107,6 +107,7 @@ impl<'a> TyranoReader<'a> {
                         logical_path: entry.path.clone(),
                         relative_path: PathBuf::from(&entry.path),
                         size_bytes: entry.size,
+                        source_root: None,
                     },
                 );
             }

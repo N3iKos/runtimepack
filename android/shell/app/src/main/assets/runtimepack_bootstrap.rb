@@ -379,6 +379,35 @@ class Win32API
   end
 end
 
+class Plane
+  attr_reader :viewport
+  attr_accessor :bitmap, :visible, :z, :ox, :oy, :zoom_x, :zoom_y, :opacity, :blend_type, :color, :tone
+
+  def initialize(viewport = nil)
+    @viewport = viewport
+    @bitmap = nil
+    @visible = true
+    @z = 0
+    @ox = 0
+    @oy = 0
+    @zoom_x = 1.0
+    @zoom_y = 1.0
+    @opacity = 255
+    @blend_type = 0
+    @color = nil
+    @tone = nil
+    @disposed = false
+  end
+
+  def dispose
+    @disposed = true
+  end
+
+  def disposed?
+    @disposed
+  end
+end unless defined?(Plane)
+
 [:Sprite, :Viewport, :Plane, :Window].each do |klass_name|
   if Object.const_defined?(klass_name)
     klass = Object.const_get(klass_name)
@@ -483,6 +512,108 @@ module RuntimePackCompatibility
     "\u27a1" => "Right"
   }
 
+  @plane_mitigations = []
+
+  class << self
+    attr_reader :plane_mitigations
+
+    def record_plane_mitigation(info)
+      @plane_mitigations ||= []
+      @plane_mitigations << info
+    end
+
+    def reset_plane_mitigations!
+      @plane_mitigations = []
+    end
+
+    def install_plane_subtractive_fog_hooks
+      return unless Object.const_defined?(:Plane)
+      klass = Object.const_get(:Plane)
+      return if klass.method_defined?(:runtimepack_orig_blend_type=)
+
+      klass.class_eval do
+        alias_method :runtimepack_orig_blend_type=, :blend_type= rescue nil
+        alias_method :runtimepack_orig_opacity=, :opacity= rescue nil
+        alias_method :runtimepack_orig_z=, :z= rescue nil
+
+        def blend_type=(val)
+          if respond_to?(:runtimepack_orig_blend_type=)
+            send(:runtimepack_orig_blend_type=, val)
+          else
+            @blend_type = val
+          end
+          runtimepack_check_subtractive_fog_clamp!
+        end
+
+        def opacity=(val)
+          target_val = val
+          if self.blend_type == 2
+            cur_z = self.z
+            if cur_z && cur_z < 32
+              limit = runtimepack_fog_opacity_limit
+              if target_val && target_val > limit
+                target_val = limit
+                runtimepack_log_fog_mitigation(target_val)
+              end
+            end
+          end
+          if respond_to?(:runtimepack_orig_opacity=)
+            send(:runtimepack_orig_opacity=, target_val)
+          else
+            @opacity = target_val
+          end
+        end
+
+        def z=(val)
+          if respond_to?(:runtimepack_orig_z=)
+            send(:runtimepack_orig_z=, val)
+          else
+            @z = val
+          end
+          runtimepack_check_subtractive_fog_clamp!
+        end
+
+        def runtimepack_fog_opacity_limit
+          floor_missing = defined?(RuntimePackAssetAudit) && RuntimePackAssetAudit.respond_to?(:events) &&
+            RuntimePackAssetAudit.events.any? { |ev| ev["fallback_action"] == "TILESET_FALLBACK_DUMMY" }
+          floor_missing ? 60 : 80
+        end
+
+        def runtimepack_log_fog_mitigation(clamped_op)
+          msg = "[RuntimePack] Subtractive fog Plane mitigation: clamped opacity to #{clamped_op} (Z=#{self.z}) to prevent OpenGL ES black occlusion"
+          puts msg
+          if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:record_plane_mitigation)
+            RuntimePackCompatibility.record_plane_mitigation({
+              plane: self,
+              z: self.z,
+              opacity: clamped_op,
+              blend_type: self.blend_type,
+              message: msg
+            })
+          end
+        end
+
+        def runtimepack_check_subtractive_fog_clamp!
+          if self.blend_type == 2
+            cur_z = self.z
+            if cur_z && cur_z < 32
+              limit = runtimepack_fog_opacity_limit
+              cur_op = self.opacity || 255
+              if cur_op > limit
+                if respond_to?(:runtimepack_orig_opacity=)
+                  send(:runtimepack_orig_opacity=, limit)
+                else
+                  @opacity = limit
+                end
+                runtimepack_log_fog_mitigation(limit)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
   def self.install_font_setters
     return unless defined?(Font)
     FONT_SETTERS.each do |name|
@@ -510,16 +641,23 @@ module RuntimePackCompatibility
     end
   end
 
-  def self.create_tileset_fallback_bitmap
+  def self.create_tileset_fallback(name = nil)
     bmp = (Bitmap.new(512, 384) rescue nil)
     return (Bitmap.new(32, 32) rescue nil) unless bmp
     if bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
-      c1 = Color.new(24, 24, 28)
-      c2 = Color.new(40, 40, 46)
+      c1 = Color.new(40, 40, 40)
+      c2 = Color.new(70, 70, 70)
+      border = Color.new(30, 30, 30)
       (0...12).each do |ty|
         (0...16).each do |tx|
+          x = tx * 32
+          y = ty * 32
           color = ((tx + ty) % 2 == 0) ? c1 : c2
-          bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
+          bmp.fill_rect(Rect.new(x, y, 32, 32), color) rescue nil
+          bmp.fill_rect(Rect.new(x, y, 32, 1), border) rescue nil
+          bmp.fill_rect(Rect.new(x, y, 1, 32), border) rescue nil
+          bmp.fill_rect(Rect.new(x, y + 31, 32, 1), border) rescue nil
+          bmp.fill_rect(Rect.new(x + 31, y, 1, 32), border) rescue nil
         end
       end
     end
@@ -527,9 +665,168 @@ module RuntimePackCompatibility
   rescue
     Bitmap.new(32, 32) rescue nil
   end
+
+  def self.create_tileset_fallback_bitmap(name = nil)
+    create_tileset_fallback(name)
+  end
+
+  def self.create_smart_tileset_fallback(name = nil)
+    create_tileset_fallback(name)
+  end
+
+  def self.create_character_fallback(path_or_name = nil)
+    bmp = (Bitmap.new(128, 128) rescue nil)
+    return (Bitmap.new(32, 32) rescue nil) unless bmp
+
+    raw = path_or_name.to_s
+    filename = File.basename(raw)
+    base_no_ext = File.basename(filename, ".*")
+    lower = base_no_ext.downcase
+
+    is_interactive = base_no_ext.start_with?("!") || filename.start_with?("!") || base_no_ext.start_with?("$!")
+
+    if bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
+      if is_interactive
+        if lower.include?("flame") || lower.include?("fire") || lower.include?("torch") || lower.include?("save") || lower.include?("light")
+          # Golden icon / flame box for Flame / Save points
+          flame_outer = Color.new(220, 80, 10)
+          flame_core  = Color.new(255, 215, 0)
+          flame_tip   = Color.new(255, 245, 160)
+          pedestal    = Color.new(70, 70, 75)
+          pedestal_b  = Color.new(40, 40, 45)
+
+          (0...4).each do |r|
+            (0...3).each do |c|
+              cx = c * 42 + 21
+              cy = r * 32 + 16
+              tip_off = (c == 1) ? 2 : 0
+
+              bmp.fill_rect(Rect.new(cx - 8, cy + 8, 16, 4), pedestal_b) rescue nil
+              bmp.fill_rect(Rect.new(cx - 7, cy + 9, 14, 2), pedestal) rescue nil
+              bmp.fill_rect(Rect.new(cx - 7, cy - 6, 14, 14), flame_outer) rescue nil
+              bmp.fill_rect(Rect.new(cx - 4, cy - 4, 8, 10), flame_core) rescue nil
+              bmp.fill_rect(Rect.new(cx - 2, cy - 9 - tip_off, 4, 4), flame_tip) rescue nil
+            end
+          end
+        elsif lower.include?("chest") || lower.include?("box") || lower.include?("treasure")
+          # Brown wooden box for Chest
+          wood_body = Color.new(139, 69, 19)
+          wood_lid  = Color.new(110, 50, 15)
+          metal_b   = Color.new(50, 35, 15)
+          gold_lock = Color.new(255, 200, 0)
+          shadow    = Color.new(35, 20, 10)
+
+          (0...4).each do |r|
+            (0...3).each do |c|
+              cx = c * 42 + 21
+              cy = r * 32 + 16
+
+              bmp.fill_rect(Rect.new(cx - 9, cy + 9, 18, 2), shadow) rescue nil
+              bmp.fill_rect(Rect.new(cx - 10, cy - 4, 20, 13), wood_body) rescue nil
+              bmp.fill_rect(Rect.new(cx - 11, cy - 8, 22, 5), wood_lid) rescue nil
+              bmp.fill_rect(Rect.new(cx - 9, cy - 8, 2, 17), metal_b) rescue nil
+              bmp.fill_rect(Rect.new(cx + 7, cy - 8, 2, 17), metal_b) rescue nil
+              bmp.fill_rect(Rect.new(cx - 2, cy - 4, 4, 5), gold_lock) rescue nil
+            end
+          end
+        elsif lower.include?("door") || lower.include?("gate")
+          # Doorway rectangle for Door
+          frame_col = Color.new(90, 75, 65)
+          panel_col = Color.new(125, 80, 45)
+          inset_col = Color.new(70, 45, 25)
+          knob_col  = Color.new(240, 205, 50)
+
+          (0...4).each do |r|
+            (0...3).each do |c|
+              cx = c * 42 + 21
+              cy = r * 32 + 16
+
+              bmp.fill_rect(Rect.new(cx - 11, cy - 13, 22, 26), frame_col) rescue nil
+              bmp.fill_rect(Rect.new(cx - 9, cy - 11, 18, 24), panel_col) rescue nil
+              bmp.fill_rect(Rect.new(cx - 7, cy - 9, 14, 9), inset_col) rescue nil
+              bmp.fill_rect(Rect.new(cx - 7, cy + 2, 14, 9), inset_col) rescue nil
+              bmp.fill_rect(Rect.new(cx + 4, cy, 3, 3), knob_col) rescue nil
+            end
+          end
+        else
+          # Generic colored marker box for other '!' objects
+          marker_border = Color.new(0, 90, 110)
+          marker_bg     = Color.new(0, 185, 215)
+          marker_core   = Color.new(255, 255, 255)
+
+          (0...4).each do |r|
+            (0...3).each do |c|
+              cx = c * 42 + 21
+              cy = r * 32 + 16
+
+              bmp.fill_rect(Rect.new(cx - 9, cy - 9, 18, 18), marker_border) rescue nil
+              bmp.fill_rect(Rect.new(cx - 7, cy - 7, 14, 14), marker_bg) rescue nil
+              bmp.fill_rect(Rect.new(cx - 1, cy - 5, 3, 6), marker_core) rescue nil
+              bmp.fill_rect(Rect.new(cx - 1, cy + 3, 3, 2), marker_core) rescue nil
+            end
+          end
+        end
+      else
+        # Standard character sheets without '!' (NPCs, enemies, actors)
+        # 128x128 3x4 sprite sheet with a simple silhouette / marker
+        body_outline = Color.new(45, 55, 75)
+        body_fill    = Color.new(90, 115, 150)
+        face_fill    = Color.new(220, 190, 160)
+        eye_color    = Color.new(20, 25, 40)
+        hair_color   = Color.new(65, 75, 95)
+
+        (0...4).each do |r|
+          (0...3).each do |c|
+            cx = c * 42 + 21
+            cy = r * 32 + 16
+
+            leg_l_h = (c == 0) ? 6 : 4
+            leg_r_h = (c == 2) ? 6 : 4
+            bmp.fill_rect(Rect.new(cx - 5, cy + 7, 3, leg_l_h), body_outline) rescue nil
+            bmp.fill_rect(Rect.new(cx + 2, cy + 7, 3, leg_r_h), body_outline) rescue nil
+
+            bmp.fill_rect(Rect.new(cx - 7, cy - 3, 14, 11), body_outline) rescue nil
+            bmp.fill_rect(Rect.new(cx - 6, cy - 2, 12, 9), body_fill) rescue nil
+
+            bmp.fill_rect(Rect.new(cx - 6, cy - 13, 12, 10), body_outline) rescue nil
+            if r == 3
+              bmp.fill_rect(Rect.new(cx - 5, cy - 12, 10, 8), hair_color) rescue nil
+            else
+              bmp.fill_rect(Rect.new(cx - 5, cy - 12, 10, 8), face_fill) rescue nil
+              bmp.fill_rect(Rect.new(cx - 5, cy - 12, 10, 3), hair_color) rescue nil
+              if r == 0
+                bmp.fill_rect(Rect.new(cx - 4, cy - 8, 2, 2), eye_color) rescue nil
+                bmp.fill_rect(Rect.new(cx + 2, cy - 8, 2, 2), eye_color) rescue nil
+              elsif r == 1
+                bmp.fill_rect(Rect.new(cx - 4, cy - 8, 2, 2), eye_color) rescue nil
+              elsif r == 2
+                bmp.fill_rect(Rect.new(cx + 2, cy - 8, 2, 2), eye_color) rescue nil
+              end
+            end
+          end
+        end
+      end
+    end
+    bmp
+  rescue
+    Bitmap.new(32, 32) rescue nil
+  end
+
+  def self.create_smart_character_fallback(path_or_name = nil)
+    create_character_fallback(path_or_name)
+  end
+end
+
+def create_tileset_fallback(name = nil)
+  RuntimePackCompatibility.create_tileset_fallback(name)
+end
+
+def create_character_fallback(name = nil)
+  RuntimePackCompatibility.create_character_fallback(name)
 end
 
 RuntimePackCompatibility.install_font_setters
+RuntimePackCompatibility.install_plane_subtractive_fog_hooks
 
 def patch_json_decoder
   if defined?(JSON)
@@ -716,18 +1013,47 @@ module RuntimePackCheatRunner
                 begin
                   send(orig_m, *args)
                 rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
-                  puts "[RuntimePack] Missing bitmap in #{cache_mod}.#{m}(#{args.first}): #{e.class}: #{e.message}, returning dummy bitmap"
-                  if defined?(RuntimePackAssetAudit)
-                    RuntimePackAssetAudit.record_event(
-                      "FILE_EXISTS",
-                      args.first.to_s,
-                      "FAIL",
-                      fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                      error_message: "#{e.class}: #{e.message}",
-                      source_location: "#{cache_mod}.#{m}"
-                    )
+                  arg_str = args.first.to_s
+                  if m == :tileset || arg_str.include?("Graphics/Tilesets/")
+                    puts "[RuntimePack] Missing tileset in #{cache_mod}.#{m}(#{arg_str}): #{e.class}: #{e.message}, returning tileset dummy bitmap"
+                    if defined?(RuntimePackAssetAudit)
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        arg_str,
+                        "FAIL",
+                        fallback_action: "TILESET_FALLBACK_DUMMY",
+                        error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                    end
+                    RuntimePackCompatibility.create_tileset_fallback(arg_str)
+                  elsif m == :character || arg_str.include?("Graphics/Characters/")
+                    puts "[RuntimePack] Missing character in #{cache_mod}.#{m}(#{arg_str}): #{e.class}: #{e.message}, returning character dummy bitmap"
+                    if defined?(RuntimePackAssetAudit)
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        arg_str,
+                        "FAIL",
+                        fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                        error_message: "RTP character sprite missing; substituted visible marker sheet",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                    end
+                    RuntimePackCompatibility.create_character_fallback(arg_str)
+                  else
+                    puts "[RuntimePack] Missing bitmap in #{cache_mod}.#{m}(#{arg_str}): #{e.class}: #{e.message}, returning dummy bitmap"
+                    if defined?(RuntimePackAssetAudit)
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        arg_str,
+                        "FAIL",
+                        fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                        error_message: "#{e.class}: #{e.message}",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                    end
+                    (Bitmap.new(32, 32) rescue nil)
                   end
-                  (Bitmap.new(32, 32) rescue nil)
                 end
               end
             end
@@ -742,12 +1068,13 @@ module RuntimePackCheatRunner
             begin
               rp_orig_normal_bitmap(path)
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
-              if path.to_s.include?("Graphics/Tilesets/")
-                puts "[RuntimePack] Missing tileset in #{cache_mod}.normal_bitmap: #{path}, falling back to checkered dummy bitmap"
+              path_str = path.to_s
+              if path_str.include?("Graphics/Tilesets/")
+                puts "[RuntimePack] Missing tileset in #{cache_mod}.normal_bitmap: #{path_str}, falling back to checkered dummy bitmap"
                 if defined?(RuntimePackAssetAudit)
                   RuntimePackAssetAudit.record_event(
                     "FILE_EXISTS",
-                    path.to_s,
+                    path_str,
                     "FAIL",
                     fallback_action: "TILESET_FALLBACK_DUMMY",
                     error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
@@ -755,13 +1082,27 @@ module RuntimePackCheatRunner
                   )
                 end
                 @cache ||= {}
-                @cache[path] = RuntimePackCompatibility.create_tileset_fallback_bitmap
-              else
-                puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path}, falling back to empty bitmap"
+                @cache[path] = RuntimePackCompatibility.create_tileset_fallback(path_str)
+              elsif path_str.include?("Graphics/Characters/")
+                puts "[RuntimePack] Missing character in #{cache_mod}.normal_bitmap: #{path_str}, falling back to smart character dummy bitmap"
                 if defined?(RuntimePackAssetAudit)
                   RuntimePackAssetAudit.record_event(
                     "FILE_EXISTS",
-                    path.to_s,
+                    path_str,
+                    "FAIL",
+                    fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                    error_message: "RTP character sprite missing; substituted visible marker sheet",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                end
+                @cache ||= {}
+                @cache[path] = RuntimePackCompatibility.create_character_fallback(path_str)
+              else
+                puts "[RuntimePack] Missing bitmap in #{cache_mod}.normal_bitmap: #{path_str}, falling back to empty bitmap"
+                if defined?(RuntimePackAssetAudit)
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path_str,
                     "FAIL",
                     fallback_action: "PLACEHOLDER_SUBSTITUTED",
                     error_message: "#{e.class}: #{e.message}",
@@ -801,7 +1142,8 @@ module RuntimePackCheatRunner
               rp_orig_bitmap_new(*args)
             rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
               if args.size <= 1
-                if args[0].is_a?(String) && args[0].include?("Graphics/Tilesets/")
+                arg_str = args[0].to_s
+                if args[0].is_a?(String) && arg_str.include?("Graphics/Tilesets/")
                   puts "[RuntimePack] Tileset bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting checkered dummy bitmap"
                   if defined?(RuntimePackAssetAudit)
                     RuntimePackAssetAudit.record_event(
@@ -813,9 +1155,24 @@ module RuntimePackCheatRunner
                       source_location: "Bitmap.new"
                     )
                   end
-                  (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
-                    RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                  (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback)) ?
+                    RuntimePackCompatibility.create_tileset_fallback(args[0]) :
                     (rp_orig_bitmap_new(512, 384) rescue rp_orig_bitmap_new(32, 32))
+                elsif args[0].is_a?(String) && arg_str.include?("Graphics/Characters/")
+                  puts "[RuntimePack] Character bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting smart character dummy bitmap"
+                  if defined?(RuntimePackAssetAudit)
+                    RuntimePackAssetAudit.record_event(
+                      "FILE_EXISTS",
+                      args[0],
+                      "FAIL",
+                      fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                      error_message: "RTP character sprite missing; substituted visible marker sheet",
+                      source_location: "Bitmap.new"
+                    )
+                  end
+                  (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_character_fallback)) ?
+                    RuntimePackCompatibility.create_character_fallback(args[0]) :
+                    (rp_orig_bitmap_new(128, 128) rescue rp_orig_bitmap_new(32, 32))
                 else
                   puts "[RuntimePack] Bitmap not found or failed to load: #{args[0].inspect} (#{e.class}: #{e.message}), substituting dummy bitmap"
                   if defined?(RuntimePackAssetAudit) && args[0].is_a?(String)

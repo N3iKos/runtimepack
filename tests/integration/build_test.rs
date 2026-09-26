@@ -579,6 +579,62 @@ fn test_build_gating_hard_blocker_cannot_be_bypassed_by_audit_override() {
 }
 
 #[test]
+fn test_build_with_rtp_path_packages_rtp_assets() {
+    let out_dir = test_temp_dir("build-rtp-pack");
+    let rtp_dir = test_temp_dir("build-rtp-source");
+    let fixture = test_workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_missing_asset");
+
+    // Provision missing PictureAce.png in external RTP folder
+    let rtp_pic_dir = rtp_dir.join("Graphics/Pictures");
+    std::fs::create_dir_all(&rtp_pic_dir).unwrap();
+    let src_pic = test_workspace_root()
+        .join("tests/fixtures/rgss_asset_audit/vxace_valid/Graphics/Pictures/PictureAce.png");
+    std::fs::copy(&src_pic, rtp_pic_dir.join("PictureAce.png")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--rtp-path")
+        .arg(&rtp_dir)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "build with --rtp-path must succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("RTP path:"));
+
+    let pack_path = out_dir.join("game.pack");
+    assert!(pack_path.exists(), "game.pack must be created");
+
+    // Inspect game.pack with GpackReader to verify RTP asset is bundled!
+    let mut reader = runtimepack_pack::GpackReader::open(&pack_path)
+        .expect("game.pack must be a valid GPACK");
+    assert!(
+        reader.has_file("Graphics/Pictures/PictureAce.png"),
+        "game.pack must contain RTP asset Graphics/Pictures/PictureAce.png"
+    );
+
+    let pic_data = reader
+        .read_file("Graphics/Pictures/PictureAce.png")
+        .expect("must read RTP asset from game.pack");
+    let expected_data = std::fs::read(&src_pic).unwrap();
+    assert_eq!(pic_data, expected_data, "bundled RTP asset data must match exactly");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let _ = std::fs::remove_dir_all(&rtp_dir);
+}
+
+#[test]
 fn test_forbidden_storage_permissions_rejected() {
     let forbidden = vec![
         "android.permission.INTERNET".to_string(),

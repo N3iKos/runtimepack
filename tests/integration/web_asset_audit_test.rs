@@ -207,6 +207,7 @@ fn test_mv_case_collision_fails() {
         logical_path: "img/pictures/mappicmv.png".to_string(),
         relative_path: std::path::PathBuf::from("img/pictures/mappicmv.png"),
         size_bytes: 100,
+        source_root: None,
     };
     index.files.insert(
         "img/pictures/mappicmv.png_colliding".to_string(),

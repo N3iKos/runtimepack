@@ -332,3 +332,58 @@ fn output_inside_source_is_rejected_without_creating_a_report() {
 
     fs::remove_dir_all(working_dir).unwrap();
 }
+
+#[test]
+fn audit_resolves_missing_assets_with_rtp_path() {
+    let working_dir = temp_dir("audit-rtp");
+    let game_source = workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_missing_asset");
+    let rtp_dir = temp_dir("rtp-source");
+
+    // Provision missing PictureAce.png in external RTP folder
+    let rtp_pic = rtp_dir.join("Graphics/Pictures");
+    fs::create_dir_all(&rtp_pic).unwrap();
+    let src_pic = workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_valid/Graphics/Pictures/PictureAce.png");
+    fs::copy(&src_pic, rtp_pic.join("PictureAce.png")).unwrap();
+
+    // 1. Audit without --rtp-path fails due to missing PictureAce
+    let report_no_rtp = working_dir.join("report-no-rtp.json");
+    let output_no_rtp = run_audit(
+        &working_dir,
+        &[
+            game_source.to_str().unwrap(),
+            "--output",
+            report_no_rtp.to_str().unwrap(),
+        ],
+    );
+    assert!(output_no_rtp.status.success());
+    let report_data = read_report(&report_no_rtp);
+    assert_eq!(report_data["outcome"], "FAIL");
+    assert!(report_data["findings"].as_array().unwrap().iter().any(|f| {
+        f["message"].as_str().map(|m| m.contains("PictureAce")).unwrap_or(false)
+    }));
+
+    // 2. Audit with --rtp-path resolves PictureAce from RTP folder
+    let report_rtp = working_dir.join("report-rtp.json");
+    let output_rtp = run_audit(
+        &working_dir,
+        &[
+            game_source.to_str().unwrap(),
+            "--rtp-path",
+            rtp_dir.to_str().unwrap(),
+            "--output",
+            report_rtp.to_str().unwrap(),
+        ],
+    );
+    assert!(output_rtp.status.success(), "{}", String::from_utf8_lossy(&output_rtp.stderr));
+    let stdout = String::from_utf8_lossy(&output_rtp.stdout);
+    assert!(stdout.contains("RTP path:"));
+
+    let report_rtp_data = read_report(&report_rtp);
+    assert_ne!(report_rtp_data["outcome"], "FAIL");
+    assert!(!report_rtp_data["findings"].as_array().unwrap().iter().any(|f| {
+        f["message"].as_str().map(|m| m.contains("PictureAce")).unwrap_or(false)
+    }));
+
+    fs::remove_dir_all(working_dir).unwrap();
+    fs::remove_dir_all(rtp_dir).unwrap();
+}

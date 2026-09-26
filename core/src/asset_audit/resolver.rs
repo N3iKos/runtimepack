@@ -536,6 +536,7 @@ mod tests {
                     logical_path: normalized.clone(),
                     relative_path: PathBuf::from(&normalized),
                     size_bytes: 100,
+                    source_root: None,
                 },
             );
         }

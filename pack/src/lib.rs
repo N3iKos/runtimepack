@@ -22,6 +22,19 @@ pub trait ContentPacker {
         mode: ContentMode,
         key: Option<&[u8; 32]>,
     ) -> Result<u64, DiagnosticError>;
+    fn pack_from_index(
+        &self,
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+        mode: ContentMode,
+    ) -> Result<u64, DiagnosticError>;
+    fn pack_from_index_with_key(
+        &self,
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+        mode: ContentMode,
+        key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError>;
 }
 
 pub struct StandardContentPacker;
@@ -51,6 +64,37 @@ impl ContentPacker for StandardContentPacker {
                 let effective_key = key.unwrap_or(&default_key);
                 GpackPacker::pack_directory_with_options(
                     source_dir,
+                    output_file,
+                    Some(effective_key),
+                )
+            }
+        }
+    }
+
+    fn pack_from_index(
+        &self,
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+        mode: ContentMode,
+    ) -> Result<u64, DiagnosticError> {
+        self.pack_from_index_with_key(index, output_file, mode, None)
+    }
+
+    fn pack_from_index_with_key(
+        &self,
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+        mode: ContentMode,
+        key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError> {
+        match mode {
+            ContentMode::Plain => Ok(0),
+            ContentMode::Packed => GpackPacker::pack_from_index(index, output_file),
+            ContentMode::EncryptedStreaming => {
+                let default_key = [0x42u8; 32];
+                let effective_key = key.unwrap_or(&default_key);
+                GpackPacker::pack_from_index_with_options(
+                    index,
                     output_file,
                     Some(effective_key),
                 )

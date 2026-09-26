@@ -76,6 +76,9 @@ enum Commands {
 pub struct AuditArgs {
     /// Path to game source directory
     pub path: PathBuf,
+    /// Path to RTP (Run-Time Package) directory to resolve missing standard assets
+    #[arg(long)]
+    pub rtp_path: Option<PathBuf>,
     /// Audit mode: standard or deep
     #[arg(long, default_value = "standard")]
     pub mode: String,
@@ -94,6 +97,9 @@ pub struct AuditArgs {
 pub struct BuildArgs {
     /// Path to game source directory
     pub path: PathBuf,
+    /// Path to RTP (Run-Time Package) directory to bundle missing standard assets
+    #[arg(long)]
+    pub rtp_path: Option<PathBuf>,
     /// Application package ID (e.g. com.example.game)
     #[arg(long)]
     pub package: Option<String>,
@@ -434,6 +440,7 @@ fn cmd_explain(path: &Path) {
 fn cmd_audit(args: AuditArgs) {
     let request = audit_command::AuditRequest {
         source: args.path,
+        rtp_path: args.rtp_path,
         mode: args.mode,
         allow_network: args.allow_network_audit,
         output: args.output,
@@ -443,6 +450,9 @@ fn cmd_audit(args: AuditArgs) {
         Ok(summary) => {
             println!("Detected engine: {}", summary.engine);
             println!("Audit mode: {:?}", summary.mode);
+            if let Some(ref rtp) = summary.rtp_path {
+                println!("RTP path: {}", rtp.display());
+            }
             println!(
                 "Network audit: {}",
                 if summary.allow_network {
@@ -483,6 +493,7 @@ fn cmd_build(args: BuildArgs) {
     };
 
     let path = &args.path;
+    let rtp_path = args.rtp_path.as_deref();
     let package = args.package;
     let name = args.name;
     let content_mode = args.content_mode;
@@ -490,11 +501,14 @@ fn cmd_build(args: BuildArgs) {
 
     println!("RuntimePack Build — Starting build pipeline\n");
     println!("Source game:   {}", path.display());
+    if let Some(rtp) = rtp_path {
+        println!("RTP path:      {}", rtp.display());
+    }
     println!("Build flavor:  {}", normalized_flavor);
     println!("Output target: {}", output.display());
 
     // 1. Ingest
-    let source_index = match GameSourceIndex::build(path) {
+    let source_index = match GameSourceIndex::build_with_rtp(path, rtp_path) {
         Ok(idx) => idx,
         Err(e) => {
             eprintln!("[ING-101] Failed to ingest source: {}", e);
@@ -780,15 +794,39 @@ fn cmd_build(args: BuildArgs) {
         }
     }
 
-    let total_bytes = match GpackPacker::pack_directory_with_options(
-        &content_source_dir,
-        &pack_path,
-        encryption_key.as_ref(),
-    ) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("[CNT-102] Failed to pack content: {}", e);
-            std::process::exit(1);
+    let total_bytes = if content_source_dir == *path {
+        match GpackPacker::pack_from_index_with_options(
+            &source_index,
+            &pack_path,
+            encryption_key.as_ref(),
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[CNT-102] Failed to pack content: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let normalized_index = match GameSourceIndex::build_with_rtp(
+            &content_source_dir,
+            rtp_path,
+        ) {
+            Ok(idx) => idx,
+            Err(e) => {
+                eprintln!("[ING-101] Failed to ingest content source: {}", e);
+                std::process::exit(1);
+            }
+        };
+        match GpackPacker::pack_from_index_with_options(
+            &normalized_index,
+            &pack_path,
+            encryption_key.as_ref(),
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[CNT-102] Failed to pack content: {}", e);
+                std::process::exit(1);
+            }
         }
     };
 

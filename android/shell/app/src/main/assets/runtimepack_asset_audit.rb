@@ -111,24 +111,24 @@ module RuntimePackAssetAudit
                   error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
                   source_location: "Bitmap.new"
                 )
-                dummy = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
-                  RuntimePackCompatibility.create_tileset_fallback_bitmap :
-                  begin
-                    bmp = (rp_audit_orig_new(512, 384) rescue nil)
-                    if bmp && bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
-                      c1 = Color.new(24, 24, 28)
-                      c2 = Color.new(40, 40, 46)
-                      (0...12).each do |ty|
-                        (0...16).each do |tx|
-                          color = ((tx + ty) % 2 == 0) ? c1 : c2
-                          bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
-                        end
-                      end
-                    end
-                    bmp || (rp_audit_orig_new(32, 32) rescue nil)
-                  rescue
-                    (rp_audit_orig_new(32, 32) rescue nil)
-                  end
+                dummy = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback)) ?
+                  RuntimePackCompatibility.create_tileset_fallback(path) :
+                  ((defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                    RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                    (rp_audit_orig_new(512, 384) rescue rp_audit_orig_new(32, 32)))
+                dummy
+              elsif path.include?("Graphics/Characters/")
+                RuntimePackAssetAudit.record_event(
+                  "FILE_EXISTS",
+                  path,
+                  "FAIL",
+                  fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                  error_message: "RTP character sprite missing; substituted visible marker sheet",
+                  source_location: "Bitmap.new"
+                )
+                dummy = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_character_fallback)) ?
+                  RuntimePackCompatibility.create_character_fallback(path) :
+                  (rp_audit_orig_new(128, 128) rescue rp_audit_orig_new(32, 32))
                 dummy
               else
                 RuntimePackAssetAudit.record_event(
@@ -169,15 +169,43 @@ module RuntimePackAssetAudit
                     send(orig_m, *args)
                   rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
                     path = args.first.to_s
-                    RuntimePackAssetAudit.record_event(
-                      "FILE_EXISTS",
-                      path,
-                      "FAIL",
-                      fallback_action: "PLACEHOLDER_SUBSTITUTED",
-                      error_message: "#{e.class}: #{e.message}",
-                      source_location: "#{cache_mod}.#{m}"
-                    )
-                    (Bitmap.new(32, 32) rescue nil)
+                    if m == :tileset || path.include?("Graphics/Tilesets/")
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        path,
+                        "FAIL",
+                        fallback_action: "TILESET_FALLBACK_DUMMY",
+                        error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                      (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback)) ?
+                        RuntimePackCompatibility.create_tileset_fallback(path) :
+                        ((defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                          RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                          (Bitmap.new(512, 384) rescue Bitmap.new(32, 32)))
+                    elsif m == :character || path.include?("Graphics/Characters/")
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        path,
+                        "FAIL",
+                        fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                        error_message: "RTP character sprite missing; substituted visible marker sheet",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                      (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_character_fallback)) ?
+                        RuntimePackCompatibility.create_character_fallback(path) :
+                        (Bitmap.new(128, 128) rescue Bitmap.new(32, 32))
+                    else
+                      RuntimePackAssetAudit.record_event(
+                        "FILE_EXISTS",
+                        path,
+                        "FAIL",
+                        fallback_action: "PLACEHOLDER_SUBSTITUTED",
+                        error_message: "#{e.class}: #{e.message}",
+                        source_location: "#{cache_mod}.#{m}"
+                      )
+                      (Bitmap.new(32, 32) rescue nil)
+                    end
                   end
                 end
               end
@@ -192,38 +220,39 @@ module RuntimePackAssetAudit
               begin
                 rp_audit_orig_normal_bitmap(path)
               rescue Errno::ENOENT, (defined?(RGSSError) ? RGSSError : StandardError), StandardError => e
-                if path.to_s.include?("Graphics/Tilesets/")
+                path_str = path.to_s
+                if path_str.include?("Graphics/Tilesets/")
                   RuntimePackAssetAudit.record_event(
                     "FILE_EXISTS",
-                    path.to_s,
+                    path_str,
                     "FAIL",
                     fallback_action: "TILESET_FALLBACK_DUMMY",
                     error_message: "RTP tileset missing; Layer 0/1 map tiles will render transparent/black",
                     source_location: "#{cache_mod}.normal_bitmap"
                   )
                   @cache ||= {}
-                  @cache[path] = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
-                    RuntimePackCompatibility.create_tileset_fallback_bitmap :
-                    begin
-                      bmp = Bitmap.new(512, 384) rescue nil
-                      if bmp && bmp.respond_to?(:fill_rect) && defined?(Color) && defined?(Rect)
-                        c1 = Color.new(24, 24, 28)
-                        c2 = Color.new(40, 40, 46)
-                        (0...12).each do |ty|
-                          (0...16).each do |tx|
-                            color = ((tx + ty) % 2 == 0) ? c1 : c2
-                            bmp.fill_rect(Rect.new(tx * 32, ty * 32, 32, 32), color) rescue nil
-                          end
-                        end
-                      end
-                      bmp || (Bitmap.new(32, 32) rescue nil)
-                    rescue
-                      Bitmap.new(32, 32) rescue nil
-                    end
+                  @cache[path] = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback)) ?
+                    RuntimePackCompatibility.create_tileset_fallback(path_str) :
+                    ((defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_tileset_fallback_bitmap)) ?
+                      RuntimePackCompatibility.create_tileset_fallback_bitmap :
+                      (Bitmap.new(512, 384) rescue Bitmap.new(32, 32)))
+                elsif path_str.include?("Graphics/Characters/")
+                  RuntimePackAssetAudit.record_event(
+                    "FILE_EXISTS",
+                    path_str,
+                    "FAIL",
+                    fallback_action: "CHARACTER_FALLBACK_DUMMY",
+                    error_message: "RTP character sprite missing; substituted visible marker sheet",
+                    source_location: "#{cache_mod}.normal_bitmap"
+                  )
+                  @cache ||= {}
+                  @cache[path] = (defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:create_character_fallback)) ?
+                    RuntimePackCompatibility.create_character_fallback(path_str) :
+                    (Bitmap.new(128, 128) rescue Bitmap.new(32, 32))
                 else
                   RuntimePackAssetAudit.record_event(
                     "FILE_EXISTS",
-                    path.to_s,
+                    path_str,
                     "FAIL",
                     fallback_action: "PLACEHOLDER_SUBSTITUTED",
                     error_message: "#{e.class}: #{e.message}",

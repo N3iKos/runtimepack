@@ -904,6 +904,7 @@ fn test_orphan_analysis_unreferenced_assets_become_info_possibly_unused() {
                 logical_path: path.to_string(),
                 relative_path: PathBuf::from(path),
                 size_bytes: 1234,
+                source_root: None,
             },
         );
     }
@@ -1024,6 +1025,7 @@ fn test_orphan_analysis_dynamic_coverage_keeps_orphan_informational_with_clarifi
             logical_path: "graphics/pictures/extra.png".to_string(),
             relative_path: PathBuf::from("graphics/pictures/extra.png"),
             size_bytes: 500,
+            source_root: None,
         },
     );
     let source_index = GameSourceIndex {

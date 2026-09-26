@@ -55,7 +55,7 @@ assert_equal(0, RuntimePackAssetAudit.events.size, "Initial events list should b
 
 # Test 2: Bitmap.new failure emits PLACEHOLDER_SUBSTITUTED fallback event and returns dummy bitmap
 puts "Test 2: Bitmap.new failure fallback"
-missing_path = "Graphics/Characters/NonExistentHero.png"
+missing_path = "Graphics/Pictures/NonExistentPicture.png"
 dummy_bmp = nil
 assert_nothing_raised = begin
   dummy_bmp = Bitmap.new(missing_path)
@@ -74,7 +74,7 @@ events = RuntimePackAssetAudit.events
 assert(events.size >= 1, "At least one audit event should be recorded")
 last_ev = events.last
 assert_equal("FILE_EXISTS", last_ev["stage"], "Stage should be FILE_EXISTS")
-assert_equal("Graphics/Characters/NonExistentHero.png", last_ev["asset_path"], "Asset path should match requested")
+assert_equal("Graphics/Pictures/NonExistentPicture.png", last_ev["asset_path"], "Asset path should match requested")
 assert_equal("FAIL", last_ev["outcome"], "Outcome should be FAIL")
 assert_equal("PLACEHOLDER_SUBSTITUTED", last_ev["fallback_action"], "Fallback action should be PLACEHOLDER_SUBSTITUTED")
 assert(last_ev["error_message"].to_s.include?("Errno::ENOENT") || last_ev["error_message"].to_s.include?("No such file"), "Error message should capture exception")
@@ -235,6 +235,116 @@ begin
 ensure
   Dir.chdir(orig_pwd)
   FileUtils.remove_entry_secure(tmp_test_dir) rescue nil
+end
+
+# Test 10: Smart tileset and character fallback generation
+puts "Test 10: Smart tileset and character fallback generation"
+
+# Verify create_tileset_fallback produces 512x384 bitmap
+ts_fallback = (defined?(create_tileset_fallback) ? create_tileset_fallback : RuntimePackCompatibility.create_tileset_fallback)
+assert(!ts_fallback.nil?, "create_tileset_fallback must return a bitmap")
+assert_equal(512, ts_fallback.width, "create_tileset_fallback must produce 512 width")
+assert_equal(384, ts_fallback.height, "create_tileset_fallback must produce 384 height")
+
+# Verify create_character_fallback produces valid multi-frame bitmap (> 32x32) for !Flame and !Chest
+flame_fallback = (defined?(create_character_fallback) ? create_character_fallback("!Flame") : RuntimePackCompatibility.create_character_fallback("!Flame"))
+assert(!flame_fallback.nil?, "create_character_fallback(!Flame) must return a bitmap")
+assert(flame_fallback.width > 32, "create_character_fallback(!Flame) width must be > 32")
+assert(flame_fallback.height > 32, "create_character_fallback(!Flame) height must be > 32")
+
+chest_fallback = (defined?(create_character_fallback) ? create_character_fallback("!Chest") : RuntimePackCompatibility.create_character_fallback("!Chest"))
+assert(!chest_fallback.nil?, "create_character_fallback(!Chest) must return a bitmap")
+assert(chest_fallback.width > 32, "create_character_fallback(!Chest) width must be > 32")
+assert(chest_fallback.height > 32, "create_character_fallback(!Chest) height must be > 32")
+
+# Verify standard character fallback without '!'
+actor_fallback = (defined?(create_character_fallback) ? create_character_fallback("Actor1") : RuntimePackCompatibility.create_character_fallback("Actor1"))
+assert(!actor_fallback.nil?, "create_character_fallback(Actor1) must return a bitmap")
+assert(actor_fallback.width > 32, "create_character_fallback(Actor1) width must be > 32")
+assert(actor_fallback.height > 32, "create_character_fallback(Actor1) height must be > 32")
+
+# Verify Bitmap.new on character path uses smart character fallback (> 32x32)
+char_missing = Bitmap.new("Graphics/Characters/!Flame.png")
+assert(!char_missing.nil?, "Bitmap.new on missing character must return fallback bitmap")
+assert(char_missing.width > 32, "Bitmap.new on missing character width must be > 32")
+assert(char_missing.height > 32, "Bitmap.new on missing character height must be > 32")
+
+# Verify Cache.normal_bitmap on character path uses smart character fallback (> 32x32)
+if defined?(Cache) && Cache.respond_to?(:normal_bitmap)
+  cache_char = Cache.normal_bitmap("Graphics/Characters/!Chest.png")
+  assert(!cache_char.nil?, "Cache.normal_bitmap on missing character must return fallback bitmap")
+  assert(cache_char.width > 32, "Cache.normal_bitmap on missing character width must be > 32")
+  assert(cache_char.height > 32, "Cache.normal_bitmap on missing character height must be > 32")
+end
+
+# Test 11: Subtractive fog Plane mitigation in OpenGL ES
+puts "Test 11: Subtractive fog Plane mitigation in OpenGL ES"
+RuntimePackCompatibility.reset_plane_mitigations! if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:reset_plane_mitigations!)
+
+assert(defined?(Plane), "Plane class must be defined")
+
+if defined?(Plane)
+  # 1. Plane with blend_type = 2 and z = 10 clamps opacity to <= 80 and logs mitigation notice
+  plane1 = Plane.new
+  plane1.z = 10
+  plane1.opacity = 255
+  plane1.blend_type = 2
+
+  assert(plane1.opacity <= 80, "Plane#blend_type = 2 with z = 10 must clamp opacity to <= 80 (was #{plane1.opacity})")
+  assert(plane1.opacity > 0, "Plane opacity must be positive")
+  assert_equal(2, plane1.blend_type, "Plane blend_type should remain 2")
+
+  # Verify mitigation notice is logged / recorded
+  if defined?(RuntimePackCompatibility) && RuntimePackCompatibility.respond_to?(:plane_mitigations)
+    mitigations = RuntimePackCompatibility.plane_mitigations
+    assert(mitigations.size >= 1, "At least one Plane mitigation should be recorded")
+    last_mit = mitigations.last
+    assert_equal(10, last_mit[:z], "Mitigation notice Z should be 10")
+    assert(last_mit[:opacity] <= 80, "Mitigation notice opacity should be <= 80")
+    assert(last_mit[:message].include?("Subtractive fog Plane mitigation"), "Mitigation message should describe fog mitigation")
+  end
+
+  # 2. Intercept Plane#opacity= when blend_type == 2 and z < 32
+  plane1.opacity = 200
+  assert(plane1.opacity <= 80, "Plane#opacity= must clamp opacity to <= 80 when blend_type is 2 and z < 32")
+
+  # 3. Allow higher opacity when z >= 32 (above character layer)
+  plane1.z = 50
+  plane1.opacity = 180
+  assert_equal(180, plane1.opacity, "Plane#opacity= should allow higher opacity when z >= 32")
+
+  # 4. Lowering z below 32 while blend_type == 2 re-clamps opacity
+  plane1.z = 15
+  assert(plane1.opacity <= 80, "Plane#z= must clamp opacity to <= 80 when z is lowered below 32 while blend_type == 2")
+
+  # 5. Restoring normal blend_type (0) restores unconstrained opacity
+  plane1.blend_type = 0
+  plane1.opacity = 250
+  assert_equal(250, plane1.opacity, "Plane#opacity= should allow full opacity when blend_type is normal (0)")
+
+  # 6. Verify clamp when floor tilesets are NOT missing (cap to exactly 80)
+  saved_events = RuntimePackAssetAudit.events.dup rescue []
+  RuntimePackAssetAudit.reset! rescue nil
+  begin
+    plane2 = Plane.new
+    plane2.z = 10
+    plane2.opacity = 255
+    plane2.blend_type = 2
+    assert_equal(80, plane2.opacity, "Plane#blend_type = 2 with z = 10 must clamp opacity to exactly 80 when floor is not missing")
+  ensure
+    if defined?(RuntimePackAssetAudit)
+      saved_events.each do |ev|
+        RuntimePackAssetAudit.record_event(
+          ev["stage"],
+          ev["asset_path"],
+          ev["outcome"],
+          fallback_action: ev["fallback_action"],
+          error_message: ev["error_message"],
+          source_location: ev["source_location"]
+        ) rescue nil
+      end
+    end
+  end
 end
 
 # Cleanup

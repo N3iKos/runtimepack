@@ -219,6 +219,7 @@ fn test_renpy_case_collision_fails() {
         logical_path: "game/bg/ROOM.png".to_string(),
         relative_path: std::path::PathBuf::from("game/bg/ROOM.png"),
         size_bytes: 50,
+        source_root: None,
     };
     index
         .files

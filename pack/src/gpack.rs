@@ -117,7 +117,21 @@ impl GpackPacker {
         encryption_key: Option<&[u8; 32]>,
     ) -> Result<u64, DiagnosticError> {
         let index = runtimepack_core::ingest::GameSourceIndex::build(source_dir)?;
+        Self::pack_from_index_with_options(&index, output_file, encryption_key)
+    }
 
+    pub fn pack_from_index(
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+    ) -> Result<u64, DiagnosticError> {
+        Self::pack_from_index_with_options(index, output_file, None)
+    }
+
+    pub fn pack_from_index_with_options(
+        index: &runtimepack_core::ingest::GameSourceIndex,
+        output_file: &Path,
+        encryption_key: Option<&[u8; 32]>,
+    ) -> Result<u64, DiagnosticError> {
         let mut out = File::create(output_file).map_err(|e| {
             DiagnosticError::from_code(DiagnosticCode::CNT_INVALID_PATH, e.to_string())
         })?;
@@ -193,7 +207,7 @@ impl GpackPacker {
         let mut chunk_counter = 0u64;
 
         for (i, p) in prepared.into_iter().enumerate() {
-            let src_file_path = index.root_path.join(&p.file_info.relative_path);
+            let src_file_path = p.file_info.real_path(&index.root_path);
             let mut in_file = File::open(&src_file_path)?;
             let mut file_data = Vec::with_capacity(p.file_info.size_bytes as usize);
             in_file.read_to_end(&mut file_data)?;

@@ -828,7 +828,7 @@ impl AssetAuditor for RgssAssetAuditor {
         if options.mode == AuditMode::Deep {
             let scripts_path = format!("Data/Scripts.{ext}");
             if let Some(indexed_file) = source.get_file(&scripts_path) {
-                let full_path = source.root_path.join(&indexed_file.relative_path);
+                let full_path = indexed_file.real_path(&source.root_path);
                 match std::fs::read(&full_path) {
                     Ok(bytes) => match parse_marshal(&bytes) {
                         Ok(_) => {
@@ -893,7 +893,7 @@ fn read_and_parse_data_file(
     finding_counter: &mut usize,
 ) -> Option<MarshalValue> {
     let indexed_file = source.get_file(logical_path)?;
-    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let full_path = indexed_file.real_path(&source.root_path);
     let bytes = match std::fs::read(&full_path) {
         Ok(b) => b,
         Err(e) => {
@@ -2116,7 +2116,7 @@ fn load_tilesets_map(source: &GameSourceIndex, ext: &str) -> HashMap<i32, Vec<St
         Some(f) => f,
         None => return HashMap::new(),
     };
-    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let full_path = indexed_file.real_path(&source.root_path);
     let bytes = match std::fs::read(&full_path) {
         Ok(b) => b,
         Err(_) => return HashMap::new(),
@@ -2876,7 +2876,7 @@ fn try_read_and_parse_data_file(
     source: &GameSourceIndex,
 ) -> Option<MarshalValue> {
     let indexed_file = source.get_file(logical_path)?;
-    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let full_path = indexed_file.real_path(&source.root_path);
     let bytes = std::fs::read(&full_path).ok()?;
     parse_marshal(&bytes).ok()
 }
@@ -2884,7 +2884,7 @@ fn try_read_and_parse_data_file(
 fn inspect_scripts_for_font_cjk(ext: &str, source: &GameSourceIndex) -> Option<String> {
     let scripts_path = format!("Data/Scripts.{ext}");
     let indexed_file = source.get_file(&scripts_path)?;
-    let full_path = source.root_path.join(&indexed_file.relative_path);
+    let full_path = indexed_file.real_path(&source.root_path);
     let bytes = std::fs::read(&full_path).ok()?;
 
     if let Ok(val) = parse_marshal(&bytes) {
