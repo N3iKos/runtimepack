@@ -58,18 +58,18 @@
 - Test target: `Raw-Game\[Kimochi] show_off`
 - Build output: `dist/show_off/ShowOff.apk`
 
-- [ ] **Step 1: Run static audit on show_off**:
+- [x] **Step 1: Run static audit on show_off**:
   ```powershell
   cargo run --bin runtimepack -- audit "Raw-Game\[Kimochi] show_off" --mode standard --output dist/show_off/asset-audit-report.json
   ```
   - Verify path traversal findings drop from 891 to 0.
-- [ ] **Step 2: Execute build for show_off**:
+- [x] **Step 2: Execute build for show_off**:
   ```powershell
   cargo run --bin runtimepack -- build "Raw-Game\[Kimochi] show_off" -o dist/show_off --package com.example.showoff --name "Show Off" --flavor beta --accept-audit-fail --accept-audit-unknown
   ```
-- [ ] **Step 3: Verify APK generation**:
+- [x] **Step 3: Verify APK generation**:
   - Assert that `dist/show_off/ShowOff.apk` exists, has size > 500 MB, and Gradle build exits with 0.
-- [ ] **Step 4: Commit build verification record**:
+- [x] **Step 4: Commit build verification record**:
   ```powershell
   git commit --allow-empty -m "chore: verify [Kimochi] show_off APK build success"
   ```

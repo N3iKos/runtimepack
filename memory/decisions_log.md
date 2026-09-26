@@ -1,5 +1,16 @@
 # Decisions Log
 
+## [2026-09-27] Internal Relative Path Normalization in Tyrano Auditor & VFS
+**Keputusan:**
+1. Di `core/src/asset_audit/resolver.rs`:
+   - Implementasi `pub fn normalize_relative_path(path: &str) -> Option<String>` untuk mengonversi backslash ke slash, memblokir null bytes, absolute leading slashes, dan Windows drive letters, serta menormalisasi komponen path `.` dan `..` berbasis stack. Hanya mengembalikan `None` jika path berusaha menembus keluar dari root direktori game.
+   - Refactor `is_unsafe_path(path: &str) -> bool` menggunakan `normalize_relative_path(path).is_none()`.
+   - `CandidateRule::expand_candidates` dan `normalize_candidate` menormalisasi internal relative paths sebelum pencocokan case-folding dan file lookup.
+2. Di `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt`:
+   - `urlToLogicalPath(url: String)` meng-collapse segmen internal `..` dan `.` secara aman dan mengembalikan `null` jika ada usaha traversal di atas root.
+**Alasan:** Skenario game TyranoScript (seperti *[Kimochi] show_off*) kerap mereferensikan aset visual menggunakan relasi direktori internal seperti `data/image/../fgimage/char.png` atau `../fgimage/char.png`. Sebelumnya, path ini ditolak mentah-mentah sebagai unsafe traversal (`CMP-AUD-009`) sehingga audit gagal.
+**Dampak:** Mengubah 891 false positive unsafe path traversal di `show_off` menjadi aset yang teresolusi secara sah, menjaga integritas VFS, dan menjamin 257 unit/integration tests cargo serta 24 Gradle Android unit test tasks lulus 100%.
+
 ## [2026-09-26] Tyrano Dynamic Scenario Reference Handling & Scenario Safety Stubs
 **Keputusan:**
 1. Di `engines/tyrano/src/asset_audit.rs`:

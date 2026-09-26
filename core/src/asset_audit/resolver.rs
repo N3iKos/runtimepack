@@ -865,6 +865,14 @@ mod tests {
             Some("data/fgimage/char.png".to_string())
         );
         assert_eq!(
+            normalize_relative_path("data/image/../fgimage/default/ボタン/出口ボタン.png"),
+            Some("data/fgimage/default/ボタン/出口ボタン.png".to_string())
+        );
+        assert_eq!(
+            normalize_relative_path("data/sound/../sound/G/Gpis_lowC.mp3"),
+            Some("data/sound/G/Gpis_lowC.mp3".to_string())
+        );
+        assert_eq!(
             normalize_relative_path("a/b/c/../../d"),
             Some("a/d".to_string())
         );

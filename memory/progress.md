@@ -1,12 +1,38 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 2 Plan 2 (Build APK & Verify *[Kimochi] NTRdemic*) selesai. APK mandiri `dist/ntrdemic/NTRdemic.apk` berhasil dibangun dan diverifikasi.
-- **Next step:** Plan 2 selesai. Lanjut ke rencana atau target stabilisasi game berikutnya sesuai roadmap.
+- **Sedang kerjain apa:** Task 2 Plan 3 (Build APK & Verify *[Kimochi] show_off*) selesai.
+- **Next step:** Semua task Plan 3 selesai. Siap untuk instruksi atau evaluasi selanjutnya.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Ekstraksi ASAR dan dynamic expressions pada TyranoScript diklasifikasikan sebagai `CMP-AUD-006` (`INDETERMINATE`), bukan fatal missing asset (`CMP-AUD-002`). Safety stubs mencegah freeze/crash pada tombol menu opsional (`cg.ks`, `replay.ks`, dll.).
+- **Catatan fokus:** Traversal internal yang tetap berada di dalam game root dinormalisasi secara deterministik (`normalize_relative_path` & `urlToLogicalPath`), sedangkan traversal yang mencoba kabur di atas root ditolak (`CMP-AUD-009` / `null`). ASAR container `resources/app.asar` dikeluarkan dari `files` saat unpacking untuk mencegah false positive `CMP-AUD-008` (file size limit).
 
 ## Selesai
+- [2026-09-27] Task 2 Plan 3 (Build APK & Verify *[Kimochi] show_off*) Selesai:
+  1. Static Asset Audit:
+     - `cargo run --bin runtimepack -- audit "Raw-Game\[Kimochi] show_off" --mode standard --output dist/show_off/asset-audit-report.json`
+     - Menghasilkan laporan audit 4.852 nodes, 8.332 references, 145 findings.
+     - Path traversal warnings (`CMP-AUD-009`) resmi turun menjadi 0!
+     - `CURRENT_AUDIT_RULESET_VERSION` dinaikkan ke versi 2 di `cache.rs`.
+     - `engines/tyrano/src/asset_audit.rs`: `files.remove("resources/app.asar")` pada `build_effective_source` agar tidak memicu false limit reached `CMP-AUD-008`.
+  2. Kompilasi & Verifikasi APK:
+     - Command: `target\debug\runtimepack.exe build "Raw-Game\[Kimochi] show_off" -o dist/show_off --package com.example.showoff --name "Show Off" --flavor beta --accept-audit-fail --accept-audit-unknown`
+     - Ekstraksi 1.613 files dari `resources/app.asar` ke staging directory sukses.
+     - GPACK `game.pack` tercipta (860.03 MB, hash: `d3289b04`).
+     - Gradle sukses kompilasi `assembleDebug` (exit code 0).
+     - Menghasilkan `dist/show_off/ShowOff.apk` (943.594.630 bytes / 899.88 MB, SHA-256 `2dc853665298a7e3924f234fb1b4d85beab36a352aae7ada00854ee82c273204`).
+  3. Verifikasi tests workspace: 257/257 Cargo unit and integration tests lulus 100%.
+- [2026-09-27] Task 1 Plan 3 (Internal Relative Path Normalization in Tyrano Auditor & VFS) Selesai:
+  1. `core/src/asset_audit/resolver.rs`:
+     - Implementasi `pub fn normalize_relative_path(path: &str) -> Option<String>` yang mengonversi backslash ke slash, memvalidasi dan menolak null bytes, Windows drive letters, atau leading slash `/`, serta meng-collapse segmen `.` dan `..` secara aman. Mengembalikan `None` hanya jika traversal berusaha menembus batas atas direktori root game.
+     - Mengubah `is_unsafe_path(path: &str) -> bool` menjadi `normalize_relative_path(path).is_none()`.
+     - `CandidateRule::expand_candidates` dan `normalize_candidate` menormalisasi path internal sebelum pemetaan case-folding.
+     - Memperbarui unit tests `test_middle_traversal_unsafe` dan `test_traversal_unsafe` serta menambahkan `test_normalize_relative_path` dan `test_internal_traversal_safe_resolution`.
+  2. `android/shell/app/src/main/java/io/runtimepack/host/VfsResourceInterceptor.kt`:
+     - Memperbarui `urlToLogicalPath(url: String)` untuk meng-collapse segmen `..` dan `.` secara internal dan mengembalikan `null` jika path mencoba keluar dari root game.
+  3. Tests & Verifikasi:
+     - Integration test `test_scenario_internal_relative_path_traversal_resolves_cleanly` di `tests/integration/tyrano_asset_audit_test.rs`.
+     - Unit test `testInternalRelativePathNormalization` di `VfsResourceInterceptorTest.kt`.
+     - Seluruh 257 tests cargo workspace dan 24 Gradle Android unit test tasks lulus 100%. Commit: `9498071`.
 - [2026-09-27] Task 2 Plan 2 (Build APK & Verify *[Kimochi] NTRdemic*) Selesai:
   1. Static Asset Audit:
      - `runtimepack audit "Raw-Game\[Kimochi] NTRdemic - I Will Rescue Her Without Yielding to Any Temptation" --mode standard --output dist/ntrdemic/asset-audit-report.json`

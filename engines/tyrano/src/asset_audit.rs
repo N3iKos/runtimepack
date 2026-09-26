@@ -100,6 +100,7 @@ impl<'a> TyranoReader<'a> {
     fn build_effective_source(&self) -> GameSourceIndex {
         if let Some((ref archive, _)) = self.asar {
             let mut files = self.source.files.clone();
+            files.remove("resources/app.asar");
             for entry in archive.files.values() {
                 files.insert(
                     entry.path.clone(),
