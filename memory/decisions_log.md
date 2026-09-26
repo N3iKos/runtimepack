@@ -1,5 +1,23 @@
 # Decisions Log
 
+## [2026-09-27] Reachability Graph Filter for RPG Maker MV/MZ Database (Task 2)
+**Keputusan:**
+1. Di `engines/rpgmaker_web/src/asset_audit.rs`:
+   - Implementasi `DatabaseReachabilityIndex` dan `build_database_reachability`:
+     - Memindai `active_enemies` dari `data/Troops.json` members (`enemyId`) dan event command 336 (Enemy Transform).
+     - Memindai `active_actors` dari `data/System.json` `partyMembers` (default ke Actor 1 jika omitted) serta event command codes 129 (Change Party Member), 322 (Change Actor Images), 320/321/324/325, 311..321, 111.
+     - Memindai `active_animations` dari `data/Skills.json`, `data/Items.json`, `data/Weapons.json`, `data/Armors.json`, serta event command codes 212 (Show Animation) dan 337 (Show Battle Animation).
+     - Memindai `placed_vehicles` dari `startMapId > 0` di `System.json` dan event command code 206 (Set Vehicle Location).
+   - Implementasi `resolve_and_record_reachable` dan `record_resolution_result_reachable`:
+     - Jika entitas database tidak berada dalam reachability index dan asetnya hilang di disk, mengemisikan `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`) dengan severity `FindingSeverity::Info` dan requiredness `ReferenceRequiredness::Optional`, bukan `CMP_AUD_REQUIRED_REFERENCE_MISSING` (`CMP-AUD-002`).
+     - Jika entitas database aktif namun asetnya hilang di disk, tetap mengemisikan `CMP_AUD_REQUIRED_REFERENCE_MISSING` (`CMP-AUD-002`, severity `Error`, blocking).
+     - Sideview battler `Actor1_1` atau battler apa pun saat `optSideView == false` di-downgrade ke `CMP_AUD_POSSIBLY_UNUSED`.
+     - Kendaraan yang tidak placed (`startMapId <= 0` dan tanpa code 206) yang kehilangan file BGM/karakter di-downgrade ke `CMP_AUD_POSSIBLY_UNUSED`.
+2. Di `core/src/asset_audit/cache.rs`:
+   - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` dari 4 ke 5 untuk invalidasi cache otomatis.
+**Alasan:** Game RPG Maker MV/MZ seperti *Fear & Hunger 2: Termina* dan template editor menyertakan ratusan entitas database default (musuh, aktor, animasi, suara kapal) yang tidak pernah digunakan dalam map atau pertarungan. Menilai seluruh entitas tidak aktif sebagai fatal missing asset menimbulkan ratusan false positive build-blocking errors.
+**Dampak:** Mengeliminasi ratusan false positive fatal errors, mengonversinya menjadi informational `CMP_AUD_POSSIBLY_UNUSED`, dan menghasilkan outcome `Pass` pada audit statis game bersih. 32 integration tests `web_asset_audit_test` dan 267 workspace tests lulus 100%.
+
 ## [2026-09-27] RGSSAD Archive Validation & Bidirectional Symlink Aliasing (To the Moon)
 **Keputusan:**
 1. Di `engines/rgss/src/asset_audit.rs`:

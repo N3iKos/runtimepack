@@ -74,6 +74,359 @@ fn ensure_node(
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct DatabaseReachabilityIndex {
+    pub active_enemies: HashSet<u64>,
+    pub active_actors: HashSet<u64>,
+    pub active_animations: HashSet<u64>,
+    pub placed_vehicles: HashSet<String>,
+}
+
+impl DatabaseReachabilityIndex {
+    pub fn is_vehicle_placed(&self, vehicle_key: &str, vehicle_obj: &serde_json::Value) -> bool {
+        let start_map_id = vehicle_obj
+            .get("startMapId")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        if start_map_id > 0 {
+            return true;
+        }
+        self.placed_vehicles.contains(vehicle_key)
+    }
+}
+
+fn load_raw_json(source: &GameSourceIndex, logical_path: &str) -> Option<serde_json::Value> {
+    let file = source.get_file(logical_path)?;
+    let full_path = file.real_path(&source.root_path);
+    let bytes = std::fs::read(&full_path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn scan_event_commands_reachability(
+    commands: &[serde_json::Value],
+    active_actors: &mut HashSet<u64>,
+    active_enemies: &mut HashSet<u64>,
+    active_animations: &mut HashSet<u64>,
+    placed_vehicles: &mut HashSet<String>,
+) {
+    for cmd in commands {
+        let code = match cmd.get("code").and_then(|v| v.as_u64()) {
+            Some(c) => c,
+            None => continue,
+        };
+        let params = match cmd.get("parameters").and_then(|v| v.as_array()) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        match code {
+            // Change Party Member: params[0] = actorId
+            129 => {
+                if let Some(id) = params.first().and_then(|v| v.as_u64()) {
+                    if id > 0 {
+                        active_actors.insert(id);
+                    }
+                }
+            }
+            // Change Actor Images: params[0] = actorId
+            322 => {
+                if let Some(id) = params.first().and_then(|v| v.as_u64()) {
+                    if id > 0 {
+                        active_actors.insert(id);
+                    }
+                }
+            }
+            // Change Actor Name (320), Change Actor Class (321), Change Actor Nickname/Profile (324, 325)
+            320 | 321 | 324 | 325 => {
+                if let Some(id) = params.first().and_then(|v| v.as_u64()) {
+                    if id > 0 {
+                        active_actors.insert(id);
+                    }
+                }
+            }
+            // Actor manipulation: Change HP (311), MP (312), TP (326), State (313), Recover (314), EXP (315), Level (316), Parameter (317), Skill (318), Equipment (319)
+            // In these, params[0] == 0 means Fixed Actor, and params[1] is actorId.
+            311 | 312 | 313 | 314 | 315 | 316 | 317 | 318 | 319 | 326 => {
+                let mode = params.first().and_then(|v| v.as_u64()).unwrap_or(1);
+                if mode == 0 {
+                    if let Some(id) = params.get(1).and_then(|v| v.as_u64()) {
+                        if id > 0 {
+                            active_actors.insert(id);
+                        }
+                    }
+                }
+            }
+            // Conditional Branch (111): params[0] == 3 means Actor, params[1] is actorId
+            111 => {
+                let branch_type = params.first().and_then(|v| v.as_u64()).unwrap_or(0);
+                if branch_type == 3 {
+                    if let Some(id) = params.get(1).and_then(|v| v.as_u64()) {
+                        if id > 0 {
+                            active_actors.insert(id);
+                        }
+                    }
+                }
+            }
+            // Show Animation (212): params[1] is animationId
+            212 => {
+                if let Some(id) = params.get(1).and_then(|v| v.as_i64()) {
+                    if id > 0 {
+                        active_animations.insert(id as u64);
+                    }
+                }
+            }
+            // Show Battle Animation (337): params[1] is animationId
+            337 => {
+                if let Some(id) = params.get(1).and_then(|v| v.as_i64()) {
+                    if id > 0 {
+                        active_animations.insert(id as u64);
+                    }
+                }
+            }
+            // Enemy Transform (336): params[1] is enemyId
+            336 => {
+                if let Some(id) = params.get(1).and_then(|v| v.as_u64()) {
+                    if id > 0 {
+                        active_enemies.insert(id);
+                    }
+                }
+            }
+            // Set Vehicle Location (206): params[0] is vehicle: 0=boat, 1=ship, 2=airship
+            206 => {
+                if let Some(vehicle_idx) = params.first().and_then(|v| v.as_u64()) {
+                    match vehicle_idx {
+                        0 => {
+                            placed_vehicles.insert("boat".to_string());
+                        }
+                        1 => {
+                            placed_vehicles.insert("ship".to_string());
+                        }
+                        2 => {
+                            placed_vehicles.insert("airship".to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn build_database_reachability(
+    source: &GameSourceIndex,
+    prefix: &str,
+) -> DatabaseReachabilityIndex {
+    let mut index = DatabaseReachabilityIndex::default();
+
+    // 1. System.json: partyMembers & vehicle startMapId
+    let sys_path = format!("{prefix}data/System.json");
+    if let Some(sys) = load_raw_json(source, &sys_path) {
+        if let Some(party) = sys.get("partyMembers").and_then(|v| v.as_array()) {
+            for m in party {
+                if let Some(id) = m.as_u64() {
+                    if id > 0 {
+                        index.active_actors.insert(id);
+                    }
+                }
+            }
+        } else {
+            // Default to Actor 1 if partyMembers is omitted
+            index.active_actors.insert(1);
+        }
+        for vkey in ["boat", "ship", "airship"] {
+            if let Some(vobj) = sys.get(vkey) {
+                let start_map_id = vobj
+                    .get("startMapId")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if start_map_id > 0 {
+                    index.placed_vehicles.insert(vkey.to_string());
+                }
+            }
+        }
+    }
+
+    // 2. Troops.json: troop members & battle event pages
+    let troops_path = format!("{prefix}data/Troops.json");
+    if let Some(troops_val) = load_raw_json(source, &troops_path) {
+        if let Some(list) = troops_val.as_array() {
+            for troop in list {
+                if troop.is_null() {
+                    continue;
+                }
+                if let Some(members) = troop.get("members").and_then(|v| v.as_array()) {
+                    for m in members {
+                        if let Some(eid) = m.get("enemyId").and_then(|v| v.as_u64()) {
+                            if eid > 0 {
+                                index.active_enemies.insert(eid);
+                            }
+                        }
+                    }
+                }
+                if let Some(pages) = troop.get("pages").and_then(|v| v.as_array()) {
+                    for page in pages {
+                        if let Some(cmd_list) = page.get("list").and_then(|v| v.as_array()) {
+                            scan_event_commands_reachability(
+                                cmd_list,
+                                &mut index.active_actors,
+                                &mut index.active_enemies,
+                                &mut index.active_animations,
+                                &mut index.placed_vehicles,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Skills.json: animationId
+    let skills_path = format!("{prefix}data/Skills.json");
+    if let Some(skills_val) = load_raw_json(source, &skills_path) {
+        if let Some(list) = skills_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Items.json: animationId
+    let items_path = format!("{prefix}data/Items.json");
+    if let Some(items_val) = load_raw_json(source, &items_path) {
+        if let Some(list) = items_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Weapons.json: animationId
+    let weapons_path = format!("{prefix}data/Weapons.json");
+    if let Some(weapons_val) = load_raw_json(source, &weapons_path) {
+        if let Some(list) = weapons_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Armors.json: animationId
+    let armors_path = format!("{prefix}data/Armors.json");
+    if let Some(armors_val) = load_raw_json(source, &armors_path) {
+        if let Some(list) = armors_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. CommonEvents.json
+    let ce_path = format!("{prefix}data/CommonEvents.json");
+    if let Some(ce_val) = load_raw_json(source, &ce_path) {
+        if let Some(list) = ce_val.as_array() {
+            for ce in list {
+                if ce.is_null() {
+                    continue;
+                }
+                if let Some(cmd_list) = ce.get("list").and_then(|v| v.as_array()) {
+                    scan_event_commands_reachability(
+                        cmd_list,
+                        &mut index.active_actors,
+                        &mut index.active_enemies,
+                        &mut index.active_animations,
+                        &mut index.placed_vehicles,
+                    );
+                }
+            }
+        }
+    }
+
+    // 8. Map*.json
+    let expected_prefix = format!("{prefix}data/map").to_ascii_lowercase();
+    for file in source.files.values() {
+        let lower = file.logical_path.to_ascii_lowercase();
+        if lower.starts_with(&expected_prefix) && lower.ends_with(".json") {
+            let stem = &lower[expected_prefix.len()..lower.len() - 5];
+            if stem.chars().all(|c| c.is_ascii_digit()) && !stem.is_empty() {
+                if let Some(map_val) = load_raw_json(source, &file.logical_path) {
+                    if let Some(events) = map_val.get("events") {
+                        if let Some(ev_array) = events.as_array() {
+                            for ev in ev_array {
+                                if ev.is_null() {
+                                    continue;
+                                }
+                                if let Some(pages) = ev.get("pages").and_then(|v| v.as_array()) {
+                                    for page in pages {
+                                        if let Some(cmd_list) = page.get("list").and_then(|v| v.as_array()) {
+                                            scan_event_commands_reachability(
+                                                cmd_list,
+                                                &mut index.active_actors,
+                                                &mut index.active_enemies,
+                                                &mut index.active_animations,
+                                                &mut index.placed_vehicles,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        } else if let Some(ev_map) = events.as_object() {
+                            for ev in ev_map.values() {
+                                if ev.is_null() {
+                                    continue;
+                                }
+                                if let Some(pages) = ev.get("pages").and_then(|v| v.as_array()) {
+                                    for page in pages {
+                                        if let Some(cmd_list) = page.get("list").and_then(|v| v.as_array()) {
+                                            scan_event_commands_reachability(
+                                                cmd_list,
+                                                &mut index.active_actors,
+                                                &mut index.active_enemies,
+                                                &mut index.active_animations,
+                                                &mut index.placed_vehicles,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    index
+}
+
 struct AuditContext<'a> {
     source: &'a GameSourceIndex,
     prefix: &'a str,
@@ -82,6 +435,7 @@ struct AuditContext<'a> {
     audio_exts: Vec<&'a str>,
     video_exts: Vec<&'a str>,
     opt_side_view: bool,
+    reachability: DatabaseReachabilityIndex,
     resolver: &'a AssetResolver<'a>,
     graph: &'a mut DependencyGraph,
     node_ids: &'a mut HashSet<String>,
@@ -296,6 +650,7 @@ impl<'a> AuditContext<'a> {
         });
     }
 
+    #[allow(dead_code)]
     fn record_resolution_result(
         &mut self,
         res: ResolutionResult,
@@ -304,6 +659,180 @@ impl<'a> AuditContext<'a> {
         kind: AssetKind,
         requiredness: ReferenceRequiredness,
     ) {
+        self.record_resolution_result_reachable(
+            res,
+            target_base_path,
+            source_node_id,
+            kind,
+            requiredness == ReferenceRequiredness::Required,
+        );
+    }
+
+    fn resolve_and_record_reachable(
+        &mut self,
+        source_node_id: &str,
+        target_path_or_url: &str,
+        extensions: &[&str],
+        kind: AssetKind,
+        reachable: bool,
+    ) {
+        if target_path_or_url.is_empty() {
+            return;
+        }
+
+        let requiredness = if reachable {
+            ReferenceRequiredness::Required
+        } else {
+            ReferenceRequiredness::Optional
+        };
+
+        // Check for External URL
+        if target_path_or_url.starts_with("http://") || target_path_or_url.starts_with("https://") {
+            let target_id = format!("external:{target_path_or_url}");
+            self.ensure_node(&target_id, AssetKind::ExternalResource, None);
+            self.graph.edges.push(ReferenceEdge {
+                source: source_node_id.to_string(),
+                target: target_id,
+                relation: "references".to_string(),
+                requiredness,
+                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                resolution: ReferenceResolution::External,
+            });
+
+            if !self.options.allow_network && reachable {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
+                    ReferenceRequiredness::Required,
+                    format!(
+                        "External resource requires network verification: '{target_path_or_url}'"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+            }
+            return;
+        }
+
+        let res = if extensions.is_empty() {
+            self.resolver.resolve_path(target_path_or_url, kind)
+        } else {
+            self.resolver
+                .resolve_with_extensions(target_path_or_url, extensions, kind)
+        };
+
+        let (target_id, resolution, target_logical_path) = match res {
+            ResolutionResult::Exact(node) => (
+                node.id.clone(),
+                ReferenceResolution::Resolved,
+                node.logical_path.clone(),
+            ),
+            ResolutionResult::CaseMismatch {
+                expected,
+                actual,
+                node,
+            } => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                    requiredness,
+                    format!(
+                        "Asset reference '{expected}' has case mismatch with '{actual}' on disk"
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    node.id.clone(),
+                    ReferenceResolution::Resolved,
+                    node.logical_path.clone(),
+                )
+            }
+            ResolutionResult::CaseCollision(colliding) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_CASE_COLLISION,
+                    requiredness,
+                    format!(
+                        "Asset reference '{target_path_or_url}' collides case-insensitively with multiple files: {:?}",
+                        colliding
+                    ),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Missing(attempted) => {
+                let code = if reachable {
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                } else {
+                    DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+                };
+                let msg = if reachable {
+                    format!(
+                        "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                        attempted
+                    )
+                } else {
+                    format!(
+                        "Referenced asset '{target_path_or_url}' is missing on disk for unreferenced database entity (attempted: {:?})",
+                        attempted
+                    )
+                };
+                self.push_finding(
+                    code,
+                    requiredness,
+                    msg,
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+            ResolutionResult::Unsafe(path) => {
+                self.push_finding(
+                    DiagnosticCode::CMP_AUD_UNSAFE_PATH,
+                    requiredness,
+                    format!("Unsafe path traversal in asset reference: '{path}'"),
+                    vec![source_node_id.to_string()],
+                );
+                (
+                    format!("{}:{target_path_or_url}", kind.as_str()),
+                    ReferenceResolution::Unresolved,
+                    None,
+                )
+            }
+        };
+
+        self.ensure_node(&target_id, kind, target_logical_path);
+
+        self.graph.edges.push(ReferenceEdge {
+            source: source_node_id.to_string(),
+            target: target_id,
+            relation: "references".to_string(),
+            requiredness,
+            evidence: match resolution {
+                ReferenceResolution::Resolved => EvidenceTrail::through(EvidenceStage::FileExists),
+                _ => EvidenceTrail::through(EvidenceStage::ReferenceFound),
+            },
+            resolution,
+        });
+    }
+
+    fn record_resolution_result_reachable(
+        &mut self,
+        res: ResolutionResult,
+        target_base_path: &str,
+        source_node_id: &str,
+        kind: AssetKind,
+        reachable: bool,
+    ) {
+        let requiredness = if reachable {
+            ReferenceRequiredness::Required
+        } else {
+            ReferenceRequiredness::Optional
+        };
+
         let (target_id, resolution, target_logical_path) = match res {
             ResolutionResult::Exact(node) => (
                 node.id.clone(),
@@ -346,18 +875,26 @@ impl<'a> AuditContext<'a> {
                 )
             }
             ResolutionResult::Missing(attempted) => {
-                let code = if requiredness == ReferenceRequiredness::Required {
+                let code = if reachable {
                     DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
                 } else {
-                    DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                    DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+                };
+                let msg = if reachable {
+                    format!(
+                        "Referenced asset '{target_base_path}' is missing on disk (attempted: {:?})",
+                        attempted
+                    )
+                } else {
+                    format!(
+                        "Referenced asset '{target_base_path}' is missing on disk for unreferenced database entity (attempted: {:?})",
+                        attempted
+                    )
                 };
                 self.push_finding(
                     code,
                     requiredness,
-                    format!(
-                        "Referenced asset '{target_base_path}' is missing on disk (attempted: {:?})",
-                        attempted
-                    ),
+                    msg,
                     vec![source_node_id.to_string()],
                 );
                 (
@@ -653,6 +1190,8 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
 
         let video_exts = vec!["webm", "mp4"];
 
+        let reachability = build_database_reachability(source, content_prefix);
+
         let mut ctx = AuditContext {
             source,
             prefix: content_prefix,
@@ -661,6 +1200,7 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
             audio_exts,
             video_exts,
             opt_side_view,
+            reachability,
             resolver: &resolver,
             graph: &mut graph,
             node_ids: &mut node_ids,
@@ -882,16 +1422,17 @@ fn audit_system_json(ctx: &mut AuditContext, sys: &serde_json::Value) {
     // Vehicles: boat, ship, airship
     for vehicle_key in ["boat", "ship", "airship"] {
         if let Some(vehicle) = sys.get(vehicle_key) {
+            let is_placed = ctx.reachability.is_vehicle_placed(vehicle_key, vehicle);
             if let Some(char_name) = vehicle.get("characterName").and_then(|v| v.as_str()) {
                 if !char_name.is_empty() {
                     let path = format!("{}img/characters/{char_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
-                    ctx.resolve_and_record(
+                    ctx.resolve_and_record_reachable(
                         source_node,
                         &path,
                         &exts,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        is_placed,
                     );
                 }
             }
@@ -900,12 +1441,12 @@ fn audit_system_json(ctx: &mut AuditContext, sys: &serde_json::Value) {
                     if !name.is_empty() {
                         let path = format!("{}audio/bgm/{name}", ctx.prefix);
                         let exts = ctx.audio_exts.clone();
-                        ctx.resolve_and_record(
+                        ctx.resolve_and_record_reachable(
                             source_node,
                             &path,
                             &exts,
                             AssetKind::Audio,
-                            ReferenceRequiredness::Required,
+                            is_placed,
                         );
                     }
                 }
@@ -930,16 +1471,18 @@ fn audit_actors(ctx: &mut AuditContext) {
             let source_node = format!("Database:Actors:{id}");
             ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
+            let is_active_actor = ctx.reachability.active_actors.contains(&id);
+
             if let Some(char_name) = actor.get("characterName").and_then(|v| v.as_str()) {
                 if !char_name.is_empty() {
                     let p = format!("{}img/characters/{char_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
-                    ctx.resolve_and_record(
+                    ctx.resolve_and_record_reachable(
                         &source_node,
                         &p,
                         &exts,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        is_active_actor,
                     );
                 }
             }
@@ -948,12 +1491,12 @@ fn audit_actors(ctx: &mut AuditContext) {
                 if !face_name.is_empty() {
                     let p = format!("{}img/faces/{face_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
-                    ctx.resolve_and_record(
+                    ctx.resolve_and_record_reachable(
                         &source_node,
                         &p,
                         &exts,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        is_active_actor,
                     );
                 }
             }
@@ -962,17 +1505,13 @@ fn audit_actors(ctx: &mut AuditContext) {
                 if !battler_name.is_empty() {
                     let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
-                    let requiredness = if !ctx.opt_side_view || battler_name == "Actor1_1" {
-                        ReferenceRequiredness::Optional
-                    } else {
-                        ReferenceRequiredness::Required
-                    };
-                    ctx.resolve_and_record(
+                    let sv_reachable = is_active_actor && ctx.opt_side_view && battler_name != "Actor1_1";
+                    ctx.resolve_and_record_reachable(
                         &source_node,
                         &p,
                         &exts,
                         AssetKind::Image,
-                        requiredness,
+                        sv_reachable,
                     );
                 }
             }
@@ -996,6 +1535,8 @@ fn audit_enemies(ctx: &mut AuditContext) {
             let source_node = format!("Database:Enemies:{id}");
             ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
+            let is_active_enemy = ctx.reachability.active_enemies.contains(&id);
+
             if let Some(battler_name) = enemy.get("battlerName").and_then(|v| v.as_str()) {
                 if !battler_name.is_empty() {
                     let mut candidates = Vec::new();
@@ -1008,12 +1549,12 @@ fn audit_enemies(ctx: &mut AuditContext) {
                     let rule = CandidateRule::Candidates(candidates);
                     let res = ctx.resolver.resolve(&rule, AssetKind::Image);
                     let target_base = format!("{}img/enemies/{battler_name}", ctx.prefix);
-                    ctx.record_resolution_result(
+                    ctx.record_resolution_result_reachable(
                         res,
                         &target_base,
                         &source_node,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        is_active_enemy,
                     );
                 }
             }
@@ -1074,18 +1615,20 @@ fn audit_animations(ctx: &mut AuditContext) {
             let source_node = format!("Database:Animations:{id}");
             ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
+            let is_active_anim = ctx.reachability.active_animations.contains(&id);
+
             // Classic animations (MV & MZ)
             for key in ["animation1Name", "animation2Name"] {
                 if let Some(name) = anim.get(key).and_then(|v| v.as_str()) {
                     if !name.is_empty() {
                         let p = format!("{}img/animations/{name}", ctx.prefix);
                         let exts = ctx.image_exts.clone();
-                        ctx.resolve_and_record(
+                        ctx.resolve_and_record_reachable(
                             &source_node,
                             &p,
                             &exts,
                             AssetKind::Image,
-                            ReferenceRequiredness::Required,
+                            is_active_anim,
                         );
                     }
                 }
@@ -1095,12 +1638,12 @@ fn audit_animations(ctx: &mut AuditContext) {
             if let Some(effect_name) = anim.get("effectName").and_then(|v| v.as_str()) {
                 if !effect_name.is_empty() {
                     let p = format!("{}effects/{effect_name}", ctx.prefix);
-                    ctx.resolve_and_record(
+                    ctx.resolve_and_record_reachable(
                         &source_node,
                         &p,
                         &["efkefc", "efk"],
                         AssetKind::DatabaseEntity,
-                        ReferenceRequiredness::Required,
+                        is_active_anim,
                     );
                 }
             }
@@ -1113,12 +1656,12 @@ fn audit_animations(ctx: &mut AuditContext) {
                             if !name.is_empty() {
                                 let p = format!("{}audio/se/{name}", ctx.prefix);
                                 let exts = ctx.audio_exts.clone();
-                                ctx.resolve_and_record(
+                                ctx.resolve_and_record_reachable(
                                     &source_node,
                                     &p,
                                     &exts,
                                     AssetKind::Audio,
-                                    ReferenceRequiredness::Required,
+                                    is_active_anim,
                                 );
                             }
                         }
@@ -1662,17 +2205,13 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                     if !battler_name.is_empty() {
                         let p = format!("{}img/sv_actors/{battler_name}", ctx.prefix);
                         let exts = ctx.image_exts.clone();
-                        let requiredness = if !ctx.opt_side_view || battler_name == "Actor1_1" {
-                            ReferenceRequiredness::Optional
-                        } else {
-                            ReferenceRequiredness::Required
-                        };
-                        ctx.resolve_and_record(
+                        let reachable = ctx.opt_side_view && battler_name != "Actor1_1";
+                        ctx.resolve_and_record_reachable(
                             &cmd_node_id,
                             &p,
                             &exts,
                             AssetKind::Image,
-                            requiredness,
+                            reachable,
                         );
                     }
                 }

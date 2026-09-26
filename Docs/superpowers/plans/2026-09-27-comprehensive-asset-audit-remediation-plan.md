@@ -39,13 +39,13 @@
   - Replaces `String::from_utf8_lossy(bytes)` across Tyrano scenario loaders.
   - If bytes are not valid UTF-8 or contain invalid replacement characters in Japanese multibyte ranges, decodes via `encoding_rs::SHIFT_JIS`.
 
-- [ ] **Step 1: Add `encoding_rs = "0.8"` to workspace dependencies**:
+- [x] **Step 1: Add `encoding_rs = "0.8"` to workspace dependencies**:
   - In root `Cargo.toml`: add `encoding_rs = "0.8"` under `[workspace.dependencies]`.
   - In `engines/tyrano/Cargo.toml`: add `encoding_rs = { workspace = true }`.
-- [ ] **Step 2: Write failing test in `tyrano_asset_audit_test.rs`**:
+- [x] **Step 2: Write failing test in `tyrano_asset_audit_test.rs`**:
   - Construct a scenario byte array encoded in Shift-JIS with Japanese Kanji jump labels (e.g. `*部屋 [cm] [jump target="*部屋"]`).
   - Verify that before the fix, reading as lossy UTF-8 fails to match the label, producing `CMP-AUD-002` ("Target label not found").
-- [ ] **Step 3: Implement `decode_scenario_text`**:
+- [x] **Step 3: Implement `decode_scenario_text`**:
   - In `engines/tyrano/src/asset_audit.rs` and `engines/tyrano/src/asar.rs`:
     ```rust
     pub fn decode_scenario_text(bytes: &[u8]) -> String {
@@ -60,9 +60,9 @@
     }
     ```
   - Use `decode_scenario_text` in `TyranoReader::read_file_string` and `AsarArchive::read_file_string_bounded`.
-- [ ] **Step 4: Run tests to verify pass**:
+- [x] **Step 4: Run tests to verify pass**:
   - `cargo test --test tyrano_asset_audit_test`
-- [ ] **Step 5: Commit**:
+- [x] **Step 5: Commit**:
   ```powershell
   git add Cargo.toml Cargo.lock engines/tyrano/Cargo.toml engines/tyrano/src/asar.rs engines/tyrano/src/asset_audit.rs tests/integration/tyrano_asset_audit_test.rs
   git commit -m "feat(tyrano): support automatic Shift-JIS text decoding for Japanese scenario files"
@@ -81,19 +81,19 @@
   - `DatabaseReachabilityIndex`: Tracks enemy IDs, animation IDs, actor IDs, sound effects, and BGM actively placed or invoked in `Map*.json`, `CommonEvents.json`, and `Troops.json`.
   - In `audit_enemies`, `audit_animations`, and `audit_actors`: If a referenced asset is missing on disk but the containing database record is not in the active reachability index, emit `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`) with `FindingSeverity::Info` and `ReferenceRequiredness::Optional`, rather than fatal `CMP_AUD_REQUIRED_REFERENCE_MISSING` (`CMP-AUD-002`).
 
-- [ ] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
+- [x] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
   - Test a mock MV game where `data/Enemies.json` has an enemy ID 10 referencing missing `Skeleton1_1.png`, but no map or troop references enemy 10.
   - Assert that finding is `CMP_AUD_POSSIBLY_UNUSED` (Severity: Info) and audit outcome is `Pass`.
-- [ ] **Step 2: Implement `DatabaseReachabilityIndex` in `engines/rpgmaker_web/src/asset_audit.rs`**:
+- [x] **Step 2: Implement `DatabaseReachabilityIndex` in `engines/rpgmaker_web/src/asset_audit.rs`**:
   - Collect referenced IDs before auditing database entities:
     - Parse `data/Troops.json` members (`enemyId`).
     - Parse `data/Map*.json` event command codes (101 faceName, 132 playBgm, 231 showPicture, 250 playSe, 301 battleProcessing troopId, 331 changeEnemyHp, etc.).
     - Parse `data/CommonEvents.json` command codes.
     - Parse `data/System.json` starting party (`partyMembers`).
   - Guard database asset auditing with reachability checks.
-- [ ] **Step 3: Run tests to verify pass**:
+- [x] **Step 3: Run tests to verify pass**:
   - `cargo test --test web_asset_audit_test`
-- [ ] **Step 4: Commit**:
+- [x] **Step 4: Commit**:
   ```powershell
   git add engines/rpgmaker_web/src/asset_audit.rs tests/integration/web_asset_audit_test.rs
   git commit -m "feat(web): add reachability tree-shaking for unused database entities"

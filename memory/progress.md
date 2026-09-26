@@ -1,12 +1,25 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Plan 8 (Validate RGSSAD Archive & Build *To the Moon*) selesai 100%.
-- **Next step:** Menunggu instruksi atau target porting berikutnya dari user.
+- **Sedang kerjain apa:** Task 2 Plan Remediasi Audit (Reachability Graph Filter for RPG Maker MV/MZ Database) selesai 100%.
+- **Next step:** Melanjutkan Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Validasi integritas header arsip terenkripsi `.rgssad` (`RGSSAD\0\x01`) dan `.rgss2a`, pengenalan otomatis font bundled (`Fonts/` mencakup `WenQuanYi_Zen_Hei.ttf`, `NanumBarunGothic.ttf`, `OpenSans.ttf`), aliasing symlink dua arah `extractArchiveSymlinks` di `GpackExtractor.kt`, serta kompilasi mandiri APK `dist/to_the_moon/TotheMoon.apk` (154.94 MB, SHA-256 `b0a20cbb...`) tuntas sukses. Seluruh 266 Cargo workspace tests dan 76 Android unit test tasks lulus 100%.
+- **Catatan fokus:** Implementasi `DatabaseReachabilityIndex` pada `engines/rpgmaker_web/src/asset_audit.rs` memindai entitas aktif dari `Troops.json` members, `System.json` starting party (`partyMembers`) dan vehicle placement (`startMapId > 0` / event code 206), `Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, serta event command codes (129, 322, 311..321, 111, 212, 336, 337, 206) pada map dan common events. Entitas yang tidak aktif jika asetnya hilang di-downgrade secara anggun ke `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`) ber-severity `Info` dan requiredness `Optional` tanpa memicu fatal audit fail. Seluruh 267 Cargo workspace tests lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 2 Plan Remediasi Audit (Reachability Graph Filter for RPG Maker MV/MZ Database) Selesai:
+  1. `engines/rpgmaker_web/src/asset_audit.rs`:
+     - Implementasi `DatabaseReachabilityIndex`: Melakukan static reachability scan sebelum database entity audit terhadap `Troops.json`, `System.json`, `Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, `CommonEvents.json`, dan `Map*.json`.
+     - `audit_enemies`: Jika enemy ID tidak terdapat di troop manapun, aset battler yang hilang di-downgrade menjadi `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`, severity `Info`, requiredness `Optional`).
+     - `audit_actors`: Jika actor ID tidak ada di starting party `partyMembers` dan tidak pernah ditambahkan via code 129, atau sideview battler `Actor1_1` / missing saat `optSideView == false`, emisi `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`, severity `Info`).
+     - `audit_animations`: Jika animation ID tidak direferensikan oleh skill/item/weapon/event code 212, aset gambar/suara yang hilang di-downgrade menjadi `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`, severity `Info`).
+     - `audit_system_json`: Kendaraan (`boat`, `ship`, `airship`) yang tidak ditempatkan (`startMapId <= 0` dan tidak ada code 206) jika BGM-nya hilang di-downgrade ke `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`, severity `Info`).
+     - `core/src/asset_audit/cache.rs`: Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 5.
+  2. Integration tests `tests/integration/web_asset_audit_test.rs`:
+     - `test_mv_unreferenced_database_entities_downgraded_to_possibly_unused_info`: Memverifikasi unreferenced database assets menghasilkan `CMP_AUD_POSSIBLY_UNUSED` dengan severity `Info` dan outcome `Pass`.
+     - `test_mv_referenced_database_entities_missing_fails_audit`: Memverifikasi referenced database assets yang hilang tetap memicu `CMP_AUD_REQUIRED_REFERENCE_MISSING` dengan severity `Error` dan outcome `Fail`.
+  3. Verifikasi: 32 tests di `web_asset_audit_test` dan seluruh 267 tests workspace Cargo lulus 100%.
+- [2026-09-27] Task 1 Plan Remediasi Audit (Shift-JIS Scenario Auto-Decoding in Tyrano) Selesai (Commit `d989933`).
 - [2026-09-27] Plan 8 (Validate RGSSAD Archive & Build *To the Moon*) Selesai:
   1. `engines/rgss/src/asset_audit.rs`:
      - Validasi header arsip `.rgssad` (magic `RGSSAD\0`, version byte = 1: `b"RGSSAD\0\x01"` atau legacy mock `b"RGSSAD\x01"`) dan `.rgss2a`. Menambahkan node `archive:<logical_path>` bertipe `AssetKind::ArchiveEntry`. Jika header corrupt/terpotong (< 7 bytes atau magic tidak cocok), mengemisikan `CMP_AUD_MALFORMED_RESOURCE` (`CMP-AUD-008`).

@@ -1,4 +1,6 @@
-use runtimepack_core::asset_audit::{AssetAuditOptions, AssetAuditor, AuditMode, AuditOutcome};
+use runtimepack_core::asset_audit::{
+    AssetAuditOptions, AssetAuditor, AuditMode, AuditOutcome, FindingSeverity, ReferenceRequiredness,
+};
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
@@ -920,6 +922,323 @@ fn test_mv_tileset_case_mismatch_and_disabled_sideview_battler_downgraded_to_opt
         report.outcome,
         AuditOutcome::Fail,
         "Audit should not fail when only case mismatches and optional battlers exist: {:?}",
+        report.findings
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_mv_unreferenced_database_entities_downgraded_to_possibly_unused_info() {
+    let temp_dir = std::env::temp_dir().join(format!("web_mv_reachability_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/system")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/enemies")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/characters")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/faces")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/animations")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+    std::fs::write(temp_dir.join("js/plugins.js"), "var $plugins = [];").unwrap();
+
+    // Standard system assets
+    std::fs::write(temp_dir.join("img/system/Window.png"), "WINDOW").unwrap();
+    std::fs::write(temp_dir.join("img/system/IconSet.png"), "ICONS").unwrap();
+
+    // Assets that exist on disk
+    std::fs::write(temp_dir.join("img/enemies/Bat.png"), "BAT_IMAGE").unwrap();
+    std::fs::write(temp_dir.join("img/characters/hero.png"), "HERO_IMAGE").unwrap();
+    std::fs::write(temp_dir.join("img/faces/hero_face.png"), "HERO_FACE").unwrap();
+    std::fs::write(temp_dir.join("img/animations/Hit1.png"), "HIT_IMAGE").unwrap();
+
+    // System.json has starting party [1], and vehicle boat with Ship1 (startMapId = 0, not placed)
+    std::fs::write(
+        temp_dir.join("data/System.json"),
+        r#"{
+            "gameTitle": "Reachability Test",
+            "optSideView": false,
+            "partyMembers": [1],
+            "sounds": [],
+            "boat": {
+                "characterName": "",
+                "startMapId": 0,
+                "startX": 0,
+                "startY": 0,
+                "bgm": { "name": "Ship1" }
+            }
+        }"#,
+    ).unwrap();
+
+    // Enemies: ID 1 is active (Bat), ID 10 is NOT in Troops (Skeleton1_1, missing on disk)
+    std::fs::write(
+        temp_dir.join("data/Enemies.json"),
+        r#"[null,
+            {"id": 1, "name": "Bat", "battlerName": "Bat"},
+            {"id": 10, "name": "Skeleton", "battlerName": "Skeleton1_1"}
+        ]"#,
+    ).unwrap();
+
+    // Troops: Only includes enemy ID 1
+    std::fs::write(
+        temp_dir.join("data/Troops.json"),
+        r#"[null,
+            {"id": 1, "name": "Bat Troop", "members": [{"enemyId": 1}], "pages": []}
+        ]"#,
+    ).unwrap();
+
+    // Actors: ID 1 is in partyMembers (Hero). ID 2 is NOT in party nor event 129 (UnusedActor, missing assets)
+    std::fs::write(
+        temp_dir.join("data/Actors.json"),
+        r#"[null,
+            {"id": 1, "name": "Hero", "characterName": "hero", "faceName": "hero_face", "battlerName": "Actor1_1"},
+            {"id": 2, "name": "UnusedActor", "characterName": "unused_char", "faceName": "unused_face", "battlerName": "unused_sv"}
+        ]"#,
+    ).unwrap();
+
+    // Skills: ID 1 references animation 1 (UsedAnim)
+    std::fs::write(
+        temp_dir.join("data/Skills.json"),
+        r#"[null,
+            {"id": 1, "name": "Attack", "animationId": 1}
+        ]"#,
+    ).unwrap();
+
+    // Animations: ID 1 is used. ID 2 is NOT referenced anywhere (MissingAnim, missing on disk)
+    std::fs::write(
+        temp_dir.join("data/Animations.json"),
+        r#"[null,
+            {"id": 1, "name": "Hit", "animation1Name": "Hit1", "animation2Name": "", "timings": []},
+            {"id": 2, "name": "MissingAnim", "animation1Name": "MissingExplosion", "animation2Name": "", "timings": [{"se": {"name": "MissingBoom"}}]}
+        ]"#,
+    ).unwrap();
+
+    // Other required database files
+    for db in ["Items.json", "Weapons.json", "Armors.json", "CommonEvents.json", "Tilesets.json"] {
+        std::fs::write(temp_dir.join(format!("data/{db}")), "[null]").unwrap();
+    }
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    // 1. Skeleton1_1 must be reported as CMP_AUD_POSSIBLY_UNUSED (Severity: Info, Requiredness: Optional)
+    let skeleton_finding = report
+        .findings
+        .iter()
+        .find(|f| f.message.contains("Skeleton1_1"))
+        .expect("Expected finding for missing Skeleton1_1");
+    assert_eq!(
+        skeleton_finding.code,
+        DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+        "Skeleton1_1 should emit CMP_AUD_POSSIBLY_UNUSED"
+    );
+    assert_eq!(
+        skeleton_finding.severity,
+        FindingSeverity::Info,
+        "Skeleton1_1 severity should be Info"
+    );
+    assert_eq!(
+        skeleton_finding.requiredness,
+        ReferenceRequiredness::Optional,
+        "Skeleton1_1 requiredness should be Optional"
+    );
+
+    // 2. Unused actor assets (unused_char, unused_face) must be CMP_AUD_POSSIBLY_UNUSED
+    let unused_actor_finding = report
+        .findings
+        .iter()
+        .find(|f| f.message.contains("unused_char"))
+        .expect("Expected finding for missing unused_char");
+    assert_eq!(
+        unused_actor_finding.code,
+        DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+    );
+    assert_eq!(unused_actor_finding.severity, FindingSeverity::Info);
+
+    // 3. Unreferenced animation assets (MissingExplosion) must be CMP_AUD_POSSIBLY_UNUSED
+    let anim_finding = report
+        .findings
+        .iter()
+        .find(|f| f.message.contains("MissingExplosion"))
+        .expect("Expected finding for missing MissingExplosion");
+    assert_eq!(anim_finding.code, DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED);
+    assert_eq!(anim_finding.severity, FindingSeverity::Info);
+
+    // 4. Unplaced vehicle BGM (Ship1) must be CMP_AUD_POSSIBLY_UNUSED
+    let ship_finding = report
+        .findings
+        .iter()
+        .find(|f| f.message.contains("Ship1"))
+        .expect("Expected finding for missing Ship1");
+    assert_eq!(ship_finding.code, DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED);
+    assert_eq!(ship_finding.severity, FindingSeverity::Info);
+
+    // 5. Zero REQUIRED_REFERENCE_MISSING findings!
+    let fatal_missing: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING)
+        .collect();
+    assert!(
+        fatal_missing.is_empty(),
+        "Expected zero fatal missing references, but got: {:?}",
+        fatal_missing
+    );
+
+    // 6. Outcome must be Pass!
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Audit outcome should be Pass when only unused entities are missing: {:?}",
+        report.findings
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_mv_referenced_database_entities_missing_fails_audit() {
+    let temp_dir = std::env::temp_dir().join(format!("web_mv_reachability_fail_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/system")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+    std::fs::write(temp_dir.join("js/plugins.js"), "var $plugins = [];").unwrap();
+
+    // Standard system assets exist
+    std::fs::write(temp_dir.join("img/system/Window.png"), "WINDOW").unwrap();
+    std::fs::write(temp_dir.join("img/system/IconSet.png"), "ICONS").unwrap();
+
+    // System.json has starting party [1], and vehicle boat with Ship1 placed on Map 1 (startMapId = 1)
+    std::fs::write(
+        temp_dir.join("data/System.json"),
+        r#"{
+            "gameTitle": "Reachability Fail Test",
+            "optSideView": false,
+            "partyMembers": [1],
+            "sounds": [],
+            "boat": {
+                "characterName": "",
+                "startMapId": 1,
+                "startX": 5,
+                "startY": 5,
+                "bgm": { "name": "Ship1" }
+            }
+        }"#,
+    ).unwrap();
+
+    // Enemies: ID 1 is active (referenced in Troops)
+    std::fs::write(
+        temp_dir.join("data/Enemies.json"),
+        r#"[null,
+            {"id": 1, "name": "ActiveBat", "battlerName": "Bat"}
+        ]"#,
+    ).unwrap();
+
+    // Troops: Includes enemy ID 1
+    std::fs::write(
+        temp_dir.join("data/Troops.json"),
+        r#"[null,
+            {"id": 1, "name": "Bat Troop", "members": [{"enemyId": 1}], "pages": []}
+        ]"#,
+    ).unwrap();
+
+    // Actors: ID 1 is in partyMembers (Hero)
+    std::fs::write(
+        temp_dir.join("data/Actors.json"),
+        r#"[null,
+            {"id": 1, "name": "Hero", "characterName": "hero", "faceName": "", "battlerName": ""}
+        ]"#,
+    ).unwrap();
+
+    // Skills: ID 1 references animation 1
+    std::fs::write(
+        temp_dir.join("data/Skills.json"),
+        r#"[null,
+            {"id": 1, "name": "Attack", "animationId": 1}
+        ]"#,
+    ).unwrap();
+
+    // Animations: ID 1 is referenced by skill 1
+    std::fs::write(
+        temp_dir.join("data/Animations.json"),
+        r#"[null,
+            {"id": 1, "name": "Hit", "animation1Name": "Hit1", "animation2Name": "", "timings": []}
+        ]"#,
+    ).unwrap();
+
+    // Other required database files
+    for db in ["Items.json", "Weapons.json", "Armors.json", "CommonEvents.json", "Tilesets.json"] {
+        std::fs::write(temp_dir.join(format!("data/{db}")), "[null]").unwrap();
+    }
+
+    // NOTE: Bat.png, hero.png, Hit1.png, and Ship1.ogg are all MISSING on disk!
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    // Active bat battler missing -> CMP_AUD_REQUIRED_REFERENCE_MISSING
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Bat")),
+        "Active enemy battler Bat should be required missing: {:?}",
+        report.findings
+    );
+
+    // Active hero character graphic missing -> CMP_AUD_REQUIRED_REFERENCE_MISSING
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("hero")),
+        "Active actor graphic hero should be required missing: {:?}",
+        report.findings
+    );
+
+    // Active animation 1 graphic missing -> CMP_AUD_REQUIRED_REFERENCE_MISSING
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Hit1")),
+        "Active animation graphic Hit1 should be required missing: {:?}",
+        report.findings
+    );
+
+    // Placed vehicle BGM missing -> CMP_AUD_REQUIRED_REFERENCE_MISSING
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("Ship1")),
+        "Placed vehicle BGM Ship1 should be required missing: {:?}",
+        report.findings
+    );
+
+    // Outcome must be Fail!
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Fail,
+        "Audit outcome must be Fail when active database assets are missing: {:?}",
         report.findings
     );
 
