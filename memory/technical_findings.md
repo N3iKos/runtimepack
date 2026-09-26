@@ -1,5 +1,23 @@
 # Technical Findings
 
+## [NTFS Alternate Data Stream & XML SAXParseException on Game Titles with Colons and Ampersands]
+**Masalah:**
+1. Gradle task `:app:processDebugMainManifest` gagal dengan: `com.android.manifmerger.ManifestMerger2$MergeFailureException: Error parsing AndroidManifest.xml: org.xml.sax.SAXParseException: The entity name must immediately follow the '&' in the entity reference`.
+2. Pada Windows, kompilasi game dengan nama seperti `"Fear & Hunger 2: Termina"` menghasilkan file 0-byte bernama `Fear&Hunger2` tanpa ekstensi APK pada direktori output.
+**Penyebab:**
+1. String `app_name` diinjeksi mentah ke dalam template XML `AndroidManifest.xml` (`android:label="{app_name}"`). Dalam format XML, karakter `&` yang tidak diikuti entity reference langsung memicu fatal syntax error pada parser XML xerces/position parser Android.
+2. Pada Windows NTFS, karakter titik dua `:` merupakan pemisah Alternate Data Stream (ADS). Menulis file ke `Fear&Hunger2:Termina.apk` tidak membuat file `.apk`, melainkan menulis payload APK ke dalam stream data alternatif bernama `:Termina.apk` di dalam metadata file `Fear&Hunger2`, sehingga file utama terlihat berukuran 0 byte dan APK tidak dapat ditemukan oleh alat standar.
+**Solusi/workaround:**
+1. Pasang helper `escape_xml_attribute` di `AndroidProjectGenerator` untuk mengonversi `&` menjadi `&amp;`, `<` menjadi `&lt;`, `>` menjadi `&gt;`, `"` menjadi `&quot;`, dan `'` menjadi `&apos;` sebelum dimasukkan ke dalam `AndroidManifest.xml`.
+2. Pasang fungsi `derive_apk_filename` di `cli/src/main.rs`: jika nama game memiliki tanda colon `:`, dan direktori output menargetkan subtitle tersebut (seperti `dist/termina`), gunakan `Termina.apk`. Untuk kasus umum, gantikan seluruh karakter ilegal filesystem (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) menjadi `_` dan bersihkan spasi agar aman di lintas platform.
+**Tags:** #xml #saxparseexception #manifestmerger #ntfs #alternate-data-stream #filename-sanitization #windows
+
+## [Bitmap.new Exception Recovery in Ruby VM Swallows Cache.normal_bitmap Rescue Blocks]
+**Masalah:** Saat menguji `Cache.normal_bitmap` untuk missing asset fallback, event fallback `TILESET_FALLBACK_DUMMY` atau rescue handler di `Cache.normal_bitmap` tidak terpanggil, melainkan selalu jatuh ke `PLACEHOLDER_SUBSTITUTED` generic dari `Bitmap.new`.
+**Penyebab:** Pada Ruby monkey-patching, `Bitmap.new` di-override untuk me-rescue `Errno::ENOENT` dan mengembalikan dummy bitmap (32x32). Ketika `Cache.normal_bitmap` memanggil `Bitmap.new(path)` di dalam implementasinya, error `Errno::ENOENT` sudah tertangkap di level `Bitmap.new` sehingga `Cache.normal_bitmap` tidak pernah menerima exception dan tidak menjalankan blok `rescue` miliknya.
+**Solusi/workaround:** Pasang penanganan spesifik path (`Graphics/Tilesets/`) pada KEDUA level: baik di `Bitmap.new` (agar instansiasi langsung maupun via Cache menghasilkan fallback 512x384 checkered bitmap dan event `TILESET_FALLBACK_DUMMY`) maupun di `Cache.normal_bitmap` (agar implementasi cache yang tidak memakai `Bitmap.new` atau me-raise secara langsung tetap tertangani).
+**Tags:** #ruby #bitmap-new #cache-normal-bitmap #tileset-fallback #monkey-patching
+
 ## [DOM Mutation on PointerDown Causes Ghost Clicks & Multi-Panel Bridge Conflict]
 **Masalah:** 
 1. Saat tombol collapse (`─` / `≡`) pada editor bar diklik, tombol `Done` (yang baru muncul/bergeser ke posisi koordinat jari yang sama) ikut tertekan seketika sehingga editor mode langsung tertutup atau tap tembus ke elemen di belakangnya.

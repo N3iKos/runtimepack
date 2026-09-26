@@ -841,6 +841,21 @@ fn test_generate_manifest_xml() {
 }
 
 #[test]
+fn test_generate_manifest_xml_escapes_ampersand_and_special_characters() {
+    let xml = AndroidProjectGenerator::generate_manifest_xml(
+        "com.example.termina",
+        "Fear & Hunger 2: Termina",
+        "sensorLandscape",
+        &[],
+        "io.runtimepack.host.WebActivity",
+    )
+    .unwrap();
+
+    assert!(xml.contains("android:label=\"Fear &amp; Hunger 2: Termina\""));
+    assert!(!xml.contains("android:label=\"Fear & Hunger 2: Termina\""));
+}
+
+#[test]
 fn test_rgss_extractor_patches_recursive_json_script() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
@@ -2155,12 +2170,12 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
         "settings.gradle.kts must contain sanitized rootProject.name. Actual content:\n{settings_gradle}"
     );
 
-    // Verify AndroidManifest.xml keeps original display name unchanged
+    // Verify AndroidManifest.xml keeps original display name (XML-escaped)
     let manifest_xml_path = project_dir.join("app/src/main/AndroidManifest.xml");
     let manifest_xml = std::fs::read_to_string(&manifest_xml_path).unwrap();
     assert!(
-        manifest_xml.contains("android:label=\"Fear & Hunger 2: Termina\""),
-        "AndroidManifest.xml must keep user-visible app name unchanged"
+        manifest_xml.contains("android:label=\"Fear &amp; Hunger 2: Termina\""),
+        "AndroidManifest.xml must keep user-visible app name (XML-escaped)"
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);

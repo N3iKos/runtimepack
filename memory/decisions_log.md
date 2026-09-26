@@ -1,5 +1,38 @@
 # Decisions Log
 
+## [2026-09-26] XML Attribute Escaping & APK Filename Derivation for Special Characters
+**Keputusan:**
+1. Di `core/src/build_plan/generator.rs`:
+   - Implementasi `pub fn escape_xml_attribute(s: &str) -> String` pada `AndroidProjectGenerator` (dan diekspor di level modul):
+     - Meng-escape `&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `"` -> `&quot;`, dan `'` -> `&apos;`.
+   - `generate_manifest_xml` menggunakan `Self::escape_xml_attribute(app_name)` untuk atribut `android:label`.
+   - Menambahkan unit tests `test_escape_xml_attribute` dan `test_generate_manifest_xml_escapes_special_chars`, serta memperbarui integration test `build_test.rs`.
+2. Di `cli/src/main.rs`:
+   - Implementasi `pub fn derive_apk_filename(app_name: &str, output: &Path) -> String`:
+     - Jika nama game memiliki colon `:`, dan direktori output berakhiran sama dengan subtitle setelah colon (misal `"Fear & Hunger 2: Termina"` dengan output `dist/termina`), gunakan subtitle: `Termina.apk`.
+     - Menggantikan karakter ilegal filesystem Windows/Unix (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) menjadi `_` dan menghapus spasi untuk mencegah penulisan Alternate Data Stream (ADS) di NTFS.
+     - Mengintegrasikan nama file APK tersanitasi ke `checksums.txt` dan terminal logging.
+**Alasan:**
+1. Nama aplikasi seperti `"Fear & Hunger 2: Termina"` yang disisipkan mentah ke XML memicu error fatal AAPT/ManifestMerger `SAXParseException: The entity name must immediately follow the '&' in the entity reference`.
+2. Karakter `:` pada Windows NTFS memicu pemisahan Alternate Data Stream (menghasilkan file 0-byte `Fear&Hunger2` dengan data tersembunyi di `:Termina.apk`).
+**Dampak:** Memastikan kompilasi Gradle dan pembuatan artefak APK berhasil 100% pada game dengan karakter khusus. 254 tests workspace lulus 100%.
+
+## [2026-09-26] Gradle Project Name Sanitization in generator.rs
+**Keputusan:**
+1. Di `core/src/build_plan/generator.rs`:
+   - Implementasi `pub fn sanitize_gradle_project_name(name: &str) -> String` pada `AndroidProjectGenerator` (dan diekspor di level modul):
+     - Karakter ilegal (`/`, `\`, `:`, `<`, `>`, `"`, `?`, `*`, `|`, `&`, `'`, spasi, tab, newline, kontrol) diganti dengan `_`.
+     - Underscore berurutan di-collapse menjadi single `_`.
+     - Leading dan trailing underscores di-trim.
+     - Jika hasil sanitasi kosong atau tidak memiliki karakter alfanumerik sama sekali, fallback ke `"RuntimePackGame"`.
+   - Implementasi `pub fn generate_settings_gradle(project_name: &str) -> String` untuk merender template `settings.gradle.kts` dengan `rootProject.name` tersanitasi.
+   - `emit_project_with_source` memanggil `Self::generate_settings_gradle(&manifest.app.name)` untuk penulisan `settings.gradle.kts`.
+   - Menjaga display name pengguna pada `AndroidManifest.xml` (`android:label`) dan icon generator 100% utuh tanpa perubahan.
+2. Di `tests/integration/build_test.rs`:
+   - Menambahkan integration tests `test_gradle_project_name_sanitization` dan `test_emit_project_settings_gradle_kts_sanitizes_root_project_name`.
+**Alasan:** Nama game dengan karakter khusus seperti titik dua `:`, ampersand `&`, atau spasi (seperti *Fear & Hunger 2: Termina*) memicu crash Gradle Kotlin DSL `InvalidUserDataException` jika disisipkan mentah ke `rootProject.name = "..."`.
+**Dampak:** Mencegah syntax error pada Gradle build saat memaketkan game bertanda baca, 252 tests workspace lulus 100%.
+
 ## [2026-09-26] Removal of Policy Hard Blockers for Tyrano (TYR-101) & Desktop Wrapper DLLs (CMP-106)
 **Keputusan:**
 1. Di `core/src/diagnostics/mod.rs`: Menambahkan konstanta `CMP_DESKTOP_EXCLUDED = "CMP-106"` dengan tingkat keparahan `DiagnosticSeverity::Warning`.

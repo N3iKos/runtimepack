@@ -1,12 +1,37 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 1 Plan Game Stabilization & Unblock Phase 0 (Remove Policy Hard Blockers `TYR-101` & Desktop DLLs `CMP-106`) selesai. Siap lanjut ke Task 2 (Gradle Project Name Sanitization in `generator.rs`).
-- **Next step:** Task 2 (Gradle Project Name Sanitization in `generator.rs`).
+- **Sedang kerjain apa:** Task 3 Plan 1 (Stabilize & Build *Fear & Hunger 2: Termina*) selesai. APK mandiri `dist/termina/Termina.apk` (1533.59 MB, SHA-256 `F2DBA813...`) sukses dibangun dan diverifikasi dengan Gradle exit code 0.
+- **Next step:** Game 2 (*[Kimochi] NTRdemic*) pada Target Game Queue.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Penghapusan hard blocker tiruan telah berhasil: gerbang hukum Tyrano (`TYR-101`) diturunkan menjadi notice informasional sehingga build dapat berjalan dengan flag audit override, dan DLL desktop wrapper pada Ren'Py (`lib/py3-windows-x86_64/*.dll`) diklasifikasikan sebagai `CMP_DESKTOP_EXCLUDED` (`CMP-106`, Warning) tanpa memicu `UnsupportedDependency`.
+- **Catatan fokus:** Ditemukan dan diperbaiki 2 issue pada game berkarakter khusus (`&` dan `:`): (1) escaping XML attribute di `AndroidManifest.xml` via `AndroidProjectGenerator::escape_xml_attribute` mencegah SAXParseException pada manifest merger, dan (2) sanitasi nama APK via `derive_apk_filename` mencegah NTFS Alternate Data Stream (ADS) pada Windows.
 
 ## Selesai
+- [2026-09-26] Task 3 Plan 1 (Stabilize & Build *Fear & Hunger 2: Termina*) Selesai:
+  1. Static Asset Audit:
+     - `runtimepack audit "Raw-Game\Fear & Hunger 2 Termina" --mode standard --output dist/termina/asset-audit-report.json`
+     - Menghasilkan laporan audit 117.124 nodes, 78.752 references, 586 findings, outcome FAIL (karena 571 missing assets dan 15 case mismatches).
+  2. Perbaikan XML Escaping di `core/src/build_plan/generator.rs`:
+     - Implementasi `AndroidProjectGenerator::escape_xml_attribute` (`&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `"` -> `&quot;`, `'` -> `&apos;`).
+     - Mengatasi kegagalan Gradle task `:app:processDebugMainManifest` (`SAXParseException: The entity name must immediately follow the '&' in the entity reference`).
+  3. Perbaikan APK Filename Derivation di `cli/src/main.rs`:
+     - Implementasi `derive_apk_filename`: mencocokkan leaf direktori output dengan subtitle setelah colon (misal `"Fear & Hunger 2: Termina"` dengan output `dist/termina` menghasilkan `Termina.apk`), serta membersihkan karakter terlarang filesystem Windows/Unix (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) untuk mencegah bug Alternate Data Stream NTFS (`Fear&Hunger2:Termina.apk`).
+  4. Kompilasi & Verifikasi APK:
+     - Command: `cargo run --bin runtimepack -- build "Raw-Game\Fear & Hunger 2 Termina" -o dist/termina --package com.example.termina --name "Fear & Hunger 2: Termina" --flavor beta --accept-audit-fail --accept-audit-unknown`
+     - Gradle sukses kompilasi `assembleDebug` (exit code 0).
+     - Menghasilkan `dist/termina/Termina.apk` (1.608.088.782 bytes / 1533.59 MB, SHA-256 `f2dba81375521b64b01d2362408368fc34ae38f44385842b16a549d56f6071a4`).
+     - Checksums dan build-manifest diperbarui sinkron.
+  5. Verifikasi Test Suite: 254 tests workspace Cargo (unit & integration) lulus 100%.
+- [2026-09-26] Task 2 Plan 1 (Gradle Project Name Sanitization in `generator.rs`) Selesai:
+  1. `core/src/build_plan/generator.rs`:
+     - Implementasi `pub fn sanitize_gradle_project_name(name: &str) -> String` pada `AndroidProjectGenerator` dan diekspor di level modul. Mengganti seluruh karakter non-alfanumerik/non-hyphen/non-underscore menjadi `_`, meng-collapse underscore beruntun, men-trim leading/trailing underscore, dan mengembalikan fallback `"RuntimePackGame"` jika tidak ada karakter alfanumerik.
+     - Implementasi `pub fn generate_settings_gradle(project_name: &str) -> String` yang menggunakan `sanitize_gradle_project_name`.
+     - `AndroidProjectGenerator::emit_project_with_source` menggunakan `generate_settings_gradle(&manifest.app.name)`.
+     - Memastikan display name game (`manifest.app.name`) pada `AndroidManifest.xml` dan icon extraction tetap utuh tanpa perubahan.
+  2. Integration tests & Unit tests:
+     - Menambahkan `test_sanitize_gradle_project_name` dan `test_generate_settings_gradle` di `core/src/build_plan/generator.rs`.
+     - Menambahkan `test_gradle_project_name_sanitization` dan `test_emit_project_settings_gradle_kts_sanitizes_root_project_name` di `tests/integration/build_test.rs`.
+  3. Verifikasi: 45/45 tests `build_test`, 56/56 tests `runtimepack-core`, dan 252 tests workspace Cargo lulus 100%. Commit: `d8138e5`.
 - [2026-09-26] Task 1 Plan Game Stabilization & Unblock Phase 0 (Remove Policy Hard Blockers `TYR-101` & Desktop DLLs `CMP-106`) Selesai:
   1. `core/src/diagnostics/mod.rs`: Menambahkan kode diagnostik `CMP_DESKTOP_EXCLUDED = "CMP-106"` dengan severity `Warning` untuk library desktop-specific wrapper/runner yang diabaikan pada packaging Android.
   2. `engines/renpy/src/scanner.rs`: Mengimplementasikan `is_desktop_wrapper_dll` untuk mengklasifikasikan Windows DLL pada direktori wrapper desktop (`lib/py3-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, `py3-windows-x86_64/`, `lib/python`, dll.) sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), bukan fatal blocker `CMP_NATIVE_DLL_DEPENDENCY` (`Error`). Menjamin status kompatibilitas Ren'Py tetap `Compatible`.

@@ -55,6 +55,21 @@ impl AndroidProjectGenerator {
         }
     }
 
+    pub fn escape_xml_attribute(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
     pub const NEUTRAL_CHEAT_PROFILE: &'static str = "/**\n * RuntimePack - Neutral Cheat Profile Template\n */\n\nwindow.GAME_CHEATS = {\n  title: \"Game Cheats\",\n  sections: []\n};\n";
 
     pub const FORBIDDEN_PERMISSIONS: &'static [&'static str] = &[
@@ -223,6 +238,8 @@ impl AndroidProjectGenerator {
             _ => "sensorLandscape",
         };
 
+        let escaped_app_name = Self::escape_xml_attribute(app_name);
+
         Ok(format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -254,7 +271,7 @@ impl AndroidProjectGenerator {
 "#,
             package_name = package_name,
             perms_xml = perms_xml,
-            app_name = app_name,
+            app_name = escaped_app_name,
             screen_orientation = screen_orientation,
             main_activity = main_activity
         ))
@@ -738,9 +755,39 @@ pub fn sanitize_gradle_project_name(name: &str) -> String {
     AndroidProjectGenerator::sanitize_gradle_project_name(name)
 }
 
+pub fn escape_xml_attribute(s: &str) -> String {
+    AndroidProjectGenerator::escape_xml_attribute(s)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_escape_xml_attribute() {
+        assert_eq!(
+            escape_xml_attribute("Fear & Hunger 2: Termina"),
+            "Fear &amp; Hunger 2: Termina"
+        );
+        assert_eq!(
+            escape_xml_attribute("<Tag> & \"Quote\" 'Apos'"),
+            "&lt;Tag&gt; &amp; &quot;Quote&quot; &apos;Apos&apos;"
+        );
+        assert_eq!(escape_xml_attribute("Plain Title"), "Plain Title");
+    }
+
+    #[test]
+    fn test_generate_manifest_xml_escapes_special_chars() {
+        let xml = AndroidProjectGenerator::generate_manifest_xml(
+            "com.example.termina",
+            "Fear & Hunger 2: Termina",
+            "sensorLandscape",
+            &[],
+            "io.runtimepack.host.WebActivity",
+        )
+        .unwrap();
+        assert!(xml.contains("android:label=\"Fear &amp; Hunger 2: Termina\""));
+    }
 
     #[test]
     fn test_sanitize_gradle_project_name() {

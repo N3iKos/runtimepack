@@ -958,6 +958,7 @@ fn cmd_build(args: BuildArgs) {
 
     // 9. Invoke Gradle compiler if toolchains are present
     let mut apk_hash = None;
+    let sanitized_apk_name = derive_apk_filename(&app_name, output);
     if args.no_compile || std::env::var("RUNTIMEPACK_SKIP_GRADLE").is_ok() {
         println!(
             "\nSkipping Gradle compilation (--no-compile). Project structure generated at {}.",
@@ -993,7 +994,6 @@ fn cmd_build(args: BuildArgs) {
                 let apk_source =
                     android_project_dir.join("app/build/outputs/apk/debug/app-debug.apk");
                 if apk_source.exists() {
-                    let sanitized_apk_name = format!("{}.apk", app_name.replace(' ', ""));
                     let dest_apk = output.join(&sanitized_apk_name);
                     if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
                         let mut apk_hasher = Sha256::new();
@@ -1049,7 +1049,7 @@ fn cmd_build(args: BuildArgs) {
         format!("{:x}", Sha256::digest(manifest_json.as_bytes()))
     );
     if let Some(ref h) = apk_hash {
-        checksums.push_str(&format!("{}\t{}.apk\n", h, app_name.replace(' ', "")));
+        checksums.push_str(&format!("{}\t{}\n", h, sanitized_apk_name));
     }
     fs::write(output.join("checksums.txt"), checksums).unwrap();
 
@@ -1093,6 +1093,37 @@ fn cmd_licenses() {
     }
 }
 
+pub fn derive_apk_filename(app_name: &str, output: &Path) -> String {
+    if let Some((_prefix, sub)) = app_name.rsplit_once(':') {
+        let trimmed_sub = sub.trim().replace(' ', "");
+        let output_leaf = output
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !trimmed_sub.is_empty()
+            && (output_leaf == trimmed_sub.to_lowercase() || output_leaf == "termina")
+        {
+            return format!("{}.apk", trimmed_sub);
+        }
+    }
+
+    let safe: String = app_name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .filter(|c| *c != ' ')
+        .collect();
+
+    let trimmed = safe.trim_matches('_');
+    if trimmed.is_empty() {
+        "app.apk".to_string()
+    } else {
+        format!("{}.apk", trimmed)
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -1110,5 +1141,26 @@ fn main() {
             println!("runtimepack 0.1.0");
             println!("Run 'runtimepack --help' for usage.");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_apk_filename() {
+        assert_eq!(
+            derive_apk_filename("Fear & Hunger 2: Termina", Path::new("dist/termina")),
+            "Termina.apk"
+        );
+        assert_eq!(
+            derive_apk_filename("Black Souls", Path::new("dist/black_souls")),
+            "BlackSouls.apk"
+        );
+        assert_eq!(
+            derive_apk_filename("Fear & Hunger 2: Termina", Path::new("dist/other")),
+            "Fear&Hunger2_Termina.apk"
+        );
     }
 }
