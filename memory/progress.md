@@ -1,12 +1,29 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 1 Plan 4 (Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing) selesai.
-- **Next step:** Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*).
+- **Sedang kerjain apa:** Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*) selesai.
+- **Next step:** Menunggu konfirmasi user untuk langkah selanjutnya / rilis.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** File desktop wrapper (.dll, .exe) di bawah `lib/` Ren'Py diklasifikasikan sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), status kompatibilitas tetap `Compatible`. Ren'Py color displayables (`#hex`, `black`, `white`, `Solid(...)`, `Color(...)`) serta Python stdlib modules (`inspect`, `zipfile`, `ast`, `subprocess`, `ctypes`, dll.) diresolusi sebagai `RuntimeProvidedResource` tanpa missing asset findings.
+- **Catatan fokus:** Game Ren'Py 8 desktop *Mizuki And Me* sukses dipaketkan menjadi APK mandiri (`dist/mizuki_and_me/MizukiAndMe.apk`, 886.47 MB). Desktop wrapper libraries di bawah `lib/*windows*` dan `lib/*linux*` dikecualikan dari `game.pack`, direktori `Game/` dinormalisasi menjadi `game/` dengan symlink fallback, missing assets drop ke 0, dan 259 tests cargo serta 24 Android unit test tasks lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 2 Plan 4 (Build APK & Verify *Mizuki And Me*) Selesai:
+  1. Static Asset Audit:
+     - `cargo run --bin runtimepack -- audit "Raw-Game\Mizuki And Me" --mode standard --output dist/mizuki_and_me/asset-audit-report.json`
+     - `engines/renpy/src/asset_audit.rs`: Pemindaian `.dll` diselaraskan dengan `RenPyAnalyzer::is_desktop_wrapper_dll`, mengklasifikasikan Windows PE DLLs di folder wrapper desktop Ren'Py sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`, disposition `Warning`, requiredness `Optional`).
+     - Modul stdlib Ren'Py diperluas mencakup `"pygame"`, `"emscripten"`, `"requests"`, `"urllib3"`, `"certifi"`, `"chardet"`, `"idna"` sebagai `RuntimeProvidedResource`.
+     - `core/src/asset_audit/cache.rs`: `CURRENT_AUDIT_RULESET_VERSION` dinaikkan ke versi 3.
+     - Laporan audit tuntas dengan outcome `Indeterminate` (0 missing assets, 0 fatal DLL blockers, 8 desktop-excluded DLLs).
+  2. Gpack Desktop Exclusion & Directory Casing Normalization:
+     - `pack/src/gpack.rs`: `should_include_in_pack` mengecualikan direktori desktop runtime `lib/py3-windows*`, `lib/py2-windows*`, `lib/windows*`, `lib/py3-linux*`, `lib/py2-linux*`, `lib/linux*`, serta varian `lib/*windows*`/`lib/*linux*`.
+     - `validate_logical_path` menormalisasi direktori `Game/` menjadi `game/` pada entri indeks GPACK.
+     - `android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt`: Menambahkan symlink dua arah (`game <-> Game`) pada `installRuntimeFiles` untuk menjamin kompatibilitas filesystem case-sensitive Linux/Android.
+  3. Kompilasi & Verifikasi APK:
+     - Command: `cargo run --bin runtimepack -- build "Raw-Game\Mizuki And Me" -o dist/mizuki_and_me --package com.cherrykiss.mizukiandme --name "Mizuki And Me" --flavor beta --accept-audit-fail --accept-audit-unknown`
+     - GPACK `game.pack` tercipta (846.81 MB, hash: `51bcb8de`).
+     - Gradle sukses kompilasi `assembleDebug` (exit code 0).
+     - Menghasilkan `dist/mizuki_and_me/MizukiAndMe.apk` (929.536.351 bytes / 886.47 MB, SHA-256 `6313D2A7408B5212219240EC31CFDA64AE4325B28A414D65BB3EBBD9A2A85392`).
+  4. Verifikasi Test Suite: 259 tests cargo workspace dan 24 Gradle Android unit test tasks lulus 100%.
 - [2026-09-27] Task 1 Plan 4 (Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing) Selesai:
   1. `engines/renpy/src/scanner.rs`:
      - Normalisasi path di `is_desktop_wrapper_dll` mengenali seluruh DLL/EXE di bawah `lib/` (`lib/py3-windows-x86_64/`, `lib/py2-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, dll.) dan `steam_api*.dll` sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), status kompatibilitas tetap `Compatible`.

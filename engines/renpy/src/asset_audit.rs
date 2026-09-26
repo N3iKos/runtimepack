@@ -11,6 +11,7 @@ use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
+use crate::scanner::RenPyAnalyzer;
 
 static IMAGE_STMT_RE: OnceLock<regex::Regex> = OnceLock::new();
 static DEFINE_AUDIO_RE: OnceLock<regex::Regex> = OnceLock::new();
@@ -208,7 +209,7 @@ fn get_candidates(raw_path: &str, kind: AssetKind) -> Vec<String> {
     });
 
     let mut bases = Vec::new();
-    if clean.starts_with("game/") {
+    if clean.to_ascii_lowercase().starts_with("game/") {
         bases.push(clean.to_string());
     } else {
         bases.push(format!("game/{clean}"));
@@ -597,6 +598,13 @@ impl<'a> AuditContext<'a> {
                 | "site"
                 | "renpy"
                 | "pygame_sdl2"
+                | "pygame"
+                | "emscripten"
+                | "requests"
+                | "urllib3"
+                | "certifi"
+                | "chardet"
+                | "idna"
                 | "store"
                 | "gui"
         );
@@ -766,6 +774,8 @@ impl AssetAuditor for RenPyAssetAuditor {
                     orphan: false,
                 });
             } else if path.ends_with(".dll") {
+                let is_desktop_excluded = RenPyAnalyzer::is_desktop_wrapper_dll(&file.logical_path)
+                    || RenPyAnalyzer::is_desktop_wrapper_dll(path);
                 let node_id = format!("plugin:{path}");
                 ensure_node(
                     &mut graph,
@@ -775,23 +785,42 @@ impl AssetAuditor for RenPyAssetAuditor {
                     Some(path.clone()),
                 );
                 finding_counter += 1;
-                findings.push(AuditFinding {
-                    id: format!(
-                        "{}-{finding_counter}",
-                        DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
-                    ),
-                    code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
-                    severity: FindingSeverity::Error,
-                    disposition: FindingDisposition::Blocking,
-                    requiredness: ReferenceRequiredness::Required,
-                    message: format!(
-                        "Native Windows PE DLL found in Ren'Py distribution: '{}'.",
-                        file.logical_path
-                    ),
-                    source_node_ids: vec![node_id],
-                    orphan: false,
-                });
-            } else if (path.starts_with("game/") || !path.contains('/')) && path.ends_with(".so") {
+                if is_desktop_excluded {
+                    findings.push(AuditFinding {
+                        id: format!(
+                            "{}-{finding_counter}",
+                            DiagnosticCode::CMP_DESKTOP_EXCLUDED
+                        ),
+                        code: DiagnosticCode::CMP_DESKTOP_EXCLUDED.to_string(),
+                        severity: FindingSeverity::Warning,
+                        disposition: FindingDisposition::Warning,
+                        requiredness: ReferenceRequiredness::Optional,
+                        message: format!(
+                            "Desktop-specific wrapper/runner library '{}' excluded from Android packaging.",
+                            file.logical_path
+                        ),
+                        source_node_ids: vec![node_id],
+                        orphan: false,
+                    });
+                } else {
+                    findings.push(AuditFinding {
+                        id: format!(
+                            "{}-{finding_counter}",
+                            DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
+                        ),
+                        code: DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY.to_string(),
+                        severity: FindingSeverity::Error,
+                        disposition: FindingDisposition::Blocking,
+                        requiredness: ReferenceRequiredness::Required,
+                        message: format!(
+                            "Native Windows PE DLL found in Ren'Py distribution: '{}'.",
+                            file.logical_path
+                        ),
+                        source_node_ids: vec![node_id],
+                        orphan: false,
+                    });
+                }
+            } else if (path.to_ascii_lowercase().starts_with("game/") || !path.contains('/')) && path.ends_with(".so") {
                 let node_id = format!("plugin:{path}");
                 ensure_node(
                     &mut graph,

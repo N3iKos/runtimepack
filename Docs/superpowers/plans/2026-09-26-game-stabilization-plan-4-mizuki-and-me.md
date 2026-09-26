@@ -61,18 +61,18 @@
 - Test target: `Raw-Game\Mizuki And Me`
 - Build output: `dist/mizuki_and_me/MizukiAndMe.apk`
 
-- [ ] **Step 1: Run static audit on Mizuki And Me**:
+- [x] **Step 1: Run static audit on Mizuki And Me**:
   ```powershell
   cargo run --bin runtimepack -- audit "Raw-Game\Mizuki And Me" --mode standard --output dist/mizuki_and_me/asset-audit-report.json
   ```
   - Verify missing errors drop to 0 and DLLs are classified as desktop-excluded.
-- [ ] **Step 2: Execute build for Mizuki And Me**:
+- [x] **Step 2: Execute build for Mizuki And Me**:
   ```powershell
   cargo run --bin runtimepack -- build "Raw-Game\Mizuki And Me" -o dist/mizuki_and_me --package com.cherrykiss.mizukiandme --name "Mizuki And Me" --flavor beta --accept-audit-fail --accept-audit-unknown
   ```
-- [ ] **Step 3: Verify APK generation**:
+- [x] **Step 3: Verify APK generation**:
   - Assert that `dist/mizuki_and_me/MizukiAndMe.apk` exists, has size > 500 MB, and Gradle build exits with 0.
-- [ ] **Step 4: Commit build verification record**:
+- [x] **Step 4: Commit build verification record**:
   ```powershell
   git commit --allow-empty -m "chore: verify Mizuki And Me APK build success"
   ```

@@ -254,6 +254,25 @@ object GpackExtractor {
             }
         }
 
+        // Ensure game / Game directory aliases exist for case-sensitive filesystems
+        val uppercaseGameDir = File(destDir, "Game")
+        val lowercaseGameDir = File(destDir, "game")
+        if (lowercaseGameDir.exists() && !uppercaseGameDir.exists()) {
+            try {
+                android.system.Os.symlink(lowercaseGameDir.absolutePath, uppercaseGameDir.absolutePath)
+                Log.i(TAG, "Symlinked game -> Game")
+            } catch (e: Throwable) {
+                Log.w(TAG, "Could not symlink game -> Game: ${e.message}")
+            }
+        } else if (uppercaseGameDir.exists() && !lowercaseGameDir.exists()) {
+            try {
+                android.system.Os.symlink(uppercaseGameDir.absolutePath, lowercaseGameDir.absolutePath)
+                Log.i(TAG, "Symlinked Game -> game")
+            } catch (e: Throwable) {
+                Log.w(TAG, "Could not symlink Game -> game: ${e.message}")
+            }
+        }
+
         // Ensure Game.ini exists if custom ini present
         val gameIni = File(destDir, "Game.ini")
         if (!gameIni.exists() && detectedExecName != null) {

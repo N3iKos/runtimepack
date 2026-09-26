@@ -67,6 +67,10 @@ impl GpackPacker {
             ));
         }
 
+        if trimmed.starts_with("Game/") {
+            return Ok(format!("game/{}", &trimmed[5..]));
+        }
+
         Ok(trimmed.to_string())
     }
 
@@ -75,6 +79,19 @@ impl GpackPacker {
         if lower.contains("_commonredist/")
             || lower.starts_with("swiftshader/")
             || lower.contains("/swiftshader/")
+            || lower.starts_with("lib/py3-windows")
+            || lower.starts_with("lib/py2-windows")
+            || lower.starts_with("lib/windows")
+            || lower.contains("/py3-windows")
+            || lower.contains("/py2-windows")
+            || lower.contains("/windows-")
+            || lower.starts_with("lib/py3-linux")
+            || lower.starts_with("lib/py2-linux")
+            || lower.starts_with("lib/linux")
+            || lower.contains("/py3-linux")
+            || lower.contains("/py2-linux")
+            || lower.contains("/linux-")
+            || (lower.starts_with("lib/") && (lower.contains("windows") || lower.contains("linux")))
         {
             return false;
         }

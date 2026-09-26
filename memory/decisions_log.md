@@ -1,5 +1,21 @@
 # Decisions Log
 
+## [2026-09-27] Ren'Py Desktop Library Packaging Filter & Directory Casing Symlinks (Mizuki And Me)
+**Keputusan:**
+1. Di `pack/src/gpack.rs`:
+   - `should_include_in_pack`: Memfilter dan mengecualikan seluruh pustaka runtime desktop di bawah `lib/` (`lib/py3-windows*`, `lib/py2-windows*`, `lib/windows*`, `lib/py3-linux*`, `lib/py2-linux*`, `lib/linux*`, dan varian `lib/*windows*`/`lib/*linux*`) agar tidak ikut dipaketkan ke dalam `game.pack`.
+   - `validate_logical_path`: Menormalisasi awalan direktori `Game/` menjadi `game/` pada entri indeks GPACK.
+2. Di `engines/renpy/src/asset_audit.rs`:
+   - Penyelarasan pemindaian `.dll` di `RenPyAssetAuditor` dengan `RenPyAnalyzer::is_desktop_wrapper_dll`, mengklasifikasikan Windows PE DLLs sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`, disposition `Warning`, requiredness `Optional`), bukan fatal blocking `CMP-102`.
+   - Penambahan modul Ren'Py core / stdlib: `"pygame"`, `"emscripten"`, `"requests"`, `"urllib3"`, `"certifi"`, `"chardet"`, `"idna"` ke `is_stdlib_or_renpy` sebagai `RuntimeProvidedResource`.
+   - Normalisasi case-insensitive untuk pemeriksaan awalan `clean.to_ascii_lowercase().starts_with("game/")`.
+3. Di `core/src/asset_audit/cache.rs`:
+   - `CURRENT_AUDIT_RULESET_VERSION` dinaikkan ke versi 3.
+4. Di `android/shell/app/src/main/java/io/runtimepack/host/GpackExtractor.kt`:
+   - Menambahkan symlink dua arah (`game <-> Game`) pada `installRuntimeFiles` untuk menjamin kompatibilitas runtime pada filesystem case-sensitive Linux/Android.
+**Alasan:** Game Ren'Py desktop *Mizuki And Me* memiliki folder `Game/` dengan kapitalisasi Windows serta membundel library runtime desktop Windows dan Linux di folder `lib/`. Library ini memicu pembengkakan ukuran APK dan false positive fatal DLL blocker pada audit.
+**Dampak:** Mengurangi ukuran `game.pack` dari 920.40 MB menjadi 846.81 MB, menghilangkan 100% false positive missing asset error, dan menghasilkan APK Android mandiri yang valid (`dist/mizuki_and_me/MizukiAndMe.apk`, 886.47 MB). 259 tests cargo workspace dan 24 Android unit test tasks lulus 100%.
+
 ## [2026-09-27] Desktop Library Exclusion & Ren'Py Built-in Syntax Parsing
 **Keputusan:**
 1. Di `engines/renpy/src/scanner.rs`:
