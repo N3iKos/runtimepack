@@ -1,4 +1,4 @@
-use runtimepack_core::asset_audit::{AssetAuditOptions, AssetAuditor, AuditMode, AuditOutcome};
+use runtimepack_core::asset_audit::{AssetAuditOptions, AssetAuditor, AssetKind, AuditMode, AuditOutcome};
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
@@ -630,6 +630,92 @@ fn test_map_subtractive_fog_occlusion_emits_warning() {
     assert!(warning.message.contains("Map 001"));
     assert!(warning.message.contains("below character layer Z=32"));
     assert!(warning.message.contains("black occlusion under OpenGL ES"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_rgss3a_valid_archive_and_bundled_fonts() {
+    let temp_dir = std::env::temp_dir().join(format!("rgss3a_valid_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nLibrary=System\\RGSS301.dll\nScripts=Data\\Scripts.rvdata2\nTitle=Hello Charlotte Test\nRTP=RPGVXAce\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    // Valid RGSS3A header: RGSSAD\0\x03 followed by some mock data
+    let mut archive_bytes = Vec::new();
+    archive_bytes.extend_from_slice(b"RGSSAD\0\x03");
+    archive_bytes.extend_from_slice(&[0x12, 0x65, 0x00, 0x00, 0xec, 0xcf, 0x03, 0x00]);
+    archive_bytes.extend_from_slice(b"MOCK_ENCRYPTED_PAYLOAD");
+    std::fs::write(temp_dir.join("Game.rgss3a"), archive_bytes).unwrap();
+
+    let fonts_dir = temp_dir.join("Fonts");
+    std::fs::create_dir_all(&fonts_dir).unwrap();
+    std::fs::write(fonts_dir.join("coders_crux.ttf"), b"mock coders crux font").unwrap();
+    std::fs::write(fonts_dir.join("VL-Gothic-Regular.ttf"), b"mock vl gothic font").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    // No malformed resource finding should be emitted
+    assert!(!report.findings.iter().any(|f| f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE));
+
+    // Archive node should be present in dependency graph
+    let has_archive_node = report.graph.nodes.iter().any(|n| {
+        n.id.contains("Game.rgss3a") && n.kind == AssetKind::ArchiveEntry
+    });
+    assert!(has_archive_node, "Expected archive node in graph");
+
+    // Bundled font nodes should be present in dependency graph
+    let has_coders_crux = report.graph.nodes.iter().any(|n| {
+        n.id.contains("coders_crux.ttf") && n.kind == AssetKind::Font
+    });
+    let has_vl_gothic = report.graph.nodes.iter().any(|n| {
+        n.id.contains("VL-Gothic-Regular.ttf") && n.kind == AssetKind::Font
+    });
+    assert!(has_coders_crux, "Expected coders_crux.ttf in graph nodes");
+    assert!(has_vl_gothic, "Expected VL-Gothic-Regular.ttf in graph nodes");
+
+    // Fonts should be marked as covered in completeness
+    assert!(
+        report.completeness.covered_reference_classes.contains(&"fonts".to_string()),
+        "Expected fonts to be marked as covered"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_rgss3a_corrupt_archive_emits_malformed_resource() {
+    let temp_dir = std::env::temp_dir().join(format!("rgss3a_corrupt_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nLibrary=System\\RGSS301.dll\nScripts=Data\\Scripts.rvdata2\nTitle=Corrupt Test\nRTP=RPGVXAce\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    // Invalid header (corrupted magic)
+    std::fs::write(temp_dir.join("Game.rgss3a"), b"CORRUPT_NOT_RGSSAD").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(report.outcome, AuditOutcome::Fail);
+    let malformed = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE)
+        .expect("Expected CMP_AUD_MALFORMED_RESOURCE finding for corrupt Game.rgss3a");
+
+    assert!(malformed.message.contains("Game.rgss3a"));
+    assert!(malformed.message.contains("invalid header magic or version"));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

@@ -784,11 +784,65 @@ impl AssetAuditor for RgssAssetAuditor {
         audit_font_requirements(
             gen,
             source,
+            &mut coverage,
             &mut graph,
             &mut node_ids,
             &mut findings,
             &mut finding_counter,
         );
+
+        // Archive header validation for .rgss3a
+        for f in source.files.values() {
+            let lower = f.logical_path.to_ascii_lowercase();
+            if lower.ends_with(".rgss3a") {
+                let archive_node_id = format!("archive:{}", f.logical_path);
+                if node_ids.insert(archive_node_id.clone()) {
+                    graph.nodes.push(AssetNode {
+                        id: archive_node_id.clone(),
+                        kind: AssetKind::ArchiveEntry,
+                        logical_path: Some(f.logical_path.clone()),
+                    });
+                }
+
+                let full_path = f.real_path(&source.root_path);
+                let header_check = match std::fs::File::open(&full_path) {
+                    Ok(mut file) => {
+                        use std::io::Read;
+                        let mut header = [0u8; 8];
+                        match file.read(&mut header) {
+                            Ok(n) if n >= 8 && header.starts_with(b"RGSSAD\0\x03") => Ok(()),
+                            Ok(n) if n >= 7 && header.starts_with(b"RGSSAD\x03") => Ok(()),
+                            Ok(n) if n < 7 => Err(format!(
+                                "Encrypted archive '{}' is truncated (header size {} < 8 bytes)",
+                                f.logical_path, n
+                            )),
+                            Ok(_) => Err(format!(
+                                "Encrypted archive '{}' has invalid header magic or version (expected RGSSAD\\0\\x03)",
+                                f.logical_path
+                            )),
+                            Err(e) => Err(format!(
+                                "Failed to read encrypted archive '{}': {e}",
+                                f.logical_path
+                            )),
+                        }
+                    }
+                    Err(e) => Err(format!(
+                        "Failed to open encrypted archive '{}': {e}",
+                        f.logical_path
+                    )),
+                };
+
+                if let Err(err_msg) = header_check {
+                    findings.push(make_finding(
+                        DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                        ReferenceRequiredness::Required,
+                        err_msg,
+                        vec![archive_node_id],
+                        &mut finding_counter,
+                    ));
+                }
+            }
+        }
 
         // 4. Standard vs Deep mode checks
         if has_encrypted_archive {
@@ -3107,23 +3161,13 @@ fn inspect_database_entities_for_font_cjk(ext: &str, source: &GameSourceIndex) -
 fn audit_font_requirements(
     gen: RgssGeneration,
     source: &GameSourceIndex,
+    coverage: &mut AuditCoverage,
     graph: &mut DependencyGraph,
     node_ids: &mut HashSet<String>,
     findings: &mut Vec<AuditFinding>,
     finding_counter: &mut usize,
 ) {
     let ext = gen.data_extension();
-
-    let requirement = inspect_scripts_for_font_cjk(ext, source)
-        .or_else(|| inspect_maps_for_font_cjk(ext, source))
-        .or_else(|| inspect_common_events_and_troops_for_font_cjk(ext, source))
-        .or_else(|| inspect_system_for_font_cjk(ext, source))
-        .or_else(|| inspect_database_entities_for_font_cjk(ext, source));
-
-    let reason = match requirement {
-        Some(r) => r,
-        None => return,
-    };
 
     let has_fonts = source.files.values().any(|f| {
         let lower = f.logical_path.to_ascii_lowercase();
@@ -3134,25 +3178,8 @@ fn audit_font_requirements(
                 || lower.ends_with(".woff"))
     });
 
-    if !has_fonts {
-        let font_target = "font:Fonts/VL-Gothic-Regular.ttf".to_string();
-        if node_ids.insert(font_target.clone()) {
-            graph.nodes.push(AssetNode {
-                id: font_target.clone(),
-                kind: AssetKind::Font,
-                logical_path: Some("Fonts/VL-Gothic-Regular.ttf".to_string()),
-            });
-        }
-        findings.push(make_finding(
-            DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-            ReferenceRequiredness::Required,
-            format!(
-                "Font 'VL Gothic' or CJK glyph coverage is missing from 'Fonts/' directory ({reason})"
-            ),
-            vec![font_target],
-            finding_counter,
-        ));
-    } else {
+    if has_fonts {
+        coverage.add_covered("fonts");
         for f in source.files.values() {
             let lower = f.logical_path.to_ascii_lowercase();
             if (lower.starts_with("fonts/") || lower.starts_with("fonts\\"))
@@ -3171,6 +3198,38 @@ fn audit_font_requirements(
                 }
             }
         }
+    }
+
+    let requirement = inspect_scripts_for_font_cjk(ext, source)
+        .or_else(|| inspect_maps_for_font_cjk(ext, source))
+        .or_else(|| inspect_common_events_and_troops_for_font_cjk(ext, source))
+        .or_else(|| inspect_system_for_font_cjk(ext, source))
+        .or_else(|| inspect_database_entities_for_font_cjk(ext, source));
+
+    let reason = match requirement {
+        Some(r) => r,
+        None => return,
+    };
+
+    if !has_fonts {
+        coverage.add_unsupported("fonts", ReferenceRequiredness::Required);
+        let font_target = "font:Fonts/VL-Gothic-Regular.ttf".to_string();
+        if node_ids.insert(font_target.clone()) {
+            graph.nodes.push(AssetNode {
+                id: font_target.clone(),
+                kind: AssetKind::Font,
+                logical_path: Some("Fonts/VL-Gothic-Regular.ttf".to_string()),
+            });
+        }
+        findings.push(make_finding(
+            DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+            ReferenceRequiredness::Required,
+            format!(
+                "Font 'VL Gothic' or CJK glyph coverage is missing from 'Fonts/' directory ({reason})"
+            ),
+            vec![font_target],
+            finding_counter,
+        ));
     }
 }
 
