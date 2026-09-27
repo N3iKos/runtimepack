@@ -1,12 +1,13 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Master Roadmap & Rencana Implementasi Lengkap Ekspansi Engine Visual Novel (Kirikiri 2/Z dan Visual Novel Maker) selesai disusun dan dikomit.
-- **Next step:** Menunggu konfirmasi user untuk memulai eksekusi: Track A (Visual Novel Maker) atau Track B Fase 1 (Kirikiri 2/Z).
+- **Sedang kerjain apa:** Master Roadmap & Rencana Implementasi Lengkap Triad Engine Visual Novel (Visual Novel Maker, Kirikiri 2/Z, dan Artemis Engine) selesai disusun dan dikomit ke repositori.
+- **Next step:** Menunggu konfirmasi user untuk memilih track mana yang akan mulai dieksekusi: Track A (Visual Novel Maker), Track B (Kirikiri 2/Z Fase 1), atau Track C (Artemis Engine).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Roadmap master `Docs/superpowers/plans/2026-09-27-visual-novel-expansion-master-roadmap.md` telah membagi eksekusi ke dalam dua jalur independen:
-  1. **Track A (Visual Novel Maker):** Eksekusi cepat memanfaatkan arsitektur Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js shims tanpa kompilasi biner C++ baru.
-  2. **Track B (Kirikiri 2 / Kirikiri Z):** Pipeline 4 fase mendalam mencakup parser in-memory biner XP3 11-byte di Rust, kompatibilitas scanner TJS, direct-boot native patch C++ (`libkrkr2.so` NDK r28 dengan alignment 16 KB untuk Android 15), dan isolasi save data `filesDir/savedata`.
+- **Catatan fokus:** Roadmap master `Docs/superpowers/plans/2026-09-27-visual-novel-expansion-master-roadmap.md` telah membagi arsitektur ekspansi visual novel ke dalam 3 Track independen (*decoupled tracks*):
+  1. **Track A (Visual Novel Maker) [Fast-Track]:** Pemanfaatan Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js polyfills (bypassing Cordova). Dokumen: `2026-09-27-visual-novel-maker-support-plan.md`.
+  2. **Track B (Kirikiri 2 / Kirikiri Z) [Deep Native C++ Engine]:** Pipeline 4 fase mencakup in-memory XP3 11-byte parser di Rust, kompatibilitas scanner TJS, direct-boot native patch C++ (`libkrkr2.so` NDK r28 dengan 16 KB ELF alignment untuk Android 15), dan isolasi save data `filesDir/savedata`.
+  3. **Track C (Artemis Engine - PFS / Lua) [In-Memory PFS & art3m1s-core]:** Parser biner PFS (PF8/PF6/PF2) dengan dekripsi SHA-1 XOR stream cipher di Rust, prioritas patch multi-volume (`root.pfs.000..099`), runtime native bersih via `art3m1s-core` C FFI API v1 (MPL-2.0), dan `ArtemisActivity.kt` shell dengan isolasi save `filesDir/saves/<title-id>`. Dokumen: `2026-09-27-artemis-engine-support-plan.md`.
   Seluruh 8 game utama sebelumnya tetap berstatus 0 FAIL dan lolos build policy 100%.
 
 ## Selesai
