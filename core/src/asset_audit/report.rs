@@ -181,7 +181,7 @@ pub fn sanitize_message(msg: &str) -> String {
     static UNIX_PATH_RE: OnceLock<Regex> = OnceLock::new();
 
     let win_re = WIN_PATH_RE
-        .get_or_init(|| Regex::new(r#"[a-zA-Z]:[\\/][^\s'"\)\]]+"#).expect("valid regex"));
+        .get_or_init(|| Regex::new(r#"\b[a-zA-Z]:[\\/][^\s'"\)\]]+"#).expect("valid regex"));
     let unix_re = UNIX_PATH_RE.get_or_init(|| {
         Regex::new(r#"/(?:home|Users|tmp|var|opt)/[^\s'"\)\]]+"#).expect("valid regex")
     });

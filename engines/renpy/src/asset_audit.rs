@@ -954,6 +954,14 @@ impl AssetAuditor for RenPyAssetAuditor {
 
         // Check for orphan compiled .rpyc files
         for rpyc in &rpyc_files {
+            // Ren'Py standard library modules in renpy/common/ or common/ do not include .rpy source in distribution
+            if rpyc.starts_with("renpy/common/")
+                || rpyc.starts_with("common/")
+                || rpyc.contains("/renpy/common/")
+                || rpyc.contains("/common/")
+            {
+                continue;
+            }
             let base_rpy = rpyc.strip_suffix('c').unwrap_or(rpyc);
             if !effective_source.has_file(base_rpy) {
                 coverage.add_unsupported("renpy-rpyc-bytecode", ReferenceRequiredness::Required);
@@ -1258,6 +1266,17 @@ impl AssetAuditor for RenPyAssetAuditor {
                         }
                     } else if is_renpy_color_spec(val) {
                         ctx.resolve_color_spec(&stmt_node_id, val);
+                    } else if val.starts_with("config.") || val.starts_with("renpy.") {
+                        let target_id = format!("runtime:{val}");
+                        ctx.ensure_node(&target_id, AssetKind::RuntimeProvidedResource, None);
+                        ctx.graph.edges.push(ReferenceEdge {
+                            source: stmt_node_id.to_string(),
+                            target: target_id,
+                            relation: "runtime_config".to_string(),
+                            requiredness: ReferenceRequiredness::Optional,
+                            evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                            resolution: ReferenceResolution::Resolved,
+                        });
                     } else if let Some(str_cap) = quoted_str_regex().captures(val) {
                         let path = str_cap[1].to_string();
                         if is_renpy_color_spec(&path) {
@@ -1438,6 +1457,18 @@ impl AssetAuditor for RenPyAssetAuditor {
                                     ReferenceRequiredness::Required,
                                 );
                             }
+                        } else if expr.trim().starts_with("config.") || expr.trim().starts_with("renpy.") {
+                            let clean_expr = expr.trim();
+                            let target_id = format!("runtime:{clean_expr}");
+                            ctx.ensure_node(&target_id, AssetKind::RuntimeProvidedResource, None);
+                            ctx.graph.edges.push(ReferenceEdge {
+                                source: stmt_node_id.to_string(),
+                                target: target_id,
+                                relation: "runtime_config".to_string(),
+                                requiredness: ReferenceRequiredness::Optional,
+                                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                                resolution: ReferenceResolution::Resolved,
+                            });
                         } else {
                             ctx.record_dynamic(&stmt_node_id, expr, AssetKind::Image);
                         }

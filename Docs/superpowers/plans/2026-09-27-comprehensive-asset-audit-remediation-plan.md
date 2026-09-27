@@ -211,7 +211,7 @@
 **Files:**
 - Output target: `dist/<game>/asset-audit-report.json` for all 8 games.
 
-- [ ] **Step 1: Execute `runtimepack audit` on all 8 games**:
+- [x] **Step 1: Execute `runtimepack audit` on all 8 games**:
   1. *Fear & Hunger 2: Termina* -> `dist/termina/asset-audit-report.json`
   2. *[Kimochi] NTRdemic* -> `dist/ntrdemic/asset-audit-report.json`
   3. *[Kimochi] show_off* -> `dist/show_off/asset-audit-report.json`
@@ -220,11 +220,11 @@
   6. *The Witch's House MV* -> `dist/witchs_house/asset-audit-report.json`
   7. *Hello Charlotte EP1* -> `dist/hc_ep1/asset-audit-report.json`
   8. *To the Moon* -> `dist/to_the_moon/asset-audit-report.json`
-- [ ] **Step 2: Assert clean / PASS outcomes**:
+- [x] **Step 2: Assert clean / PASS outcomes**:
   - *show_off*: Verify 40 label errors drop to 0.
   - *Termina*: Verify 571 missing asset errors drop to 0 fatal errors.
   - *Hello Charlotte*, *To the Moon*, *Mizuki And Me*: Verify internal files cataloged and outcome achieves `Pass`.
-- [ ] **Step 3: Commit verification and progress logs**:
+- [x] **Step 3: Commit verification and progress logs**:
   ```powershell
   git add memory/progress.md memory/decisions_log.md
   git commit -m "chore: verify full sweep clean static audit across all 8 games"

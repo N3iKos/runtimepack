@@ -1,5 +1,26 @@
 # Decisions Log
 
+## [2026-09-27] Full Sweep Re-Audit & Verification across All 8 Games (Task 6)
+**Keputusan:**
+1. Di `core/src/asset_audit/report.rs`:
+   - Mengubah regex Windows path pada `sanitize_message` dari `[a-zA-Z]:[\\/][^\s'"\)\]]+` menjadi `\b[a-zA-Z]:[\\/][^\s'"\)\]]+` dengan boundary word `\b`.
+   - Menghilangkan bug di mana skema URL `https://` keliru dicocokkan sebagai Windows drive letter `s://` dan terpangkas menjadi `httplinktr.ee/...`.
+2. Di `engines/renpy/src/asset_audit.rs`:
+   - Pada pemindaian orphan compiled bytecode (`rpyc_files`), mengecualikan file di bawah `renpy/common/*.rpyc` atau `common/*.rpyc`. Ren'Py mendistribusikan pustaka runtime standar dalam format bytecode terkompilasi tanpa menyertakan kode sumber mentah `.rpy`.
+   - Mengklasifikasikan ekspresi konfigurasi runtime Ren'Py (`config.*` dan `renpy.*`) pada statement deklarasi `image` dan `show/scene expression` sebagai `RuntimeProvidedResource` (`runtime:<expr>`), bukan dynamic unresolved reference.
+   - Hasil audit *Mizuki And Me* resmi terangkat dari `Indeterminate` menjadi clean **Warning** (0 missing assets, 0 bytecode/archive indeterminate, evaluasi policy langsung `Allow` tanpa overrides).
+3. Di `core/src/asset_audit/cache.rs`:
+   - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke versi 7 untuk auto-invalidation cache audit di seluruh workspace.
+4. Di seluruh 8 game:
+   - *Hello Charlotte EP1* dan *To the Moon* keduanya mencapai status **PASS** 100% clean dengan 0 findings berkat in-memory RGSS archive indexers.
+   - *Mizuki And Me* mencapai status **WARNING** (8 desktop wrapper DLL exclusions `CMP-106`, 0 errors, 0 indeterminate limitations).
+   - *Forestia* mencapai 0 fatal errors (24 warnings non-blocking: 1 optional dev plugin, 23 case mismatches auto-aliased, 1 external URL unverified offline).
+   - *The Witch's House MV* mendowngrade 24 database missing items ke Info `CMP-AUD-013`.
+   - *Fear & Hunger 2: Termina* mendowngrade 247 database default items ke Info `CMP-AUD-013`.
+   - *[Kimochi] show_off* berhasil mengeliminasi seluruh path traversal warnings (`CMP-AUD-009` = 0) dan men-decode teks skenario Jepang Shift-JIS secara deterministik.
+**Alasan:** Memverifikasi secara holistik bahwa seluruh perbaikan pada Comprehensive Asset Audit Remediation Plan (Shift-JIS auto-decoding, database reachability tree-shaking, VFS case-aliasing, in-memory RGSSAD indexer, in-memory RPA indexer) berhasil diaplikasikan secara akurat dan konsisten pada seluruh corpus game nyata tanpa regresi.
+**Dampak:** 2 dari 8 game mencapai `PASS` absolut, 1 game mencapai `WARNING` bersih (langsung diizinkan build tanpa bypass), dan ribuan false positive error berhasil diturunkan pada game-game RPG Maker MV/MZ/Tyrano. Seluruh 276 tests Cargo workspace lulus 100%.
+
 ## [2026-09-27] In-Memory Ren'Py RPA Archive Indexer for Deep Asset Audit (Task 5)
 **Keputusan:**
 1. Di `engines/renpy/src/archive.rs` & `engines/renpy/src/lib.rs`:

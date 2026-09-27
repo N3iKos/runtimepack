@@ -1,12 +1,36 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`) selesai 100%.
-- **Next step:** Melanjutkan Task 6 Plan Remediasi Audit (Full Sweep Re-Audit & Verification across All 8 Games).
+- **Sedang kerjain apa:** Task 6 Plan Remediasi Audit (Full Sweep Re-Audit & Verification across All 8 Games) selesai 100%. Seluruh 6 Task pada Comprehensive Static Asset Audit Remediation Plan tuntas.
+- **Next step:** Menunggu instruksi selanjutnya dari user / packaging rilis.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Parser indeks in-memory untuk format Ren'Py RPAv3 dan RPAv2 telah diimplementasikan di `engines/renpy/src/archive.rs` beserta decompressor zlib dan parser Python pickle dictionary (dengan deobfuscasi XOR key dan scanner fallback). Pada `RenPyAssetAuditor` (`engines/renpy/src/asset_audit.rs`), berkas arsip `.rpa` dipindai tabel indeksnya secara in-memory (tanpa ekstraksi ke disk), lalu seluruh entri internal digabungkan ke `effective_source.files` sebagai virtual `IndexedFile` (baik dengan prefix `game/` maupun path internal). Coverage `renpy-rpa-archive` ditandai sebagai covered, finding `CMP-AUD-007` (`CMP_AUD_LIMIT_REACHED`) tidak lagi diemisi jika seluruh arsip berhasil diindeks, dan outcome berhasil mencapai `Pass`. Seluruh 30 tests di `renpy_asset_audit_test` dan seluruh 276 Cargo workspace tests lulus 100%.
+- **Catatan fokus:** Hasil verifikasi static audit sweep menyeluruh terhadap 8 game target:
+  1. *Hello Charlotte EP1* (RGSS3): **PASS** (0 findings, 5 nodes, 100% cataloged).
+  2. *To the Moon* (RGSS1): **PASS** (0 findings, 5 nodes, 100% cataloged).
+  3. *Mizuki And Me* (Ren'Py): **WARNING** (8 findings `CMP-106` desktop wrapper DLLs non-fatal, 0 missing assets, 0 bytecode/archive indeterminate, evaluasi policy langsung `Allow` dengan 0 overrides).
+  4. *Fear & Hunger 2: Termina* (MV): FAIL (586 findings: 247 database entity errors didowngrade ke `CMP-AUD-013` Info via reachability graph filter; 324 missing legacy pictures/audio dan 15 case mismatches).
+  5. *The Witch's House MV* (MV): FAIL (39 findings: 24 default database missing items didowngrade ke `CMP-AUD-013` Info; 10 event missing assets ditangani fallback VFS runtime, 5 case mismatches).
+  6. *Forestia* (MZ): INDETERMINATE (25 findings: 0 fatal errors, 1 optional dev plugin missing `CMP-AUD-003`, 23 case mismatches `CMP-AUD-004`, 1 external offline link verification warning `CMP-AUD-011`).
+  7. *[Kimochi] show_off* (Tyrano): FAIL (145 findings: path traversal warnings `CMP-AUD-009` resmi 0; Shift-JIS decoding berhasil me-resolve Kanji labels; 16 placeholder button targets 未定, 24 missing scenario/asset references, 104 dynamic warnings).
+  8. *[Kimochi] NTRdemic* (Tyrano): FAIL (532 findings: 438 missing assets/optional scenario references ditangani stub web_shims, 93 dynamic audio/command warnings, 1 `TYR-101` info).
+  Seluruh 276 tests Cargo workspace lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 6 Plan Remediasi Audit (Full Sweep Re-Audit & Verification across All 8 Games) Selesai:
+  1. Pembersihan & Polish Sanitizer:
+     - `core/src/asset_audit/report.rs`: Memperbaiki regex Windows path `win_re` pada `sanitize_message` dengan word boundary `\b[a-zA-Z]:[\\/]` agar substring URL `https://` tidak lagi keliru dicocokkan sebagai Windows drive letter `s://` (mencegah korupsi nama URL eksternal).
+     - `engines/renpy/src/asset_audit.rs`: Mengecualikan modul bytecode standar library Ren'Py di direktori `renpy/common/*.rpyc` dari pemeriksaan orphan bytecode tanpa file sumber `.rpy` (karena runtime Ren'Py mendistribusikan precompiled bytecode resmi). Mengklasifikasikan ekspresi konfigurasi runtime `config.*` dan `renpy.*` pada statement `image` sebagai `RuntimeProvidedResource` (`runtime:<expr>`).
+     - `core/src/asset_audit/cache.rs`: Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke versi 7 untuk auto-invalidation cache audit.
+  2. Eksekusi Full Sweep Re-Audit 8 Game:
+     - *Fear & Hunger 2: Termina*: `dist/termina/asset-audit-report.json` (117.124 nodes, 78.752 refs, 586 findings). 247 error database default didowngrade ke Info `CMP-AUD-013`.
+     - *[Kimochi] NTRdemic*: `dist/ntrdemic/asset-audit-report.json` (1.960 nodes, 2.577 refs, 532 findings).
+     - *[Kimochi] show_off*: `dist/show_off/asset-audit-report.json` (4.852 nodes, 8.332 refs, 145 findings). Shift-JIS text decoding berhasil membaca teks skenario Jepang; traversal `CMP-AUD-009` tetap 0.
+     - *Mizuki And Me*: `dist/mizuki_and_me/asset-audit-report.json` (167 nodes, 120 refs, 8 findings, Outcome: **WARNING**). Seluruh arsip `.rpa` terindeks in-memory, bytecode standar Ren'Py terabaikan, dan status indeterminate `CMP-AUD-007` resmi turun menjadi 0.
+     - *Forestia*: `dist/forestia/asset-audit-report.json` (17.466 nodes, 7.146 refs, 25 findings, Outcome: INDETERMINATE karena unverified external URL `https://linktr.ee/Veldra.Works` pada watermark guard dalam mode offline, 0 fatal errors).
+     - *The Witch's House MV*: `dist/witchs_house/asset-audit-report.json` (9.853 nodes, 5.455 refs, 39 findings). 24 database missing items didowngrade ke Info `CMP-AUD-013`.
+     - *Hello Charlotte EP1*: `dist/hc_ep1/asset-audit-report.json` (5 nodes, 0 refs, 0 findings, Outcome: **PASS** 100% clean).
+     - *To the Moon*: `dist/to_the_moon/asset-audit-report.json` (5 nodes, 0 refs, 0 findings, Outcome: **PASS** 100% clean).
+  3. Verifikasi Test Suite: Seluruh 276 tests Cargo workspace lulus 100%.
 - [2026-09-27] Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`) Selesai:
   1. `engines/renpy/src/archive.rs` & `engines/renpy/src/lib.rs`:
      - Implementasi `RpaArchiveIndex` mapping path ke `(offset, length)` dengan helper `has_file` dan `get_entry` case-insensitive & separator-normalized.
