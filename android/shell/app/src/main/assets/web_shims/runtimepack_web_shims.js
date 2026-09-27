@@ -731,6 +731,45 @@
                     patchedLoadScenario.__rp_patched = true;
                     kag.loadScenario = patchedLoadScenario;
                 }
+
+                if (kag.ftag && typeof kag.ftag.startTag === "function" && !kag.ftag.startTag.__rp_patched) {
+                    var origStartTag = kag.ftag.startTag;
+                    var patchedStartTag = function(tag_name, pm) {
+                        if (tag_name === "jump" && pm && pm.target) {
+                            var targetClean = (typeof pm.target === "string") ? pm.target.replace(/^\*/, "").trim().toLowerCase() : "";
+                            var isPlaceholder = (
+                                targetClean === "未定" ||
+                                targetClean === "tbd" ||
+                                targetClean === "todo" ||
+                                targetClean === "coming_soon" ||
+                                targetClean === "temp" ||
+                                targetClean === "dummy" ||
+                                targetClean === "dammy" ||
+                                targetClean === "none"
+                            );
+                            var currentStorage = (kag.stat && kag.stat.current_scenario) || "";
+                            var targetStorage = pm.storage || currentStorage;
+                            var scenarioData = kag.cache_scenario && kag.cache_scenario[targetStorage];
+                            var labelExists = false;
+                            if (scenarioData && scenarioData.map_label) {
+                                var rawKey = pm.target.replace(/^\*/, "");
+                                labelExists = !!(scenarioData.map_label[rawKey] || scenarioData.map_label[pm.target]);
+                            }
+                            if (!labelExists && isPlaceholder) {
+                                if (root.console && typeof root.console.warn === "function") {
+                                    root.console.warn("[RuntimePack] Safe handling for missing placeholder jump target: " + pm.target);
+                                }
+                                if (typeof kag.ftag.nextOrder === "function") {
+                                    return kag.ftag.nextOrder();
+                                }
+                                return;
+                            }
+                        }
+                        return origStartTag.apply(this, arguments);
+                    };
+                    patchedStartTag.__rp_patched = true;
+                    kag.ftag.startTag = patchedStartTag;
+                }
             }
         };
 

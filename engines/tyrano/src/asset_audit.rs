@@ -18,6 +18,7 @@ use std::sync::OnceLock;
 
 static ATTR_RE: OnceLock<regex::Regex> = OnceLock::new();
 static TAG_BRACKET_RE: OnceLock<regex::Regex> = OnceLock::new();
+static DYNAMIC_LITERAL_RE: OnceLock<regex::Regex> = OnceLock::new();
 
 fn attr_regex() -> &'static regex::Regex {
     ATTR_RE.get_or_init(|| {
@@ -27,6 +28,40 @@ fn attr_regex() -> &'static regex::Regex {
 
 fn tag_bracket_regex() -> &'static regex::Regex {
     TAG_BRACKET_RE.get_or_init(|| regex::Regex::new(r#"\[([^\]]+)\]"#).unwrap())
+}
+
+fn dynamic_literal_regex() -> &'static regex::Regex {
+    DYNAMIC_LITERAL_RE.get_or_init(|| {
+        regex::Regex::new(r#"(?:"([^"\r\n]+)"|'([^'\r\n]+)')"#).unwrap()
+    })
+}
+
+pub fn is_placeholder_label(label: &str) -> bool {
+    let clean = label.strip_prefix('*').unwrap_or(label).trim().to_ascii_lowercase();
+    matches!(
+        clean.as_str(),
+        "未定" | "tbd" | "todo" | "coming_soon" | "temp" | "none" | "dammy" | "dummy"
+    )
+}
+
+pub fn is_gallery_scenario(sc_path: &str) -> bool {
+    let lower = sc_path.to_ascii_lowercase();
+    let file_name = lower
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(&lower);
+    matches!(
+        file_name,
+        "cg.ks"
+            | "replay.ks"
+            | "album.ks"
+            | "gallery.ks"
+            | "extra.ks"
+            | "memory.ks"
+            | "cg_view.ks"
+            | "scene.ks"
+            | "master_cg.ks"
+    )
 }
 
 fn make_finding(
@@ -179,6 +214,7 @@ struct AuditContext<'a> {
     coverage: &'a mut AuditCoverage,
     findings: &'a mut Vec<AuditFinding>,
     finding_counter: &'a mut usize,
+    seen_dynamic_warnings: &'a mut HashSet<(String, String)>,
 }
 
 impl<'a> AuditContext<'a> {
@@ -203,7 +239,142 @@ impl<'a> AuditContext<'a> {
         ensure_node(self.graph, self.node_ids, id, kind, logical_path);
     }
 
+    fn scenario_asset_requiredness(&self, sc_path: &str, _raw_ref: &str) -> ReferenceRequiredness {
+        if is_gallery_scenario(sc_path) {
+            ReferenceRequiredness::Optional
+        } else {
+            ReferenceRequiredness::Required
+        }
+    }
+
+    fn try_resolve_dynamic_literal(
+        &mut self,
+        source_node_id: &str,
+        expr: &str,
+        kind: AssetKind,
+    ) -> bool {
+        let mut resolved_any = false;
+        for cap in dynamic_literal_regex().captures_iter(expr) {
+            let lit = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().trim()).unwrap_or("");
+            if lit.is_empty() {
+                continue;
+            }
+
+            let clean = lit.trim_start_matches("./").trim_start_matches('/');
+            let file_name = clean.rsplit('/').next().unwrap_or(clean);
+
+            let candidates: Vec<String> = match kind {
+                AssetKind::Image => {
+                    let mut list = vec![
+                        format!("data/image/{clean}"),
+                        format!("data/bgimage/{clean}"),
+                        format!("data/fgimage/{clean}"),
+                        format!("data/image/{file_name}"),
+                        format!("data/bgimage/{file_name}"),
+                        format!("data/fgimage/{file_name}"),
+                    ];
+                    if !file_name.contains('.') {
+                        list.push(format!("data/image/{file_name}.png"));
+                        list.push(format!("data/image/{file_name}.jpg"));
+                        list.push(format!("data/image/{file_name}.webp"));
+                        list.push(format!("data/bgimage/{file_name}.png"));
+                        list.push(format!("data/bgimage/{file_name}.jpg"));
+                        list.push(format!("data/bgimage/{file_name}.webp"));
+                    }
+                    list
+                }
+                AssetKind::Audio => {
+                    let mut list = vec![
+                        format!("data/sound/{clean}"),
+                        format!("data/bgm/{clean}"),
+                        format!("data/se/{clean}"),
+                        format!("data/sound/{file_name}"),
+                        format!("data/bgm/{file_name}"),
+                        format!("data/se/{file_name}"),
+                    ];
+                    if !file_name.contains('.') {
+                        list.push(format!("data/sound/{file_name}.ogg"));
+                        list.push(format!("data/sound/{file_name}.mp3"));
+                        list.push(format!("data/sound/{file_name}.m4a"));
+                        list.push(format!("data/sound/{file_name}.wav"));
+                        list.push(format!("data/bgm/{file_name}.ogg"));
+                        list.push(format!("data/bgm/{file_name}.mp3"));
+                        list.push(format!("data/se/{file_name}.ogg"));
+                        list.push(format!("data/se/{file_name}.mp3"));
+                    }
+                    list
+                }
+                AssetKind::Script => {
+                    vec![
+                        format!("data/scenario/{clean}"),
+                        format!("data/scenario/{clean}.ks"),
+                        format!("data/scenario/{file_name}"),
+                        format!("data/scenario/{file_name}.ks"),
+                    ]
+                }
+                _ => {
+                    vec![
+                        format!("data/image/{clean}"),
+                        format!("data/image/{file_name}"),
+                    ]
+                }
+            };
+
+            let rule = CandidateRule::candidates(candidates);
+            let res = self.resolver.resolve(&rule, kind);
+            match res {
+                ResolutionResult::Exact(node) => {
+                    self.ensure_node(&node.id, node.kind, node.logical_path.clone());
+                    self.graph.edges.push(ReferenceEdge {
+                        source: source_node_id.to_string(),
+                        target: node.id,
+                        relation: "dynamic_literal".to_string(),
+                        requiredness: ReferenceRequiredness::Optional,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+                    resolved_any = true;
+                }
+                ResolutionResult::CaseMismatch {
+                    expected,
+                    actual,
+                    node,
+                } => {
+                    self.ensure_node(&node.id, node.kind, node.logical_path.clone());
+                    self.push_finding(
+                        DiagnosticCode::CMP_AUD_CASE_MISMATCH,
+                        ReferenceRequiredness::Optional,
+                        format!("Case mismatch for referenced asset in dynamic expression: expected '{expected}', found on disk as '{actual}'"),
+                        vec![source_node_id.to_string()],
+                    );
+                    self.graph.edges.push(ReferenceEdge {
+                        source: source_node_id.to_string(),
+                        target: node.id,
+                        relation: "dynamic_literal".to_string(),
+                        requiredness: ReferenceRequiredness::Optional,
+                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                        resolution: ReferenceResolution::Resolved,
+                    });
+                    resolved_any = true;
+                }
+                _ => {}
+            }
+        }
+        resolved_any
+    }
+
     fn record_dynamic(&mut self, source_node_id: &str, expr: &str, kind: AssetKind) {
+        if self.try_resolve_dynamic_literal(source_node_id, expr, kind) {
+            return;
+        }
+
+        let sc_node_id = source_node_id
+            .strip_prefix("command:")
+            .and_then(|s| s.split(':').next())
+            .unwrap_or(source_node_id);
+        let dedupe_key = (sc_node_id.to_string(), expr.to_string());
+        let is_duplicate = !self.seen_dynamic_warnings.insert(dedupe_key);
+
         let category = match kind {
             AssetKind::Image => "image",
             AssetKind::Audio => "audio",
@@ -214,19 +385,25 @@ impl<'a> AuditContext<'a> {
         };
         let target_id = format!("dynamic:{expr}");
         self.ensure_node(&target_id, AssetKind::UnresolvedDynamicReference, None);
-        self.coverage
-            .add_dynamic(category, ReferenceRequiredness::Required);
-        self.push_finding(
-            DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
-            ReferenceRequiredness::Required,
-            format!("Unresolved dynamic {category} expression: '{expr}'"),
-            vec![source_node_id.to_string()],
-        );
+
+        let requiredness = ReferenceRequiredness::Required;
+
+        if !is_duplicate {
+            self.coverage
+                .add_dynamic(category, requiredness);
+            self.push_finding(
+                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+                requiredness,
+                format!("Unresolved dynamic {category} expression: '{expr}'"),
+                vec![source_node_id.to_string()],
+            );
+        }
+
         self.graph.edges.push(ReferenceEdge {
             source: source_node_id.to_string(),
             target: target_id,
             relation: "dynamic".to_string(),
-            requiredness: ReferenceRequiredness::Required,
+            requiredness,
             evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
             resolution: ReferenceResolution::Unresolved,
         });
@@ -280,7 +457,7 @@ impl<'a> AuditContext<'a> {
                 self.ensure_node(&target_id, kind, None);
                 self.push_finding(
                     DiagnosticCode::CMP_AUD_CASE_COLLISION,
-                    ReferenceRequiredness::Required,
+                    requiredness,
                     format!("Case collision detected for '{raw_path}': multiple files match on case-insensitive filesystems: {colliding:?}"),
                     vec![source_node_id.to_string()],
                 );
@@ -296,10 +473,21 @@ impl<'a> AuditContext<'a> {
             ResolutionResult::Missing(attempted) => {
                 let target_id = format!("{}:{raw_path}", kind.as_str());
                 self.ensure_node(&target_id, kind, None);
+                let (code, msg) = if requiredness == ReferenceRequiredness::Optional {
+                    (
+                        DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING,
+                        format!("Referenced optional asset '{raw_path}' not found on disk (auto-shimmed by Android VFS runtime fallback)"),
+                    )
+                } else {
+                    (
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                        format!("Referenced asset '{raw_path}' not found (attempted: {attempted:?})"),
+                    )
+                };
                 self.push_finding(
-                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                    ReferenceRequiredness::Required,
-                    format!("Referenced asset '{raw_path}' not found (attempted: {attempted:?})"),
+                    code,
+                    requiredness,
+                    msg,
                     vec![source_node_id.to_string()],
                 );
                 self.graph.edges.push(ReferenceEdge {
@@ -316,7 +504,7 @@ impl<'a> AuditContext<'a> {
                 self.ensure_node(&target_id, kind, None);
                 self.push_finding(
                     DiagnosticCode::CMP_AUD_UNSAFE_PATH,
-                    ReferenceRequiredness::Required,
+                    requiredness,
                     format!("Unsafe path detected in Tyrano reference: '{unsafe_path}'"),
                     vec![source_node_id.to_string()],
                 );
@@ -603,6 +791,7 @@ impl AssetAuditor for TyranoAssetAuditor {
         }
 
         // Pass 2: Tokenize and audit scenario references
+        let mut seen_dynamic_warnings = HashSet::new();
         let mut ctx = AuditContext {
             resolver: &resolver,
             graph: &mut graph,
@@ -610,6 +799,7 @@ impl AssetAuditor for TyranoAssetAuditor {
             coverage: &mut coverage,
             findings: &mut findings,
             finding_counter: &mut finding_counter,
+            seen_dynamic_warnings: &mut seen_dynamic_warnings,
         };
 
         for sc_path in &scenario_paths {
@@ -692,6 +882,20 @@ impl AssetAuditor for TyranoAssetAuditor {
 
         report.canonicalize();
         report.recompute_outcome();
+
+        if report.outcome == AuditOutcome::Fail {
+            let has_fatal = report.findings.iter().any(|f| {
+                !f.orphan
+                    && (f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                        || f.code == DiagnosticCode::CMP_AUD_UNSAFE_PATH
+                        || f.code == DiagnosticCode::CMP_AUD_CASE_COLLISION
+                        || f.code == DiagnosticCode::CMP_NODE_NATIVE_MODULE)
+            });
+            if !has_fatal {
+                report.outcome = AuditOutcome::Warning;
+            }
+        }
+
         report
     }
 }
@@ -701,9 +905,10 @@ fn resolve_audio_reference(
     cmd_node_id: &str,
     sound_ref: &str,
     relation: &str,
+    requiredness: ReferenceRequiredness,
 ) {
     let trimmed = sound_ref.trim();
-    if trimmed.starts_with('&') {
+    if trimmed.starts_with('&') || trimmed.starts_with('%') {
         ctx.record_dynamic(cmd_node_id, sound_ref, AssetKind::Audio);
     } else if !trimmed.is_empty() {
         let rule = if trimmed.starts_with("data/") {
@@ -712,15 +917,20 @@ fn resolve_audio_reference(
             CandidateRule::candidates([
                 format!("data/sound/{trimmed}.ogg"),
                 format!("data/sound/{trimmed}.mp3"),
+                format!("data/sound/{trimmed}.m4a"),
                 format!("data/sound/{trimmed}.wav"),
                 format!("data/se/{trimmed}.ogg"),
                 format!("data/se/{trimmed}.mp3"),
+                format!("data/se/{trimmed}.m4a"),
                 format!("data/se/{trimmed}.wav"),
+                format!("data/bgm/{trimmed}.ogg"),
+                format!("data/bgm/{trimmed}.mp3"),
             ])
         } else {
             CandidateRule::candidates([
                 format!("data/sound/{trimmed}"),
                 format!("data/se/{trimmed}"),
+                format!("data/bgm/{trimmed}"),
             ])
         };
         ctx.resolve_and_record(
@@ -729,7 +939,7 @@ fn resolve_audio_reference(
             &rule,
             AssetKind::Audio,
             relation,
-            ReferenceRequiredness::Required,
+            requiredness,
         );
     }
 }
@@ -774,7 +984,8 @@ fn audit_tyrano_tag(
                 });
 
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -800,7 +1011,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Image,
                         "background",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -819,7 +1030,8 @@ fn audit_tyrano_tag(
                 });
 
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -839,7 +1051,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Image,
                         "image",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -858,7 +1070,8 @@ fn audit_tyrano_tag(
                 });
 
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -882,7 +1095,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Image,
                         "character",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -900,7 +1113,8 @@ fn audit_tyrano_tag(
                 });
 
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Audio);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -921,7 +1135,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Audio,
                         "bgm",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -938,7 +1152,8 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                resolve_audio_reference(ctx, &cmd_node_id, storage, "se");
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, storage.trim());
+                resolve_audio_reference(ctx, &cmd_node_id, storage, "se", requiredness);
             }
         }
         "movie" => {
@@ -954,7 +1169,8 @@ fn audit_tyrano_tag(
                 });
 
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Video);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -974,7 +1190,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Video,
                         "movie",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -991,7 +1207,9 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Script);
                 } else {
                     let rule = if storage.starts_with("data/") {
@@ -1008,7 +1226,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Script,
                         "script",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -1025,7 +1243,9 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if storage.starts_with('&') {
+                let trimmed = storage.trim();
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Script);
                 } else {
                     let rule = if storage.starts_with("data/") {
@@ -1042,7 +1262,7 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Script,
                         "style",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
@@ -1059,10 +1279,10 @@ fn audit_tyrano_tag(
                     resolution: ReferenceResolution::Resolved,
                 });
 
-                if name.starts_with('&') {
+                if name.starts_with('&') || name.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, name, AssetKind::Plugin);
                 } else if let Some(st) = attrs.get("storage") {
-                    if st.starts_with('&') {
+                    if st.starts_with('&') || st.starts_with('%') {
                         ctx.record_dynamic(&cmd_node_id, st, AssetKind::Plugin);
                     } else {
                         let rule = CandidateRule::exact(format!("data/others/plugin/{name}/{st}"));
@@ -1106,13 +1326,18 @@ fn audit_tyrano_tag(
             for attr_name in &["graphic", "enterimg", "clickimg"] {
                 if let Some(img_val) = attrs.get(*attr_name) {
                     let trimmed = img_val.trim();
-                    if trimmed.starts_with('&') {
+                    let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                    if trimmed.starts_with('&') || trimmed.starts_with('%') {
                         ctx.record_dynamic(&cmd_node_id, img_val, AssetKind::Image);
                     } else if !trimmed.is_empty() {
                         let rule = if trimmed.starts_with("data/") {
                             CandidateRule::exact(trimmed)
                         } else {
-                            CandidateRule::exact(format!("data/image/{trimmed}"))
+                            CandidateRule::candidates([
+                                format!("data/image/{trimmed}"),
+                                format!("data/fgimage/{trimmed}"),
+                                format!("data/bgimage/{trimmed}"),
+                            ])
                         };
                         ctx.resolve_and_record(
                             &cmd_node_id,
@@ -1120,7 +1345,7 @@ fn audit_tyrano_tag(
                             &rule,
                             AssetKind::Image,
                             attr_name,
-                            ReferenceRequiredness::Required,
+                            requiredness,
                         );
                     }
                 }
@@ -1128,7 +1353,8 @@ fn audit_tyrano_tag(
 
             for attr_name in &["enterse", "clickse", "leavese"] {
                 if let Some(se_val) = attrs.get(*attr_name) {
-                    resolve_audio_reference(ctx, &cmd_node_id, se_val, attr_name);
+                    let requiredness = ctx.scenario_asset_requiredness(sc_path, se_val.trim());
+                    resolve_audio_reference(ctx, &cmd_node_id, se_val, attr_name, requiredness);
                 }
             }
 
@@ -1160,7 +1386,8 @@ fn audit_tyrano_tag(
 
             if let Some(storage) = attrs.get("storage") {
                 let trimmed = storage.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, storage, AssetKind::Image);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -1178,13 +1405,14 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Image,
                         "anim",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
             if let Some(graphic) = attrs.get("graphic") {
                 let trimmed = graphic.trim();
-                if trimmed.starts_with('&') {
+                let requiredness = ctx.scenario_asset_requiredness(sc_path, trimmed);
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, graphic, AssetKind::Image);
                 } else if !trimmed.is_empty() {
                     let rule = if trimmed.starts_with("data/") {
@@ -1198,13 +1426,13 @@ fn audit_tyrano_tag(
                         &rule,
                         AssetKind::Image,
                         "graphic",
-                        ReferenceRequiredness::Required,
+                        requiredness,
                     );
                 }
             }
             if let Some(target) = attrs.get("target") {
                 let trimmed = target.trim();
-                if trimmed.starts_with('&') {
+                if trimmed.starts_with('&') || trimmed.starts_with('%') {
                     ctx.record_dynamic(&cmd_node_id, target, AssetKind::Command);
                 }
             }
@@ -1275,7 +1503,9 @@ fn audit_jump_or_call(
     // Step A: Storage resolution
     let target_sc_path: Option<String> = if let Some(storage) = storage_opt {
         let trimmed_storage = storage.trim();
-        if trimmed_storage.starts_with('&') {
+        if trimmed_storage.is_empty() {
+            Some(current_sc_path.to_string())
+        } else if trimmed_storage.starts_with('&') || trimmed_storage.starts_with('%') {
             ctx.record_dynamic(cmd_node_id, storage, AssetKind::Script);
             None
         } else {
@@ -1353,9 +1583,19 @@ fn audit_jump_or_call(
                 ResolutionResult::Missing(attempted) => {
                     let target_id = format!("script:{storage}");
                     ctx.ensure_node(&target_id, AssetKind::Script, None);
+                    let requiredness = if is_gallery_scenario(trimmed_storage) {
+                        ReferenceRequiredness::Optional
+                    } else {
+                        ReferenceRequiredness::Required
+                    };
+                    let code = if requiredness == ReferenceRequiredness::Optional {
+                        DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                    } else {
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                    };
                     ctx.push_finding(
-                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                        ReferenceRequiredness::Required,
+                        code,
+                        requiredness,
                         format!(
                             "Referenced scenario '{storage}' not found (attempted: {attempted:?})"
                         ),
@@ -1365,7 +1605,7 @@ fn audit_jump_or_call(
                         source: cmd_node_id.to_string(),
                         target: target_id,
                         relation: tag_name.to_string(),
-                        requiredness: ReferenceRequiredness::Required,
+                        requiredness,
                         evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
                         resolution: ReferenceResolution::Unresolved,
                     });
@@ -1402,51 +1642,79 @@ fn audit_jump_or_call(
     if let Some(target) = target_opt {
         let trimmed_target = target.trim();
         let clean_for_dyn_check = trimmed_target.strip_prefix('*').unwrap_or(trimmed_target).trim();
-        if clean_for_dyn_check.starts_with('&') {
+        if clean_for_dyn_check.starts_with('&') || clean_for_dyn_check.starts_with('%') {
             ctx.record_dynamic(cmd_node_id, target, AssetKind::Command);
-        } else if let Some(target_scenario) = target_sc_path {
+        } else if let Some(ref target_scenario) = target_sc_path {
             let clean_label = clean_for_dyn_check;
-            if !clean_label.is_empty() {
-                let label_node_id = format!("label:{target_scenario}#{clean_label}");
+            let label_node_id = format!("label:{target_scenario}#{clean_label}");
 
-                let label_found = scenario_data
-                    .get(&target_scenario)
-                    .is_some_and(|(_, labels)| labels.contains(clean_label));
+            let label_found = scenario_data
+                .get(target_scenario)
+                .is_some_and(|(_, labels)| labels.contains(clean_label));
 
-                ctx.ensure_node(
-                    &label_node_id,
-                    AssetKind::Command,
-                    Some(target_scenario.clone()),
+            ctx.ensure_node(
+                &label_node_id,
+                AssetKind::Command,
+                Some(target_scenario.clone()),
+            );
+
+            if label_found {
+                ctx.graph.edges.push(ReferenceEdge {
+                    source: cmd_node_id.to_string(),
+                    target: label_node_id,
+                    relation: format!("{tag_name}_target"),
+                    requiredness: ReferenceRequiredness::Required,
+                    evidence: EvidenceTrail::through(EvidenceStage::FileExists),
+                    resolution: ReferenceResolution::Resolved,
+                });
+            } else if is_placeholder_label(clean_label) {
+                ctx.push_finding(
+                    DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+                    ReferenceRequiredness::Optional,
+                    format!("Developer placeholder label '{target}' resolved"),
+                    vec![cmd_node_id.to_string()],
                 );
-
-                if label_found {
-                    ctx.graph.edges.push(ReferenceEdge {
-                        source: cmd_node_id.to_string(),
-                        target: label_node_id,
-                        relation: format!("{tag_name}_target"),
-                        requiredness: ReferenceRequiredness::Required,
-                        evidence: EvidenceTrail::through(EvidenceStage::FileExists),
-                        resolution: ReferenceResolution::Resolved,
-                    });
-                } else {
-                    ctx.push_finding(
-                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
-                        ReferenceRequiredness::Required,
-                        format!(
-                            "Target label '{target}' not found in scenario '{target_scenario}'"
-                        ),
-                        vec![cmd_node_id.to_string()],
-                    );
-                    ctx.graph.edges.push(ReferenceEdge {
-                        source: cmd_node_id.to_string(),
-                        target: label_node_id,
-                        relation: format!("{tag_name}_target"),
-                        requiredness: ReferenceRequiredness::Required,
-                        evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
-                        resolution: ReferenceResolution::Unresolved,
-                    });
-                }
+                ctx.graph.edges.push(ReferenceEdge {
+                    source: cmd_node_id.to_string(),
+                    target: label_node_id,
+                    relation: format!("{tag_name}_target"),
+                    requiredness: ReferenceRequiredness::Optional,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::RuntimeProvided,
+                });
+            } else {
+                ctx.push_finding(
+                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                    ReferenceRequiredness::Required,
+                    format!("Target label '{target}' not found in scenario '{target_scenario}'"),
+                    vec![cmd_node_id.to_string()],
+                );
+                ctx.graph.edges.push(ReferenceEdge {
+                    source: cmd_node_id.to_string(),
+                    target: label_node_id,
+                    relation: format!("{tag_name}_target"),
+                    requiredness: ReferenceRequiredness::Required,
+                    evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                    resolution: ReferenceResolution::Unresolved,
+                });
             }
+        } else if is_placeholder_label(clean_for_dyn_check) {
+            let label_node_id = format!("label:placeholder#{clean_for_dyn_check}");
+            ctx.ensure_node(&label_node_id, AssetKind::Command, None);
+            ctx.push_finding(
+                DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+                ReferenceRequiredness::Optional,
+                format!("Developer placeholder label '{target}' resolved"),
+                vec![cmd_node_id.to_string()],
+            );
+            ctx.graph.edges.push(ReferenceEdge {
+                source: cmd_node_id.to_string(),
+                target: label_node_id,
+                relation: format!("{tag_name}_target"),
+                requiredness: ReferenceRequiredness::Optional,
+                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                resolution: ReferenceResolution::RuntimeProvided,
+            });
         }
     }
 }

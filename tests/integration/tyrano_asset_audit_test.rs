@@ -1,6 +1,8 @@
 use runtimepack_core::asset_audit::{
-    AssetAuditOptions, AssetAuditor, AssetKind, AuditLimits, AuditOutcome, ReferenceResolution,
+    AssetAuditOptions, AssetAuditor, AssetKind, AuditLimits, AuditOutcome, FindingSeverity,
+    ReferenceRequiredness, ReferenceResolution,
 };
+use runtimepack_core::build_plan::{evaluate_audit_policy, AuditPolicyDecision};
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
@@ -1164,15 +1166,15 @@ fn test_shift_jis_scenario_decoding_resolves_japanese_labels() {
 
     fs::write(temp_dir.join("index.html"), "<html></html>").unwrap();
 
-    // first.ks in UTF-8 jumping to main_room.ks label *未定
+    // first.ks in UTF-8 jumping to main_room.ks label *会話
     fs::write(
         temp_dir.join("data").join("scenario").join("first.ks"),
-        "*start\n[jump storage=\"main_room.ks\" target=\"*未定\"]\n[s]\n",
+        "*start\n[jump storage=\"main_room.ks\" target=\"*会話\"]\n[s]\n",
     )
     .unwrap();
 
-    // main_room.ks encoded in Shift-JIS containing *未定
-    let (sjis_bytes, _, _) = encoding_rs::SHIFT_JIS.encode("*未定\n[cm]\n[s]\n");
+    // main_room.ks encoded in Shift-JIS containing *会話
+    let (sjis_bytes, _, _) = encoding_rs::SHIFT_JIS.encode("*会話\n[cm]\n[s]\n");
     fs::write(
         temp_dir.join("data").join("scenario").join("main_room.ks"),
         &sjis_bytes[..],
@@ -1255,6 +1257,117 @@ fn test_shift_jis_scenario_decoding_in_asar_archive_resolves_labels() {
         "Expected resolved jump_target edge in graph. Edges: {:#?}",
         report.graph.edges
     );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_tyrano_placeholder_labels_and_gallery_assets_clean_audit() {
+    let temp_dir = std::env::temp_dir().join(format!("tyrano_placeholder_gallery_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("data/scenario")).unwrap();
+    fs::create_dir_all(temp_dir.join("data/image")).unwrap();
+    fs::create_dir_all(temp_dir.join("tyrano")).unwrap();
+
+    fs::write(temp_dir.join("index.html"), b"<html><body></body></html>").unwrap();
+    fs::write(temp_dir.join("tyrano/tyrano.js"), b"// tyrano core").unwrap();
+
+    // first.ks contains:
+    // 1. button with placeholder target "*未定"
+    // 2. image with dynamic expression containing literal "'bg.png'" which exists
+    // 3. jump to gallery scenario "cg.ks"
+    let first_ks = r#"*start
+[button target="*未定" graphic="btn.png"]
+[image storage="&tf.img_path + 'bg.png'"]
+[jump storage="cg.ks"]
+[s]
+"#;
+    fs::write(temp_dir.join("data/scenario/first.ks"), first_ks.as_bytes()).unwrap();
+
+    // cg.ks references an unbundled bonus/gallery CG variant that does NOT exist on disk
+    let cg_ks = r#"*start
+[image storage="cg_special_variant.png"]
+[s]
+"#;
+    fs::write(temp_dir.join("data/scenario/cg.ks"), cg_ks.as_bytes()).unwrap();
+
+    // Assets that exist on disk:
+    fs::write(temp_dir.join("data/image/btn.png"), b"DUMMY_BTN").unwrap();
+    fs::write(temp_dir.join("data/image/bg.png"), b"DUMMY_BG").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = TyranoAssetAuditor::new();
+    let options = AssetAuditOptions::default(); // Standard mode
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::Tyrano), &options);
+
+    // 1. Outcome must be Warning (clean / non-blocking), NOT Fail!
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Warning,
+        "Expected AuditOutcome::Warning, but got {:?}. Findings: {:#?}",
+        report.outcome,
+        report.findings
+    );
+
+    // 2. Placeholder label "*未定" must NOT produce CMP_AUD_REQUIRED_REFERENCE_MISSING
+    assert!(
+        !report.findings.iter().any(|f| {
+            f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                && f.message.contains("未定")
+        }),
+        "Placeholder label '*未定' should not emit REQUIRED_REFERENCE_MISSING. Findings: {:#?}",
+        report.findings
+    );
+
+    // 3. Placeholder label "*未定" edge should be RuntimeProvided
+    assert!(
+        report.graph.edges.iter().any(|e| {
+            e.relation == "button_target"
+                && e.resolution == ReferenceResolution::RuntimeProvided
+        }),
+        "Expected RuntimeProvided resolution for placeholder label '*未定'. Edges: {:#?}",
+        report.graph.edges
+    );
+
+    // 4. Missing CG in cg.ks should be CMP_AUD_OPTIONAL_REFERENCE_MISSING (Warning) with Optional requiredness
+    assert!(
+        report.findings.iter().any(|f| {
+            f.code == DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                && f.requiredness == ReferenceRequiredness::Optional
+                && f.severity == FindingSeverity::Warning
+                && f.message.contains("cg_special_variant.png")
+        }),
+        "Missing gallery CG variant should be emitted as CMP_AUD_OPTIONAL_REFERENCE_MISSING Warning. Findings: {:#?}",
+        report.findings
+    );
+
+    // 5. Dynamic expression with existing literal 'bg.png' should be resolved as an exact asset reference
+    assert!(
+        report.graph.edges.iter().any(|e| {
+            e.target == "image:data/image/bg.png" && e.resolution == ReferenceResolution::Resolved
+        }),
+        "Dynamic literal 'bg.png' should resolve to image:data/image/bg.png. Edges: {:#?}",
+        report.graph.edges
+    );
+
+    // 6. Under audit policy, AuditOutcome::Warning is allowed directly without --accept-audit-fail
+    let policy_decision = evaluate_audit_policy(&report, false, false, &[]);
+    assert!(
+        policy_decision.is_allowed(),
+        "Expected AuditPolicyDecision::Allow for Warning outcome, got: {:?}",
+        policy_decision
+    );
+    match policy_decision {
+        AuditPolicyDecision::Allow { overrides } => {
+            assert!(
+                overrides.is_empty(),
+                "Expected zero overrides for clean warning, got: {:?}",
+                overrides
+            );
+        }
+        _ => panic!("Expected Allow"),
+    }
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
