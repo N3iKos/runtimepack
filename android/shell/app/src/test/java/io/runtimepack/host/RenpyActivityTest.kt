@@ -210,4 +210,36 @@ class RenpyActivityTest {
             RenpyActivity.expectedLayout()
         )
     }
+
+    // --- SDL JNI compatibility (Blocker 2) --------------------------------
+
+    @Test
+    fun sdlInputConnectionDeclaresNativeSetComposingText() {
+        // librenpython.so's JNI_OnLoad (Android_JNI_SetupThread) looks up
+        // nativeSetComposingText(String, int) on SDLInputConnection.
+        val inputClass = Class.forName("org.libsdl.app.SDLInputConnection")
+        val method = inputClass.getDeclaredMethod(
+            "nativeSetComposingText",
+            String::class.java,
+            Int::class.javaPrimitiveType
+        )
+        assertNotNull("nativeSetComposingText must exist on SDLInputConnection", method)
+        assertTrue(
+            "nativeSetComposingText must be a native method",
+            java.lang.reflect.Modifier.isNative(method.modifiers)
+        )
+        assertFalse(
+            "nativeSetComposingText must be non-static",
+            java.lang.reflect.Modifier.isStatic(method.modifiers)
+        )
+    }
+
+    @Test
+    fun jniusNativeInvocationHandlerExistsForRenpyPyjnius() {
+        // librenpython.so embeds pyjnius and looks up org.jnius.NativeInvocationHandler
+        val cls = Class.forName("org.jnius.NativeInvocationHandler")
+        assertNotNull(cls)
+        val method = cls.getMethod("getPythonObjectPointer")
+        assertEquals(Long::class.javaPrimitiveType, method.returnType)
+    }
 }
