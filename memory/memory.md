@@ -9,7 +9,7 @@ RuntimePack adalah build-time compatibility packager untuk mengubah game desktop
 - **Gunakan Systematic Debugging & TDD:** Jangan menebak error; ambil bukti konkret (logcat, dump window, backtrace) dan tulis failing test sebelum menerapkan perbaikan.
 
 ## Status terkini (1 baris, detail di progress.md)
-Seluruh 8 Plan Stabilisasi & Static Audit 8 Game selesai 100% (semua game mencapai status PASS atau clean WARNING dengan 0 errors), dan 8 APK mandiri terkompilasi di dist/.
+Track D Runtime Fixes selesai: Show Off (Tyrano) & Mizuki And Me (Ren'Py) terbukti playable & stabil di MuMu emulator (title screen render, input & dialog jalan lancar).
 
 ## Preferensi user / gaya kerja
 - Komunikasi langsung ke poin utama (*concise, direct*), hindari penjelasan bertele-tele kecuali diminta detail.

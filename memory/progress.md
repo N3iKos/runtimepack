@@ -1,14 +1,24 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Master Roadmap & Rencana Implementasi Lengkap Triad Engine Visual Novel (Visual Novel Maker, Kirikiri 2/Z, dan Artemis Engine) selesai disusun dan dikomit ke repositori.
-- **Next step:** Menunggu konfirmasi user untuk memilih track mana yang akan mulai dieksekusi: Track A (Visual Novel Maker), Track B (Kirikiri 2/Z Fase 1), atau Track C (Artemis Engine).
+- **Sedang kerjain apa:** Track D — Game Runtime Fixes (Show Off & Mizuki And Me) SELESAI 100%. Kedua game terbukti boot, render non-black, dan dapat dimainkan normal serta stabil di MuMu emulator (Android 15 / SDK 35).
+- **Next step:** Menunggu konfirmasi user untuk langkah berikutnya (ekspansi Visual Novel Maker / Kirikiri / Artemis di `Docs/execution-plans/`).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Roadmap master `Docs/execution-plans/master-roadmap.md` telah membagi arsitektur ekspansi visual novel ke dalam 3 Track independen (*decoupled tracks*):
-  1. **Track A (Visual Novel Maker) [Fast-Track]:** Pemanfaatan Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js polyfills (bypassing Cordova). Dokumen: `Docs/execution-plans/track-a-visual-novel-maker/plan.md`.
-  2. **Track B (Kirikiri 2 / Kirikiri Z) [Deep Native C++ Engine]:** Pipeline 4 fase mencakup in-memory XP3 11-byte parser di Rust, kompatibilitas scanner TJS, direct-boot native patch C++ (`libkrkr2.so` NDK r28 dengan 16 KB ELF alignment untuk Android 15), dan isolasi save data `filesDir/savedata`.
-  3. **Track C (Artemis Engine - PFS / Lua) [In-Memory PFS & art3m1s-core]:** Parser biner PFS (PF8/PF6/PF2) dengan dekripsi SHA-1 XOR stream cipher di Rust, prioritas patch multi-volume (`root.pfs.000..099`), runtime native bersih via `art3m1s-core` C FFI API v1 (MPL-2.0), dan `ArtemisActivity.kt` shell dengan isolasi save `filesDir/saves/<title-id>`. Dokumen: `Docs/execution-plans/track-c-artemis/plan.md`.
-  Seluruh 8 game utama sebelumnya tetap berstatus 0 FAIL dan lolos build policy 100%.
+- **Catatan hasil verifikasi MuMu emulator (127.0.0.1:16384, Android 15):**
+  1. **Show Off (TyranoScript):**
+     - Bug offset ASAR 3-byte di `engines/tyrano/src/asar.rs` diperbaiki (`data_offset = 8 + header_size`, accounting untuk 4-byte padding header).
+     - Gate integritas pasca-pack SHA-256 round-trip ditambahkan di `cli/src/main.rs`.
+     - Rebuild `dist/show_off/ShowOff.apk` (1,845,402,661 bytes, SHA-256 `7065F226...D008`).
+     - **Verifikasi MuMu:** 0 SyntaxError, `TYRANO defined: object`, title screen "SHOW OFF" render penuh, transisi title -> in-game office scene terbukti.
+  2. **Mizuki And Me (Ren'Py 8 / Python 3.9):**
+     - Runtime Android Ren'Py resmi (RAPT 8.3.7.25031702 `librenpython.so` arm64) di-vendor dengan provenance & license notice bundle di `runtimes/renpy/`.
+     - `RenpyBootstrapActivity` (async mount, no ANR) + `RenpyActivity` (SDL, sync `super.onCreate`) diimplementasikan.
+     - JNI methods SDL 2.0.20 (`nativeSetComposingText`, `nativeGenerateScancodeForUnichar`) direstore di `SDLInputConnection`.
+     - `org.jnius.NativeInvocationHandler` dan hierarki `org.renpy.android.PythonSDLActivity` + pyjnius bridge classes disediakan.
+     - `ANDROID_PUBLIC` diisolasi ke `filesDir/public` (mencegah duplicate searchpath bug `00build.rpy:223`).
+     - Rebuild `dist/mizuki_and_me/MizukiAndMe.apk` (957,496,148 bytes, SHA-256 `4908C9A...`).
+     - **Verifikasi MuMu:** 0 crash, 0 traceback, title screen "MIZUKI & ME MAKE A PORNO" render penuh, tap "Mulai" -> Prologue bedroom scene -> dialog cerita bahasa Indonesia aktif maju.
+  Seluruh 287 Cargo workspace tests dan 27 Gradle Android unit tests pass 100%. `Raw-Game/` 100% untouched.
 
 ## Selesai
 - [2026-09-27] Task 4 Plan All 8 Games PASS (Full Sweep Re-Audit & Verification Across All 8 Games) Selesai:
