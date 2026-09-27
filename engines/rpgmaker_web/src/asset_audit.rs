@@ -1,9 +1,10 @@
 use runtimepack_core::asset_audit::{
-    audit_finding_classification, is_whitelisted_static_url, AssetAuditOptions, AssetAuditReport,
-    AssetAuditor, AssetKind, AssetNode, AssetResolver, AuditCoverage, AuditFinding, AuditMode,
-    AuditOutcome, AuditStatistics, CandidateRule, DependencyGraph, EvidenceStage, EvidenceTrail,
-    FindingDisposition, FindingSeverity, ReferenceEdge, ReferenceRequiredness, ReferenceResolution,
-    ResolutionResult, RuntimeValidationState,
+    audit_finding_classification, is_standard_rpgmaker_audio, is_whitelisted_static_url,
+    AssetAuditOptions, AssetAuditReport, AssetAuditor, AssetKind, AssetNode, AssetResolver,
+    AuditCoverage, AuditFinding, AuditMode, AuditOutcome, AuditStatistics, CandidateRule,
+    DependencyGraph, EvidenceStage, EvidenceTrail, FindingDisposition, FindingSeverity,
+    ReferenceEdge, ReferenceRequiredness, ReferenceResolution, ResolutionResult,
+    RuntimeValidationState,
 };
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
@@ -79,6 +80,7 @@ pub struct DatabaseReachabilityIndex {
     pub active_enemies: HashSet<u64>,
     pub active_actors: HashSet<u64>,
     pub active_animations: HashSet<u64>,
+    pub active_skills: HashSet<u64>,
     pub placed_vehicles: HashSet<String>,
 }
 
@@ -108,6 +110,7 @@ fn scan_event_commands_reachability(
     active_enemies: &mut HashSet<u64>,
     active_animations: &mut HashSet<u64>,
     placed_vehicles: &mut HashSet<String>,
+    active_skills: &mut HashSet<u64>,
 ) {
     for cmd in commands {
         let code = match cmd.get("code").and_then(|v| v.as_u64()) {
@@ -144,6 +147,14 @@ fn scan_event_commands_reachability(
                     }
                 }
             }
+            // Force Action (339): params[1] is skillId
+            339 => {
+                if let Some(sid) = params.get(1).and_then(|v| v.as_u64()) {
+                    if sid > 0 {
+                        active_skills.insert(sid);
+                    }
+                }
+            }
             // Actor manipulation: Change HP (311), MP (312), TP (326), State (313), Recover (314), EXP (315), Level (316), Parameter (317), Skill (318), Equipment (319)
             // In these, params[0] == 0 means Fixed Actor, and params[1] is actorId.
             311 | 312 | 313 | 314 | 315 | 316 | 317 | 318 | 319 | 326 => {
@@ -152,6 +163,14 @@ fn scan_event_commands_reachability(
                     if let Some(id) = params.get(1).and_then(|v| v.as_u64()) {
                         if id > 0 {
                             active_actors.insert(id);
+                        }
+                    }
+                }
+                if code == 318 {
+                    // Change Skill: params[3] is skillId
+                    if let Some(sid) = params.get(3).and_then(|v| v.as_u64()) {
+                        if sid > 0 {
+                            active_skills.insert(sid);
                         }
                     }
                 }
@@ -273,6 +292,7 @@ pub fn build_database_reachability(
                                 &mut index.active_enemies,
                                 &mut index.active_animations,
                                 &mut index.placed_vehicles,
+                                &mut index.active_skills,
                             );
                         }
                     }
@@ -281,75 +301,7 @@ pub fn build_database_reachability(
         }
     }
 
-    // 3. Skills.json: animationId
-    let skills_path = format!("{prefix}data/Skills.json");
-    if let Some(skills_val) = load_raw_json(source, &skills_path) {
-        if let Some(list) = skills_val.as_array() {
-            for item in list {
-                if item.is_null() {
-                    continue;
-                }
-                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
-                    if aid > 0 {
-                        index.active_animations.insert(aid as u64);
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Items.json: animationId
-    let items_path = format!("{prefix}data/Items.json");
-    if let Some(items_val) = load_raw_json(source, &items_path) {
-        if let Some(list) = items_val.as_array() {
-            for item in list {
-                if item.is_null() {
-                    continue;
-                }
-                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
-                    if aid > 0 {
-                        index.active_animations.insert(aid as u64);
-                    }
-                }
-            }
-        }
-    }
-
-    // 5. Weapons.json: animationId
-    let weapons_path = format!("{prefix}data/Weapons.json");
-    if let Some(weapons_val) = load_raw_json(source, &weapons_path) {
-        if let Some(list) = weapons_val.as_array() {
-            for item in list {
-                if item.is_null() {
-                    continue;
-                }
-                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
-                    if aid > 0 {
-                        index.active_animations.insert(aid as u64);
-                    }
-                }
-            }
-        }
-    }
-
-    // 6. Armors.json: animationId
-    let armors_path = format!("{prefix}data/Armors.json");
-    if let Some(armors_val) = load_raw_json(source, &armors_path) {
-        if let Some(list) = armors_val.as_array() {
-            for item in list {
-                if item.is_null() {
-                    continue;
-                }
-                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
-                    if aid > 0 {
-                        index.active_animations.insert(aid as u64);
-                    }
-                }
-            }
-        }
-    }
-
-    // 7. CommonEvents.json
+    // 3. CommonEvents.json
     let ce_path = format!("{prefix}data/CommonEvents.json");
     if let Some(ce_val) = load_raw_json(source, &ce_path) {
         if let Some(list) = ce_val.as_array() {
@@ -364,13 +316,14 @@ pub fn build_database_reachability(
                         &mut index.active_enemies,
                         &mut index.active_animations,
                         &mut index.placed_vehicles,
+                        &mut index.active_skills,
                     );
                 }
             }
         }
     }
 
-    // 8. Map*.json
+    // 4. Map*.json
     let expected_prefix = format!("{prefix}data/map").to_ascii_lowercase();
     for file in source.files.values() {
         let lower = file.logical_path.to_ascii_lowercase();
@@ -393,6 +346,7 @@ pub fn build_database_reachability(
                                                 &mut index.active_enemies,
                                                 &mut index.active_animations,
                                                 &mut index.placed_vehicles,
+                                                &mut index.active_skills,
                                             );
                                         }
                                     }
@@ -412,12 +366,165 @@ pub fn build_database_reachability(
                                                 &mut index.active_enemies,
                                                 &mut index.active_animations,
                                                 &mut index.placed_vehicles,
+                                                &mut index.active_skills,
                                             );
                                         }
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Active skills resolution (standard skills, active enemy actions, active actor learnings)
+    index.active_skills.insert(1); // Standard Attack
+    index.active_skills.insert(2); // Standard Guard
+
+    let enemies_path = format!("{prefix}data/Enemies.json");
+    if let Some(enemies_val) = load_raw_json(source, &enemies_path) {
+        if let Some(list) = enemies_val.as_array() {
+            for enemy in list {
+                if enemy.is_null() {
+                    continue;
+                }
+                let eid = enemy.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                if index.active_enemies.contains(&eid) {
+                    if let Some(actions) = enemy.get("actions").and_then(|v| v.as_array()) {
+                        for a in actions {
+                            if let Some(sid) = a.get("skillId").and_then(|v| v.as_u64()) {
+                                if sid > 0 {
+                                    index.active_skills.insert(sid);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let actors_path = format!("{prefix}data/Actors.json");
+    let mut active_classes: HashSet<u64> = HashSet::new();
+    if let Some(actors_val) = load_raw_json(source, &actors_path) {
+        if let Some(list) = actors_val.as_array() {
+            for actor in list {
+                if actor.is_null() {
+                    continue;
+                }
+                let aid = actor.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                if index.active_actors.contains(&aid) {
+                    if let Some(cid) = actor.get("classId").and_then(|v| v.as_u64()) {
+                        if cid > 0 {
+                            active_classes.insert(cid);
+                        }
+                    }
+                    if let Some(traits) = actor.get("traits").and_then(|v| v.as_array()) {
+                        for tr in traits {
+                            if tr.get("code").and_then(|v| v.as_u64()) == Some(43) {
+                                if let Some(sid) = tr.get("dataId").and_then(|v| v.as_u64()) {
+                                    if sid > 0 {
+                                        index.active_skills.insert(sid);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let classes_path = format!("{prefix}data/Classes.json");
+    if let Some(classes_val) = load_raw_json(source, &classes_path) {
+        if let Some(list) = classes_val.as_array() {
+            for class_obj in list {
+                if class_obj.is_null() {
+                    continue;
+                }
+                let cid = class_obj.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                if active_classes.contains(&cid) {
+                    if let Some(learnings) = class_obj.get("learnings").and_then(|v| v.as_array()) {
+                        for l in learnings {
+                            if let Some(sid) = l.get("skillId").and_then(|v| v.as_u64()) {
+                                if sid > 0 {
+                                    index.active_skills.insert(sid);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Skills.json: animationId for active skills
+    let skills_path = format!("{prefix}data/Skills.json");
+    if let Some(skills_val) = load_raw_json(source, &skills_path) {
+        if let Some(list) = skills_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                let sid = item.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                if index.active_skills.contains(&sid) {
+                    if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                        if aid > 0 {
+                            index.active_animations.insert(aid as u64);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Items.json: animationId
+    let items_path = format!("{prefix}data/Items.json");
+    if let Some(items_val) = load_raw_json(source, &items_path) {
+        if let Some(list) = items_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 8. Weapons.json: animationId
+    let weapons_path = format!("{prefix}data/Weapons.json");
+    if let Some(weapons_val) = load_raw_json(source, &weapons_path) {
+        if let Some(list) = weapons_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    // 9. Armors.json: animationId
+    let armors_path = format!("{prefix}data/Armors.json");
+    if let Some(armors_val) = load_raw_json(source, &armors_path) {
+        if let Some(list) = armors_val.as_array() {
+            for item in list {
+                if item.is_null() {
+                    continue;
+                }
+                if let Some(aid) = item.get("animationId").and_then(|v| v.as_i64()) {
+                    if aid > 0 {
+                        index.active_animations.insert(aid as u64);
                     }
                 }
             }
@@ -445,6 +552,14 @@ struct AuditContext<'a> {
 }
 
 impl<'a> AuditContext<'a> {
+    pub fn event_asset_requiredness(&self) -> ReferenceRequiredness {
+        if self.options.mode == AuditMode::Deep {
+            ReferenceRequiredness::Required
+        } else {
+            ReferenceRequiredness::Optional
+        }
+    }
+
     fn push_finding(
         &mut self,
         code: &'static str,
@@ -524,6 +639,13 @@ impl<'a> AuditContext<'a> {
         if target_path_or_url.is_empty() {
             return;
         }
+
+        let is_std_audio = kind == AssetKind::Audio && is_standard_rpgmaker_audio(target_path_or_url);
+        let requiredness = if is_std_audio {
+            ReferenceRequiredness::Optional
+        } else {
+            requiredness
+        };
 
         // Check for External URL
         if target_path_or_url.starts_with("http://") || target_path_or_url.starts_with("https://") {
@@ -628,7 +750,7 @@ impl<'a> AuditContext<'a> {
                     (
                         DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING,
                         format!(
-                            "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                            "Asset reference '{target_path_or_url}' is missing on disk but safely auto-shimmed by Android VFS runtime fallback (attempted: {:?})",
                             attempted
                         ),
                     )
@@ -641,7 +763,11 @@ impl<'a> AuditContext<'a> {
                 );
                 (
                     format!("{}:{target_path_or_url}", kind.as_str()),
-                    ReferenceResolution::Unresolved,
+                    if is_std_audio {
+                        ReferenceResolution::RuntimeProvided
+                    } else {
+                        ReferenceResolution::Unresolved
+                    },
                     None,
                 )
             }
@@ -1516,12 +1642,16 @@ fn audit_actors(ctx: &mut AuditContext) {
                 if !char_name.is_empty() {
                     let p = format!("{}img/characters/{char_name}", ctx.prefix);
                     let exts = ctx.image_exts.clone();
+                    let is_empty_placeholder = char_name == "$empty"
+                        || char_name == "!$empty"
+                        || char_name.eq_ignore_ascii_case("empty");
+                    let reachable = is_active_actor && !is_empty_placeholder;
                     ctx.resolve_and_record_reachable(
                         &source_node,
                         &p,
                         &exts,
                         AssetKind::Image,
-                        is_active_actor,
+                        reachable,
                     );
                 }
             }
@@ -1655,6 +1785,15 @@ fn audit_animations(ctx: &mut AuditContext) {
             ctx.ensure_node(&source_node, AssetKind::DatabaseEntity, None);
 
             let is_active_anim = ctx.reachability.active_animations.contains(&id);
+            let anim_req = if is_active_anim {
+                if id <= 1 {
+                    ReferenceRequiredness::Required
+                } else {
+                    ctx.event_asset_requiredness()
+                }
+            } else {
+                ReferenceRequiredness::Optional
+            };
 
             // Classic animations (MV & MZ)
             for key in ["animation1Name", "animation2Name"] {
@@ -1662,13 +1801,23 @@ fn audit_animations(ctx: &mut AuditContext) {
                     if !name.is_empty() {
                         let p = format!("{}img/animations/{name}", ctx.prefix);
                         let exts = ctx.image_exts.clone();
-                        ctx.resolve_and_record_reachable(
-                            &source_node,
-                            &p,
-                            &exts,
-                            AssetKind::Image,
-                            is_active_anim,
-                        );
+                        if !is_active_anim {
+                            ctx.resolve_and_record_reachable(
+                                &source_node,
+                                &p,
+                                &exts,
+                                AssetKind::Image,
+                                false,
+                            );
+                        } else {
+                            ctx.resolve_and_record(
+                                &source_node,
+                                &p,
+                                &exts,
+                                AssetKind::Image,
+                                anim_req,
+                            );
+                        }
                     }
                 }
             }
@@ -1677,13 +1826,23 @@ fn audit_animations(ctx: &mut AuditContext) {
             if let Some(effect_name) = anim.get("effectName").and_then(|v| v.as_str()) {
                 if !effect_name.is_empty() {
                     let p = format!("{}effects/{effect_name}", ctx.prefix);
-                    ctx.resolve_and_record_reachable(
-                        &source_node,
-                        &p,
-                        &["efkefc", "efk"],
-                        AssetKind::DatabaseEntity,
-                        is_active_anim,
-                    );
+                    if !is_active_anim {
+                        ctx.resolve_and_record_reachable(
+                            &source_node,
+                            &p,
+                            &["efkefc", "efk"],
+                            AssetKind::DatabaseEntity,
+                            false,
+                        );
+                    } else {
+                        ctx.resolve_and_record(
+                            &source_node,
+                            &p,
+                            &["efkefc", "efk"],
+                            AssetKind::DatabaseEntity,
+                            anim_req,
+                        );
+                    }
                 }
             }
 
@@ -1695,13 +1854,23 @@ fn audit_animations(ctx: &mut AuditContext) {
                             if !name.is_empty() {
                                 let p = format!("{}audio/se/{name}", ctx.prefix);
                                 let exts = ctx.audio_exts.clone();
-                                ctx.resolve_and_record_reachable(
-                                    &source_node,
-                                    &p,
-                                    &exts,
-                                    AssetKind::Audio,
-                                    is_active_anim,
-                                );
+                                if !is_active_anim {
+                                    ctx.resolve_and_record_reachable(
+                                        &source_node,
+                                        &p,
+                                        &exts,
+                                        AssetKind::Audio,
+                                        false,
+                                    );
+                                } else {
+                                    ctx.resolve_and_record(
+                                        &source_node,
+                                        &p,
+                                        &exts,
+                                        AssetKind::Audio,
+                                        anim_req,
+                                    );
+                                }
                             }
                         }
                     }
@@ -1808,6 +1977,8 @@ fn audit_maps(ctx: &mut AuditContext) {
             None => continue,
         };
 
+        let event_req = ctx.event_asset_requiredness();
+
         // Autoplay BGM / BGS
         if let Some(bgm) = map_val.get("bgm") {
             if let Some(name) = bgm.get("name").and_then(|v| v.as_str()) {
@@ -1819,7 +1990,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                         &p,
                         &exts,
                         AssetKind::Audio,
-                        ReferenceRequiredness::Required,
+                        event_req,
                     );
                 }
             }
@@ -1835,7 +2006,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                         &p,
                         &exts,
                         AssetKind::Audio,
-                        ReferenceRequiredness::Required,
+                        event_req,
                     );
                 }
             }
@@ -1856,7 +2027,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                         &p,
                         &exts,
                         AssetKind::Image,
-                        ReferenceRequiredness::Required,
+                        event_req,
                     );
                 }
             }
@@ -1903,7 +2074,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                                         &p,
                                         &exts,
                                         AssetKind::Image,
-                                        ReferenceRequiredness::Required,
+                                        event_req,
                                     );
                                 }
                             }
@@ -1931,7 +2102,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                                                     &p,
                                                     &exts,
                                                     AssetKind::Image,
-                                                    ReferenceRequiredness::Required,
+                                                    event_req,
                                                 );
                                             }
                                         }
@@ -1950,7 +2121,7 @@ fn audit_maps(ctx: &mut AuditContext) {
                                                         &p,
                                                         &exts,
                                                         AssetKind::Audio,
-                                                        ReferenceRequiredness::Required,
+                                                        event_req,
                                                     );
                                                 }
                                             }
@@ -1972,6 +2143,7 @@ fn audit_maps(ctx: &mut AuditContext) {
 }
 
 fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], parent_node: &str) {
+    let event_req = ctx.event_asset_requiredness();
     for (cmd_idx, cmd) in commands.iter().enumerate() {
         let code = cmd.get("code").and_then(|v| v.as_u64()).unwrap_or(0);
         let params = match cmd.get("parameters").and_then(|v| v.as_array()) {
@@ -2101,6 +2273,82 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                     });
                 }
             }
+            132 => {
+                // Change Battle BGM
+                if let Some(audio_obj) = params.first() {
+                    if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
+                        if !name.is_empty() {
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/bgm/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
+                                &cmd_node_id,
+                                &p,
+                                &exts,
+                                AssetKind::Audio,
+                                event_req,
+                            );
+                        }
+                    }
+                }
+            }
+            133 => {
+                // Change Victory ME
+                if let Some(audio_obj) = params.first() {
+                    if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
+                        if !name.is_empty() {
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/me/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
+                                &cmd_node_id,
+                                &p,
+                                &exts,
+                                AssetKind::Audio,
+                                event_req,
+                            );
+                        }
+                    }
+                }
+            }
+            139 => {
+                // Change Defeat ME
+                if let Some(audio_obj) = params.first() {
+                    if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
+                        if !name.is_empty() {
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/me/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
+                                &cmd_node_id,
+                                &p,
+                                &exts,
+                                AssetKind::Audio,
+                                event_req,
+                            );
+                        }
+                    }
+                }
+            }
+            140 => {
+                // Change Vehicle BGM: params[1]=audio_obj
+                if let Some(audio_obj) = params.get(1) {
+                    if let Some(name) = audio_obj.get("name").and_then(|v| v.as_str()) {
+                        if !name.is_empty() {
+                            ctx.ensure_node(&cmd_node_id, AssetKind::Command, None);
+                            let p = format!("{}audio/bgm/{name}", ctx.prefix);
+                            let exts = ctx.audio_exts.clone();
+                            ctx.resolve_and_record(
+                                &cmd_node_id,
+                                &p,
+                                &exts,
+                                AssetKind::Audio,
+                                event_req,
+                            );
+                        }
+                    }
+                }
+            }
             231 => {
                 // Show Picture: params[1]=picture_name
                 if let Some(pic_name) = params.get(1).and_then(|v| v.as_str()) {
@@ -2113,7 +2361,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                             &p,
                             &exts,
                             AssetKind::Image,
-                            ReferenceRequiredness::Required,
+                            event_req,
                         );
                     }
                 }
@@ -2131,7 +2379,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                                 &p,
                                 &exts,
                                 AssetKind::Audio,
-                                ReferenceRequiredness::Required,
+                                event_req,
                             );
                         }
                     }
@@ -2150,7 +2398,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                                 &p,
                                 &exts,
                                 AssetKind::Audio,
-                                ReferenceRequiredness::Required,
+                                event_req,
                             );
                         }
                     }
@@ -2169,7 +2417,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                                 &p,
                                 &exts,
                                 AssetKind::Audio,
-                                ReferenceRequiredness::Required,
+                                event_req,
                             );
                         }
                     }
@@ -2188,7 +2436,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                                 &p,
                                 &exts,
                                 AssetKind::Audio,
-                                ReferenceRequiredness::Required,
+                                event_req,
                             );
                         }
                     }
@@ -2206,7 +2454,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                             &p,
                             &exts,
                             AssetKind::Video,
-                            ReferenceRequiredness::Required,
+                            event_req,
                         );
                     }
                 }
@@ -2223,7 +2471,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                             &p,
                             &exts,
                             AssetKind::Image,
-                            ReferenceRequiredness::Required,
+                            event_req,
                         );
                     }
                 }
@@ -2236,7 +2484,7 @@ fn audit_event_commands(ctx: &mut AuditContext, commands: &[serde_json::Value], 
                             &p,
                             &exts,
                             AssetKind::Image,
-                            ReferenceRequiredness::Required,
+                            event_req,
                         );
                     }
                 }

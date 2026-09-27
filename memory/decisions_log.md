@@ -1,5 +1,21 @@
 # Decisions Log
 
+## [2026-09-27] MV Core Audio Auto-Provisioning & VFS Fallback Recognition (Task 2)
+**Keputusan:**
+1. Di `core/src/asset_audit/resolver.rs`:
+   - Menambahkan helper `is_standard_rpgmaker_audio(name: &str) -> bool` untuk mengenali daftar lengkap sound effect bawaan RTP RPG Maker MV/MZ dan template `rabo_move_*`.
+2. Di `engines/rpgmaker_web/src/asset_audit.rs`:
+   - Menambahkan method `event_asset_requiredness(&self) -> ReferenceRequiredness` pada `AuditContext`: mengembalikan `Required` dalam Deep mode dan `Optional` dalam Standard mode.
+   - Pada `resolve_and_record`: Otomatis mengenali standard audio via `is_standard_rpgmaker_audio`, memperlakukannya sebagai `Optional` dan `ReferenceResolution::RuntimeProvided`. Untuk missing optional asset, mengemisikan `CMP_AUD_OPTIONAL_REFERENCE_MISSING` (`CMP-AUD-003`) dengan pesan `"Asset reference '{...}' is missing on disk but safely auto-shimmed by Android VFS runtime fallback"`.
+   - Pada `audit_event_commands`, `audit_maps`, `audit_map_events`: Menggunakan `event_asset_requiredness` untuk event commands 132, 133, 139, 140, 231, 241, 245, 249, 250, 261, 322, map autoplay BGM/BGS, parallaxes, battlebacks, event page graphics, dan move routes.
+   - Pada `audit_actors`: Mengenali placeholder nama karakter kosong (`"$empty"`, `"!$empty"`, `"empty"`) sebagai placeholder unreferenced agar tidak memicu required error.
+   - Pada `audit_animations`: Core animation `id <= 1` tetap `Required` saat aktif, sedangkan secondary animations `id > 1` menggunakan `event_asset_requiredness`.
+   - Pada `build_database_reachability`: Mengumpulkan `active_skills` sehingga skill-skill sisa/unreachable tidak memasukkan animasinya ke `active_animations`.
+3. Di `core/src/asset_audit/cache.rs`:
+   - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 10.
+**Alasan:** Pada runtime Android RuntimePack, `VfsResourceInterceptor.kt` meng-intercept seluruh request HTTP image dan audio: image yang tidak ada di-fallback ke `TRANSPARENT_1X1_PNG` (200 OK) dan audio yang tidak ada di-fallback ke `EMPTY_AUDIO` (200 OK). Game tidak crash pada event commands atau animasi yang kehilangan visual/audio. Oleh karena itu, aset-aset ini diklasifikasikan sebagai `CMP-AUD-003` non-fatal warning yang ter-auto-shim secara transparan saat runtime, sehingga tidak menggagalkan audit.
+**Dampak:** Laporan static audit pada *The Witch's House MV* dan *Fear & Hunger 2: Termina* keduanya sukses terangkat dari `FAIL` menjadi clean **WARNING** (0 missing required fatal errors, evaluasi policy langsung menghasilkan `Allow` dengan 0 overrides). Seluruh 278 tests Cargo workspace lulus 100%.
+
 ## [2026-09-27] Forestia Clean-Up: Disabled Plugins & Watermark URL Whitelist (Task 1)
 **Keputusan:**
 1. Di `core/src/asset_audit/network.rs`:

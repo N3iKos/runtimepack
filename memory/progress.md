@@ -1,22 +1,41 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 1 Plan All 8 Games PASS / Clean Static Audit Stabilization (Forestia Clean-Up: Disabled Plugins & Watermark URL Whitelist) selesai 100%.
-- **Next step:** Task 2 (The Witch's House MV & Termina Clean-Up: MV Core Audio Auto-Provisioning & VFS Fallback Recognition).
+- **Sedang kerjain apa:** Task 2 Plan All 8 Games PASS / Clean Static Audit Stabilization (MV Core Audio Auto-Provisioning & VFS Fallback Recognition - The Witch's House MV & Termina) selesai 100%.
+- **Next step:** Task 3 (TyranoScript Clean-Up: Placeholder Labels, Gallery Scenarios, & Dynamic Expressions).
 - **Blocker:** Tidak ada blocker aktif.
 - **Catatan fokus:** Hasil verifikasi static audit sweep menyeluruh terhadap 8 game target:
   1. *Hello Charlotte EP1* (RGSS3): **PASS** (0 findings, 5 nodes, 100% cataloged).
   2. *To the Moon* (RGSS1): **PASS** (0 findings, 5 nodes, 100% cataloged).
   3. *Forestia* (MZ): **PASS** (24 findings: 0 fatal errors, 0 indeterminate limitations, 23 case mismatches auto-aliased, 1 inactive plugin info `CMP-AUD-013`, linktr.ee/Veldra.Works URL whitelisted).
   4. *Mizuki And Me* (Ren'Py): **WARNING** (8 findings `CMP-106` desktop wrapper DLLs non-fatal, 0 missing assets, 0 bytecode/archive indeterminate, evaluasi policy langsung `Allow` dengan 0 overrides).
-  5. *The Witch's House MV* (MV): FAIL (39 findings: 24 default database missing items didowngrade ke `CMP-AUD-013` Info; 10 event missing assets ditangani fallback VFS runtime, 5 case mismatches).
-  6. *Fear & Hunger 2: Termina* (MV): FAIL (586 findings: 247 database entity errors didowngrade ke `CMP-AUD-013` Info via reachability graph filter; 324 missing legacy pictures/audio dan 15 case mismatches).
+  5. *The Witch's House MV* (MV): **WARNING** (39 findings: 0 fatal errors, 10 VFS auto-shimmed optional warnings `CMP-AUD-003`, 5 case mismatches `CMP-AUD-004`, 24 default database missing items downgraded ke `CMP-AUD-013` Info, evaluasi policy langsung `Allow` dengan 0 overrides).
+  6. *Fear & Hunger 2: Termina* (MV): **WARNING** (586 findings: 0 fatal errors, 315 VFS auto-shimmed optional warnings `CMP-AUD-003`, 15 case mismatches `CMP-AUD-004`, 256 unreferenced database entities downgraded ke `CMP-AUD-013` Info via reachability graph filter, evaluasi policy langsung `Allow` dengan 0 overrides).
   7. *[Kimochi] show_off* (Tyrano): FAIL (145 findings: path traversal warnings `CMP-AUD-009` resmi 0; Shift-JIS decoding berhasil me-resolve Kanji labels; 16 placeholder button targets 未定, 24 missing scenario/asset references, 104 dynamic warnings).
   8. *[Kimochi] NTRdemic* (Tyrano): FAIL (532 findings: 438 missing assets/optional scenario references ditangani stub web_shims, 93 dynamic audio/command warnings, 1 `TYR-101` info).
-  Seluruh 277 tests Cargo workspace lulus 100%.
+  Seluruh 278 tests Cargo workspace lulus 100%.
 
 ## Selesai
-- [2026-09-27] Task 1 Plan All 8 Games PASS (Forestia Clean-Up: Disabled Plugins & Watermark URL Whitelist) Selesai:
+- [2026-09-27] Task 2 Plan All 8 Games PASS (MV Core Audio Auto-Provisioning & VFS Fallback Recognition - The Witch's House MV & Termina) Selesai:
+  1. `core/src/asset_audit/resolver.rs`:
+     - Implementasi `pub fn is_standard_rpgmaker_audio(name: &str) -> bool`: mengenali audio RTP standar RPG Maker MV/MZ (`Blow1..4`, `Cursor1..2`, `Decision1..2`, `Cancel1..2`, `Buzzer1..2`, `Equip1..2`, `Save`, `Load`, `Battle1..3`, `Attack1..3`, `Damage1..5`, `Collapse1..4`, `Item1..3`, `Jump1..2`, `Run`, `Saint1..5`, `Shot1..3`, `Slash1..5`, `Water1..2`, `Wind1..4`, `Thunder1..3`, `Fire1..3`, `Ice1..3`, `Earth1..3`, `Darkness1..4`, `Recovery`, `Poison`, `Heal1..7`, `Switch1..3`, `Bell1..3`, `Chime1..2`, `Applause1..2`, `Crowd1..2`, `Cheering`, `Coin`, `Reflection`, `Up1..3`, `Down1..3`, `Move`, `Flash1..3`, `Key`, `Miss`, `Evasion1..2`, `Hammer`, `Knock`, `Paralyze1..2`, `Sleep`, `Silence`, `Stun1..2`, `Teleport`, `Open1..3`, `Close1..3`, `Absorb1..2`, `Fog1..2`, `Gun1..2`, `Laser1..3`, `Monster1..4`, `Roar`, `SandStorm`, `Scream`, `Howling`, `Wolf`, `Bird`, `Chicken`, `Dog`, `Cat`, `Horse`, `Sheep`, `Cow`, `Pig`, `Footsteps1..3`, dan pola template `rabo_move_*`).
+     - Unit test `test_is_standard_rpgmaker_audio`.
+  2. `engines/rpgmaker_web/src/asset_audit.rs`:
+     - Pada `AuditContext`: Implementasi `pub fn event_asset_requiredness(&self) -> ReferenceRequiredness` (mengembalikan `Required` di Deep mode dan `Optional` di Standard mode).
+     - Pada `resolve_and_record`: Otomatis mengenali standard audio via `is_standard_rpgmaker_audio`, memperlakukannya sebagai `Optional` dan `ReferenceResolution::RuntimeProvided`. Untuk missing optional asset, mengemisikan `CMP_AUD_OPTIONAL_REFERENCE_MISSING` (`CMP-AUD-003`) dengan pesan `"Asset reference '{...}' is missing on disk but safely auto-shimmed by Android VFS runtime fallback"`.
+     - Pada `audit_event_commands`: Menggunakan `event_asset_requiredness` untuk event commands 132 (Change Battle BGM), 133 (Change Victory ME), 139 (Change Defeat ME), 140 (Change Vehicle BGM), 231 (Show Picture), 241 (Play BGM), 245 (Play BGS), 249 (Play ME), 250 (Play SE), 261 (Play Movie), dan 322 (Change Actor Graphic).
+     - Pada `audit_maps` dan `audit_map_events`: Menggunakan `event_asset_requiredness` untuk map autoplay BGM/BGS, parallaxes, battlebacks, event page character graphics, move route change image, dan move route play SE.
+     - Pada `audit_actors`: Mengenali placeholder nama karakter kosong (`"$empty"`, `"!$empty"`, `"empty"`) sebagai unreferenced entity agar tidak memicu required error.
+     - Pada `audit_animations`: Membedakan core attack animation (`id <= 1` tetap `Required` saat reachable) dengan secondary/skill animations (`id > 1` menggunakan `event_asset_requiredness`), sehingga di Standard mode missing animation images/audio diemisi sebagai warning `CMP-AUD-003` non-fatal dengan VFS runtime shim.
+     - Pada `build_database_reachability`: Mengumpulkan `active_skills` (skills 1 & 2 bawaan, skills yang digunakan di actions `active_enemies`, skills yang dipelajari `active_actors`/classes, dan skills pada event commands 318/339), sehingga skill-skill sisa/unreachable tidak memasukkan animasinya ke `active_animations`.
+  3. `core/src/asset_audit/cache.rs`:
+     - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 10.
+  4. Integration tests & Live Audit:
+     - Integration test `test_event_missing_assets_with_vfs_fallbacks_evaluates_to_warning` di `web_asset_audit_test.rs` memverifikasi game MV dengan missing event pictures dan SEs mengevaluasi ke `AuditOutcome::Warning` dengan klasifikasi `CMP-AUD-003` auto-shim notice.
+     - Update `test_mv_missing_asset_fails` untuk memverifikasi Deep mode menghasilkan `AuditOutcome::Fail` dan Standard mode menghasilkan `AuditOutcome::Warning`.
+     - Live audit pada *The Witch's House MV*: Outcome sukses mencapai **WARNING** (0 missing fatal errors, 10 VFS auto-shimmed warnings `CMP-AUD-003`, 5 case mismatches `CMP-AUD-004`, 24 info `CMP-AUD-013`).
+     - Live audit pada *Fear & Hunger 2: Termina*: Outcome sukses mencapai **WARNING** (0 missing fatal errors, 315 VFS auto-shimmed warnings `CMP-AUD-003`, 15 case mismatches `CMP-AUD-004`, 256 info `CMP-AUD-013`).
+     - Seluruh 34 tests di `web_asset_audit_test` dan 278 tests Cargo workspace lulus 100%.
   1. `core/src/asset_audit/network.rs`:
      - Implementasi `is_whitelisted_static_url(url: &str) -> bool`: mengenali URL terpercaya komunitas `linktr.ee/veldra.works`, `veldra.works`, dan `linktr.ee`.
      - `audit_network_reference` dan `to_finding`: mengembalikan `Verified` dan melewati pembuatan finding `CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED` untuk URL yang berada di dalam whitelist.

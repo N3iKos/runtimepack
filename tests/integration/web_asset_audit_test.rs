@@ -167,12 +167,15 @@ fn test_mv_missing_asset_fails() {
     let root = fixture_dir("mv_missing_asset");
     let index = make_index(&root);
     let auditor = RpgMakerWebAssetAuditor::new();
-    let options = AssetAuditOptions::default();
+    let deep_options = AssetAuditOptions {
+        mode: AuditMode::Deep,
+        ..Default::default()
+    };
 
-    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+    let deep_report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &deep_options);
 
-    assert_eq!(report.outcome, AuditOutcome::Fail);
-    let missing = report
+    assert_eq!(deep_report.outcome, AuditOutcome::Fail);
+    let missing = deep_report
         .findings
         .iter()
         .find(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING)
@@ -180,6 +183,18 @@ fn test_mv_missing_asset_fails() {
 
     assert!(missing.message.contains("MapPicMV"));
     assert!(!missing.source_node_ids.is_empty());
+
+    // In Standard mode, missing event assets evaluate to Warning with auto-shim notice
+    let std_report = auditor.audit(
+        &index,
+        &engine_desc(EngineId::RpgMakerMv),
+        &AssetAuditOptions::default(),
+    );
+    assert_eq!(std_report.outcome, AuditOutcome::Warning);
+    assert!(std_report.findings.iter().any(|f| {
+        f.code == DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+            && f.message.contains("MapPicMV")
+    }));
 }
 
 #[test]
@@ -1349,6 +1364,132 @@ fn test_disabled_plugin_missing_does_not_fail_audit() {
         report.outcome,
         AuditOutcome::Pass,
         "Audit outcome must be Pass when missing plugin is inactive and URL is whitelisted: {:?}",
+        report.findings
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_event_missing_assets_with_vfs_fallbacks_evaluates_to_warning() {
+    let temp_dir = std::env::temp_dir().join(format!("web_mv_event_vfs_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("js")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("data")).unwrap();
+    std::fs::create_dir_all(temp_dir.join("img/system")).unwrap();
+
+    std::fs::write(temp_dir.join("index.html"), "<!DOCTYPE html>").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(temp_dir.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+    std::fs::write(temp_dir.join("js/plugins.js"), "var $plugins = [];").unwrap();
+
+    // Standard required system images exist
+    std::fs::write(temp_dir.join("img/system/Window.png"), "WINDOW").unwrap();
+    std::fs::write(temp_dir.join("img/system/IconSet.png"), "ICONS").unwrap();
+
+    // System.json
+    std::fs::write(
+        temp_dir.join("data/System.json"),
+        r#"{
+            "gameTitle": "Event VFS Test",
+            "optSideView": false,
+            "partyMembers": [1],
+            "sounds": []
+        }"#,
+    ).unwrap();
+
+    // CommonEvents.json: contains Play SE (250) for Blow3 and rabo_move_101 (missing on disk)
+    std::fs::write(
+        temp_dir.join("data/CommonEvents.json"),
+        r#"[null,
+            {
+                "id": 1,
+                "name": "TestCommonEvent",
+                "trigger": 0,
+                "list": [
+                    {"code": 250, "indent": 0, "parameters": [{"name": "Blow3", "volume": 90, "pitch": 100, "pan": 0}]},
+                    {"code": 250, "indent": 0, "parameters": [{"name": "rabo_move_101", "volume": 90, "pitch": 100, "pan": 0}]},
+                    {"code": 0, "indent": 0, "parameters": []}
+                ]
+            }
+        ]"#,
+    ).unwrap();
+
+    // Map001.json: contains Show Picture (231) for missing_pic and Play SE (250) for missing_se, plus autoplay BGS missing_bgs
+    std::fs::write(
+        temp_dir.join("data/Map001.json"),
+        r#"{
+            "width": 10,
+            "height": 10,
+            "bgm": {"name": ""},
+            "bgs": {"name": "missing_bgs"},
+            "events": [null,
+                {
+                    "id": 1,
+                    "name": "Event1",
+                    "pages": [
+                        {
+                            "image": {"characterName": "$missing_char", "characterIndex": 0},
+                            "list": [
+                                {"code": 231, "indent": 0, "parameters": [1, "missing_pic", 0, 0, 0, 0, 100, 100, 255, 0]},
+                                {"code": 250, "indent": 0, "parameters": [{"name": "missing_se", "volume": 90, "pitch": 100, "pan": 0}]},
+                                {"code": 0, "indent": 0, "parameters": []}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }"#,
+    ).unwrap();
+
+    // Minimal dummy files for required databases
+    for db in ["Enemies.json", "Troops.json", "Actors.json", "Skills.json", "Items.json", "Weapons.json", "Armors.json", "Tilesets.json", "Animations.json"] {
+        std::fs::write(temp_dir.join(format!("data/{db}")), "[null]").unwrap();
+    }
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    // 1. Zero fatal REQUIRED_REFERENCE_MISSING
+    let fatal_missing: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING)
+        .collect();
+    assert!(
+        fatal_missing.is_empty(),
+        "Expected zero fatal missing references for event assets with VFS fallbacks, got: {:?}",
+        fatal_missing
+    );
+
+    // 2. Findings should contain CMP-AUD-003 (Optional missing with auto-shim message)
+    let optional_missing: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING)
+        .collect();
+    assert!(
+        !optional_missing.is_empty(),
+        "Expected CMP_AUD_OPTIONAL_REFERENCE_MISSING findings for missing event assets"
+    );
+
+    for f in &optional_missing {
+        assert_eq!(f.severity, FindingSeverity::Warning);
+        assert!(
+            f.message.contains("safely auto-shimmed by Android VFS runtime fallback"),
+            "Expected auto-shim notice in message, got: {}",
+            f.message
+        );
+    }
+
+    // 3. Outcome must evaluate to AuditOutcome::Warning (NOT Fail!)
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Warning,
+        "Audit outcome should be Warning when only VFS-shimmed optional assets are missing: {:?}",
         report.findings
     );
 

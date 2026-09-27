@@ -92,23 +92,23 @@
       Because `VfsResourceInterceptor.kt` guarantees seamless 1x1 transparent PNG substitution for missing images and empty audio buffers for missing audio, missing event pictures/sounds that do not crash the engine are classified as `CMP_AUD_OPTIONAL_REFERENCE_MISSING` (Severity: Warning, Disposition: Auto-Shimmed by VFS).
     - If a project contains only auto-shimmed asset warnings and case mismatches, the audit outcome evaluates to `AuditOutcome::Warning` (or `Pass`), NOT `Fail`!
 
-- [ ] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
+- [x] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
   - Test a game with missing event pictures and standard MV sound effects; verify outcome is `Warning` (Clean/Auto-Shimmed) instead of `Fail`.
-- [ ] **Step 2: Run test to verify failure**:
+- [x] **Step 2: Run test to verify failure**:
   `cargo test --test web_asset_audit_test test_event_missing_assets_with_vfs_fallbacks_evaluates_to_warning`
-- [ ] **Step 3: Implement VFS fallback classification and core audio auto-resolution**:
+- [x] **Step 3: Implement VFS fallback classification and core audio auto-resolution**:
   - In `engines/rpgmaker_web/src/asset_audit.rs`:
     When auditing event commands (code 231 [Show Picture], 250 [Play SE], 132 [Play BGM]):
     If asset is missing, record with `ReferenceRequiredness::Optional` and `FindingSeverity::Warning` with clear message indicating `Auto-shimmed by Android VFS runtime fallback`.
   - In `report.outcome` calculation: ensure that missing assets marked as optional/auto-shimmed do not force the entire report outcome to `Fail`.
-- [ ] **Step 4: Run tests to verify pass**:
+- [x] **Step 4: Run tests to verify pass**:
   `cargo test --test web_asset_audit_test`
   `cargo test -p runtimepack-engine-rpgmaker-web`
-- [ ] **Step 5: Verify on The Witch's House MV & Termina**:
+- [x] **Step 5: Verify on The Witch's House MV & Termina**:
   - `cargo run --bin runtimepack -- audit "Raw-Game\The_Witchs_House_MV" --mode standard --output dist/witchs_house/asset-audit-report.json`
   - `cargo run --bin runtimepack -- audit "Raw-Game\Fear & Hunger 2 Termina" --mode standard --output dist/termina/asset-audit-report.json`
   - Assert that outcomes are `Pass` or `Warning` (Clean).
-- [ ] **Step 6: Commit**:
+- [x] **Step 6: Commit**:
   ```powershell
   git add engines/rpgmaker_web/src/asset_audit.rs core/src/asset_audit/resolver.rs tests/integration/web_asset_audit_test.rs
   git commit -m "feat(web): auto-resolve core audio and classify VFS-shimmed assets as non-fatal warnings"

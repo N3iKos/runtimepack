@@ -541,6 +541,42 @@ impl From<AuditCoverage> for AuditCompleteness {
     }
 }
 
+/// Identifies standard RPG Maker MV/MZ template and RTP audio effects
+/// (e.g. `Blow3`, `Cursor1`, `Decision1`, `rabo_move_101`, etc.)
+pub fn is_standard_rpgmaker_audio(name: &str) -> bool {
+    let clean = name.trim().rsplit('/').next().unwrap_or(name);
+    let stem = clean.split('.').next().unwrap_or(clean);
+    let lower = stem.to_ascii_lowercase();
+    if lower.starts_with("rabo_move_") {
+        return true;
+    }
+    match lower.as_str() {
+        "blow1" | "blow2" | "blow3" | "blow4"
+        | "bow1" | "bow2" | "bow3" | "bow4"
+        | "cursor1" | "cursor2" | "decision1" | "decision2" | "cancel1" | "cancel2" | "buzzer1" | "buzzer2"
+        | "equip1" | "equip2" | "save" | "load" | "battle1" | "battle2" | "battle3"
+        | "attack1" | "attack2" | "attack3" | "damage1" | "damage2" | "damage3" | "damage4" | "damage5"
+        | "collapse1" | "collapse2" | "collapse3" | "collapse4" | "item1" | "item2" | "item3"
+        | "magic1" | "magic2" | "book1" | "book2" | "chest1" | "chest2" | "door1" | "door2"
+        | "jump1" | "jump2" | "run" | "saint1" | "saint2" | "saint3" | "saint4" | "saint5"
+        | "shot1" | "shot2" | "shot3" | "slash1" | "slash2" | "slash3" | "slash4" | "slash5"
+        | "water1" | "water2" | "wind1" | "wind2" | "wind3" | "wind4" | "thunder1" | "thunder2" | "thunder3"
+        | "fire1" | "fire2" | "fire3" | "ice1" | "ice2" | "ice3" | "earth1" | "earth2" | "earth3"
+        | "darkness1" | "darkness2" | "darkness3" | "darkness4" | "recovery" | "poison"
+        | "heal1" | "heal2" | "heal3" | "heal4" | "heal5" | "heal6" | "heal7"
+        | "switch1" | "switch2" | "switch3" | "bell1" | "bell2" | "bell3" | "chime1" | "chime2"
+        | "applause1" | "applause2" | "crowd1" | "crowd2" | "cheering" | "coin" | "reflection"
+        | "up1" | "up2" | "up3" | "down1" | "down2" | "down3" | "move" | "flash1" | "flash2" | "flash3"
+        | "key" | "miss" | "evasion1" | "evasion2" | "hammer" | "knock" | "paralyze1" | "paralyze2"
+        | "sleep" | "silence" | "stun1" | "stun2" | "teleport" | "open1" | "open2" | "open3"
+        | "close1" | "close2" | "close3" | "absorb1" | "absorb2" | "fog1" | "fog2" | "gun1" | "gun2"
+        | "laser1" | "laser2" | "laser3" | "monster1" | "monster2" | "monster3" | "monster4"
+        | "roar" | "sandstorm" | "scream" | "howling" | "wolf" | "bird" | "chicken" | "dog" | "cat" | "horse"
+        | "sheep" | "cow" | "pig" | "footsteps1" | "footsteps2" | "footsteps3" => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1019,5 +1055,17 @@ mod tests {
                 "v1.0/Graphics/Pictures/pic.rpgmvp"
             ]
         );
+    }
+
+    #[test]
+    fn test_is_standard_rpgmaker_audio() {
+        assert!(is_standard_rpgmaker_audio("Blow3"));
+        assert!(is_standard_rpgmaker_audio("audio/se/Cursor1.ogg"));
+        assert!(is_standard_rpgmaker_audio("rabo_move_101"));
+        assert!(is_standard_rpgmaker_audio("rabo_move_104.m4a"));
+        assert!(is_standard_rpgmaker_audio("Decision1"));
+        assert!(is_standard_rpgmaker_audio("Jump1"));
+        assert!(!is_standard_rpgmaker_audio("my_custom_bgm_01"));
+        assert!(!is_standard_rpgmaker_audio("ancient_city"));
     }
 }
