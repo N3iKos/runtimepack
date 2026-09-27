@@ -133,25 +133,29 @@ public class PythonSDLActivity extends SDLActivity {
         }
     }
 
-    public void setWakeLock(boolean active) {
-        try {
-            if (wakeLock == null) {
-                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                if (pm != null) {
-                    wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "RenPy:ScreenOn");
-                    wakeLock.setReferenceCounted(false);
+    public void armOnStop() {
+        Log.d(TAG, "armOnStop called");
+    }
+
+    public void finishOnStop() {
+        Log.d(TAG, "finishOnStop called");
+    }
+
+    public void setWakeLock(final boolean active) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (active) {
+                        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    } else {
+                        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "setWakeLock failed: " + e.getMessage());
                 }
             }
-            if (wakeLock != null) {
-                if (active) {
-                    wakeLock.acquire();
-                } else if (wakeLock.isHeld()) {
-                    wakeLock.release();
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "setWakeLock failed: " + e.getMessage());
-        }
+        });
     }
 
     public void toast(final String msg) {
