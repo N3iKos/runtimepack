@@ -482,7 +482,7 @@ fn verify_asar_pack_roundtrip(
     asar_path: &Path,
     archive: &runtimepack_engine_tyrano::AsarArchive,
     pack_path: &Path,
-) -> Result<(), String> {
+) -> Result<usize, String> {
     use std::io::{Read, Seek, SeekFrom};
 
     const MAX_SAMPLES: usize = 32;
@@ -508,7 +508,9 @@ fn verify_asar_pack_roundtrip(
         .filter(|entry| reader.has_file(&entry.path))
         .collect();
     if candidates.is_empty() {
-        return Ok(());
+        // Returning Ok(0) lets the caller fail closed: an ASAR with entries
+        // that map to no pack entry means the gate cannot vouch for anything.
+        return Ok(0);
     }
     candidates.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -526,6 +528,7 @@ fn verify_asar_pack_roundtrip(
     };
 
     let stride = pool.len().div_ceil(MAX_SAMPLES);
+    let mut verified = 0usize;
     for entry in pool.iter().step_by(stride.max(1)) {
         let mut source_bytes = vec![0u8; entry.size as usize];
         asar_file
@@ -549,9 +552,10 @@ fn verify_asar_pack_roundtrip(
                 hex_digest(&packed_hash)
             ));
         }
+        verified += 1;
     }
 
-    Ok(())
+    Ok(verified)
 }
 
 fn hex_digest(bytes: &[u8; 32]) -> String {
@@ -936,14 +940,30 @@ fn cmd_build(args: BuildArgs) {
     if let Some((asar_path, archive)) = &asar_integrity_source {
         if encryption_key.is_some() {
             println!("ASAR round-trip integrity: skipped (encrypted-streaming mode)");
-        } else if let Err(reason) = verify_asar_pack_roundtrip(asar_path, archive, &pack_path) {
-            eprintln!(
-                "[CNT-102] Post-pack ASAR round-trip integrity check failed: {}",
-                reason
-            );
-            std::process::exit(1);
         } else {
-            println!("ASAR round-trip integrity: verified (SHA-256 sample)");
+            match verify_asar_pack_roundtrip(asar_path, archive, &pack_path) {
+                Ok(0) => {
+                    eprintln!(
+                        "[CNT-102] Post-pack ASAR round-trip integrity check failed: the archive \
+                         has entries but none could be matched to a game.pack entry (possible \
+                         path-mapping break); refusing to ship unverified content."
+                    );
+                    std::process::exit(1);
+                }
+                Ok(verified) => {
+                    println!(
+                        "ASAR round-trip integrity: verified {} entries (SHA-256 sample)",
+                        verified
+                    );
+                }
+                Err(reason) => {
+                    eprintln!(
+                        "[CNT-102] Post-pack ASAR round-trip integrity check failed: {}",
+                        reason
+                    );
+                    std::process::exit(1);
+                }
+            }
         }
     }
 

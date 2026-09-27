@@ -395,6 +395,79 @@ fn test_asar_pack_roundtrip_integrity() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+#[test]
+fn test_asar_pack_roundtrip_integrity_detects_mismatch() {
+    let game_dir = test_temp_dir("asar-mismatch");
+    let out_dir = test_temp_dir("asar-mismatch-out");
+    std::fs::create_dir_all(game_dir.join("resources")).unwrap();
+
+    // Force a deterministic source/pack divergence: two ASAR entries whose
+    // paths differ only by case. The staging index is case-insensitive, so both
+    // collapse onto a single logical path and only ONE of the two byte
+    // sequences can survive into game.pack. The round-trip gate MUST therefore
+    // observe that the losing entry's source bytes differ from the packed bytes
+    // and abort the build with [CNT-102]. A gate whose comparison always
+    // returned Ok would ship the corrupted pack and make this test fail, so this
+    // exercises the abort path that the happy-path test cannot.
+    let entries: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "index.html",
+            b"<!DOCTYPE html><html><body>Mismatch</body></html>".to_vec(),
+        ),
+        ("tyrano/tyrano.js", b"var TYRANO = {};".to_vec()),
+        (
+            "data/scenario/a.ks",
+            b"[cm]\nALPHA\n[end]\n".to_vec(),
+        ),
+        (
+            "data/scenario/A.ks",
+            b"[cm]\nBRAVO\n[end]\n".to_vec(),
+        ),
+    ];
+
+    let asar_path = game_dir.join("resources/app.asar");
+    write_unaligned_tyrano_asar(&asar_path, &entries);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&game_dir)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "build must abort when ASAR-sourced content does not round-trip byte-exact.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("[CNT-102]"),
+        "abort must use the stable CNT-102 diagnostic.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("round-trip integrity check failed"),
+        "abort must come from the post-pack integrity gate.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("data/scenario/A.ks") || stderr.contains("data/scenario/a.ks"),
+        "diagnostic must name the mismatching entry.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        !out_dir.join("build-manifest.json").exists(),
+        "no build manifest may be emitted when the integrity gate aborts"
+    );
+
+    let _ = std::fs::remove_dir_all(&game_dir);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
 /// Writes a synthetic TyranoScript Electron ASAR whose JSON header is not
 /// 4-byte aligned, returning the raw `json_len`.
 fn write_unaligned_tyrano_asar(path: &Path, entries: &[(&str, Vec<u8>)]) -> u32 {
