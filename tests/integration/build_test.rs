@@ -308,6 +308,138 @@ fn test_build_tyrano_with_accept_audit_fail_succeeds_without_tyr_101_block() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+#[test]
+fn test_asar_pack_roundtrip_integrity() {
+    let game_dir = test_temp_dir("asar-roundtrip");
+    let out_dir = test_temp_dir("asar-roundtrip-out");
+    std::fs::create_dir_all(game_dir.join("resources")).unwrap();
+
+    // Synthetic TyranoScript Electron package. The JSON header is deliberately
+    // left unaligned (`json_len % 4 != 0`) so the 4-byte header padding is
+    // non-zero — the exact condition that historically shifted every packed
+    // entry by the padding size.
+    let entries: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "index.html",
+            b"<!DOCTYPE html><html><body>Show Off</body></html>".to_vec(),
+        ),
+        (
+            "tyrano/tyrano.js",
+            b"var TYRANO = {}; TYRANO.kag = {}; TYRANO.kag.tmp = {};".to_vec(),
+        ),
+        (
+            "tyrano/plugins/kag/kag.js",
+            b"/* Tyrano KAG plugin */ var kag = true;".to_vec(),
+        ),
+        (
+            "data/scenario/first.ks",
+            "[cm]\nHello world!\n[end]\n".as_bytes().to_vec(),
+        ),
+    ];
+
+    let asar_path = game_dir.join("resources/app.asar");
+    let json_len = write_unaligned_tyrano_asar(&asar_path, &entries);
+    assert_ne!(
+        json_len % 4,
+        0,
+        "fixture ASAR must require 4-byte header padding"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&game_dir)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ASAR build must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("ASAR round-trip integrity: verified"),
+        "post-pack integrity gate must run for ASAR-sourced content.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    let pack_path = out_dir.join("game.pack");
+    assert!(pack_path.exists(), "game.pack must be produced");
+
+    let mut reader = runtimepack_pack::GpackReader::open(&pack_path)
+        .expect("game.pack must be a valid GPACK");
+
+    for (path, payload) in &entries {
+        let packed = reader
+            .read_file(path)
+            .unwrap_or_else(|e| panic!("entry '{path}' must be present in game.pack: {e}"));
+        assert_eq!(
+            &packed, payload,
+            "packed entry '{path}' must be byte-exact with the original ASAR payload"
+        );
+        let source_hash = format!("{:x}", Sha256::digest(payload));
+        let packed_hash = format!("{:x}", Sha256::digest(&packed));
+        assert_eq!(
+            source_hash, packed_hash,
+            "SHA-256 mismatch for packed entry '{path}'"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&game_dir);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+/// Writes a synthetic TyranoScript Electron ASAR whose JSON header is not
+/// 4-byte aligned, returning the raw `json_len`.
+fn write_unaligned_tyrano_asar(path: &Path, entries: &[(&str, Vec<u8>)]) -> u32 {
+    use std::io::Write;
+
+    let mut offset = 0u64;
+    let mut files_json = String::new();
+    for (index, (name, payload)) in entries.iter().enumerate() {
+        if index > 0 {
+            files_json.push(',');
+        }
+        files_json.push_str(&format!(
+            "\"{}\":{{\"size\":{},\"offset\":\"{}\"}}",
+            name,
+            payload.len(),
+            offset
+        ));
+        offset += payload.len() as u64;
+    }
+
+    let mut json = format!("{{\"files\":{{{}}}}}", files_json);
+    while json.len() % 4 == 0 {
+        json.push(' ');
+    }
+
+    let json_bytes = json.as_bytes();
+    let json_len = json_bytes.len() as u32;
+    let padding = (4 - (json_len % 4)) % 4;
+    let header_size = json_len + 8 + padding;
+    let header_size_minus_4 = header_size - 4;
+
+    let mut out = std::fs::File::create(path).unwrap();
+    out.write_all(&4u32.to_le_bytes()).unwrap();
+    out.write_all(&header_size.to_le_bytes()).unwrap();
+    out.write_all(&header_size_minus_4.to_le_bytes()).unwrap();
+    out.write_all(&json_len.to_le_bytes()).unwrap();
+    out.write_all(json_bytes).unwrap();
+    out.write_all(&vec![0u8; padding as usize]).unwrap();
+    for (_, payload) in entries {
+        out.write_all(payload).unwrap();
+    }
+    out.flush().unwrap();
+    json_len
+}
+
 fn test_workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

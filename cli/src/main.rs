@@ -471,6 +471,97 @@ fn cmd_audit(args: AuditArgs) {
     }
 }
 
+/// Build-time post-pack integrity gate for ASAR-sourced content.
+///
+/// Reads the original archive independently of the extractor (re-deriving the
+/// data offset straight from the raw header) and compares a deterministic
+/// sample of entries against their packed counterparts by SHA-256. This
+/// catches the historical class of bug where an ASAR header-padding
+/// miscalculation silently shifted every extracted byte before it was packed.
+fn verify_asar_pack_roundtrip(
+    asar_path: &Path,
+    archive: &runtimepack_engine_tyrano::AsarArchive,
+    pack_path: &Path,
+) -> Result<(), String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    const MAX_SAMPLES: usize = 32;
+    const MAX_SAMPLED_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
+
+    // Derive the data offset directly from the raw header so the gate never
+    // shares the extractor's offset computation (regression guard).
+    let mut asar_file = fs::File::open(asar_path)
+        .map_err(|e| format!("cannot open archive '{}': {}", asar_path.display(), e))?;
+    let mut header = [0u8; 16];
+    asar_file
+        .read_exact(&mut header)
+        .map_err(|e| format!("cannot read archive header: {}", e))?;
+    let header_size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as u64;
+    let data_offset = 8 + header_size;
+
+    let mut reader = runtimepack_pack::GpackReader::open(pack_path)
+        .map_err(|e| format!("cannot open game.pack: {}", e))?;
+
+    let mut candidates: Vec<&runtimepack_engine_tyrano::asar::AsarFileEntry> = archive
+        .files
+        .values()
+        .filter(|entry| reader.has_file(&entry.path))
+        .collect();
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    candidates.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Prefer smaller entries so the gate stays cheap while remaining
+    // deterministic and representative of every region of the archive.
+    let sampled: Vec<&runtimepack_engine_tyrano::asar::AsarFileEntry> = candidates
+        .iter()
+        .copied()
+        .filter(|entry| entry.size <= MAX_SAMPLED_ENTRY_BYTES)
+        .collect();
+    let pool = if sampled.is_empty() {
+        candidates
+    } else {
+        sampled
+    };
+
+    let stride = pool.len().div_ceil(MAX_SAMPLES);
+    for entry in pool.iter().step_by(stride.max(1)) {
+        let mut source_bytes = vec![0u8; entry.size as usize];
+        asar_file
+            .seek(SeekFrom::Start(data_offset + entry.offset))
+            .map_err(|e| format!("cannot seek to '{}': {}", entry.path, e))?;
+        asar_file
+            .read_exact(&mut source_bytes)
+            .map_err(|e| format!("cannot read source entry '{}': {}", entry.path, e))?;
+        let source_hash: [u8; 32] = Sha256::digest(&source_bytes).into();
+
+        let packed_bytes = reader
+            .read_file(&entry.path)
+            .map_err(|e| format!("cannot read packed entry '{}': {}", entry.path, e))?;
+        let packed_hash: [u8; 32] = Sha256::digest(&packed_bytes).into();
+
+        if source_hash != packed_hash {
+            return Err(format!(
+                "entry '{}' shifted or corrupted (source sha256={}, packed sha256={})",
+                entry.path,
+                hex_digest(&source_hash),
+                hex_digest(&packed_hash)
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn hex_digest(bytes: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
 fn cmd_build(args: BuildArgs) {
     let normalized_flavor = args.flavor.to_lowercase();
     if normalized_flavor != "beta" && normalized_flavor != "release" {
@@ -753,6 +844,7 @@ fn cmd_build(args: BuildArgs) {
 
     let mut content_source_dir = path.to_path_buf();
     let mut staging_dir_to_cleanup: Option<PathBuf> = None;
+    let mut asar_integrity_source: Option<(PathBuf, runtimepack_engine_tyrano::AsarArchive)> = None;
     if matches!(descriptor.id, EngineId::RpgMakerMv | EngineId::RpgMakerMz) {
         if path.join("www/index.html").exists() || path.join("www/js/rpg_core.js").exists() {
             println!(
@@ -779,6 +871,7 @@ fn cmd_build(args: BuildArgs) {
                     std::process::exit(1);
                 }
             };
+            asar_integrity_source = Some((asar_path.clone(), archive.clone()));
             let extracted_count = match archive.extract_all(&asar_path, &staging_dir) {
                 Ok(c) => c,
                 Err(e) => {
@@ -834,6 +927,24 @@ fn cmd_build(args: BuildArgs) {
 
     if let Some(staging_dir) = staging_dir_to_cleanup {
         let _ = fs::remove_dir_all(&staging_dir);
+    }
+
+    // Post-pack integrity gate: guarantee that ASAR-sourced content survives the
+    // extract → stage → pack pipeline byte-exact. This catches the historical
+    // class of bug where an ASAR header-padding miscalculation silently shifted
+    // every packed entry before it could ship.
+    if let Some((asar_path, archive)) = &asar_integrity_source {
+        if encryption_key.is_some() {
+            println!("ASAR round-trip integrity: skipped (encrypted-streaming mode)");
+        } else if let Err(reason) = verify_asar_pack_roundtrip(asar_path, archive, &pack_path) {
+            eprintln!(
+                "[CNT-102] Post-pack ASAR round-trip integrity check failed: {}",
+                reason
+            );
+            std::process::exit(1);
+        } else {
+            println!("ASAR round-trip integrity: verified (SHA-256 sample)");
+        }
     }
 
     // Calculate pack hash
