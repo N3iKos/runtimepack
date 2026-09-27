@@ -10,7 +10,9 @@ import java.nio.ByteOrder
 
 object GpackExtractor {
     private const val TAG = "GpackExtractor"
-    private const val EXTRACTION_VERSION = "v3"
+    const val EXTRACTION_VERSION = "v3"
+    const val GAME_PACK_ASSET = "game.pack"
+    const val EXTRACTION_MARKER = ".gpack_extracted"
     private val GPACK_MAGIC = byteArrayOf('G'.code.toByte(), 'P'.code.toByte(), 'A'.code.toByte(), 'C'.code.toByte(), 'K'.code.toByte(), '1'.code.toByte(), 0, 0)
 
     fun interface ProgressCallback {
@@ -22,10 +24,21 @@ object GpackExtractor {
         val storedSize: Long
     )
 
+    fun isMarkerCurrent(destDir: File): Boolean {
+        val marker = File(destDir, EXTRACTION_MARKER)
+        if (!destDir.exists() || !marker.isFile) {
+            return false
+        }
+        return try {
+            marker.readText().trim() == EXTRACTION_VERSION
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun isExtracted(destDir: File): Boolean {
-        val marker = File(destDir, ".gpack_extracted")
         val ini = File(destDir, "Game.ini")
-        return destDir.exists() && marker.exists() && marker.readText().trim() == EXTRACTION_VERSION && ini.exists()
+        return isMarkerCurrent(destDir) && ini.exists()
     }
 
     fun isEncryptedStreamingMode(context: Context): Boolean {
@@ -40,16 +53,16 @@ object GpackExtractor {
     fun prepareStreamingContainer(context: Context, destDir: File): Boolean {
         return try {
             destDir.mkdirs()
-            val targetPack = File(destDir, "game.pack")
+            val targetPack = File(destDir, GAME_PACK_ASSET)
             if (!targetPack.exists()) {
-                context.assets.open("game.pack").use { input ->
+                context.assets.open(GAME_PACK_ASSET).use { input ->
                     FileOutputStream(targetPack).use { output ->
                         input.copyTo(output)
                     }
                 }
             }
             installRuntimeFiles(context, destDir)
-            File(destDir, ".gpack_extracted").writeText(EXTRACTION_VERSION)
+            File(destDir, EXTRACTION_MARKER).writeText(EXTRACTION_VERSION)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to prepare streaming container: ${e.message}", e)
@@ -315,11 +328,11 @@ object GpackExtractor {
             destDir.deleteRecursively()
         }
         destDir.mkdirs()
-        Log.i(TAG, "Extracting game.pack into ${destDir.absolutePath}...")
+        Log.i(TAG, "Extracting ${GAME_PACK_ASSET} into ${destDir.absolutePath}...")
 
         var inputStream: InputStream? = null
         try {
-            inputStream = context.assets.open("game.pack")
+            inputStream = context.assets.open(GAME_PACK_ASSET)
 
             // 1. Read 64-byte header
             val headerBuf = ByteArray(64)
@@ -398,7 +411,7 @@ object GpackExtractor {
             // 4. Install/update runtime files
             installRuntimeFiles(context, destDir)
 
-            File(destDir, ".gpack_extracted").writeText(EXTRACTION_VERSION)
+            File(destDir, EXTRACTION_MARKER).writeText(EXTRACTION_VERSION)
             Log.i(TAG, "Successfully extracted all $fileCount files to ${destDir.absolutePath}")
             return true
         } catch (e: Exception) {

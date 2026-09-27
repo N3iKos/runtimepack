@@ -13,6 +13,15 @@ class RenpyActivityTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
+    private fun createMountedRoot(name: String, markerVersion: String = GpackExtractor.EXTRACTION_VERSION): File {
+        val root = tempFolder.newFolder(name)
+        File(root, "main.py").writeText("")
+        File(root, "renpy").mkdirs()
+        File(root, "lib").mkdirs()
+        File(root, GpackExtractor.EXTRACTION_MARKER).writeText(markerVersion)
+        return root
+    }
+
     @Test
     fun gameRootResolvesToGameSubdirectory() {
         val files = tempFolder.newFolder("files")
@@ -90,5 +99,74 @@ class RenpyActivityTest {
     fun extractionMarkerLocatedAtGameRoot() {
         val root = tempFolder.newFolder("root")
         assertEquals(File(root, ".gpack_extracted"), RenpyActivity.extractionMarker(root))
+        assertEquals(GpackExtractor.EXTRACTION_MARKER, RenpyActivity.extractionMarker(root).name)
+    }
+
+    // --- mount guard (finding 2 + 3) ---------------------------------------
+
+    @Test
+    fun isContentMountedFalseWithoutMarker() {
+        val root = tempFolder.newFolder("root")
+        File(root, "main.py").writeText("")
+        File(root, "renpy").mkdirs()
+        File(root, "lib").mkdirs()
+
+        assertFalse(GpackExtractor.isMarkerCurrent(root))
+        assertFalse(RenpyActivity.isContentMounted(root))
+    }
+
+    @Test
+    fun isContentMountedFalseWhenMarkerStale() {
+        val root = createMountedRoot("stale", markerVersion = "v2")
+
+        assertFalse(GpackExtractor.isMarkerCurrent(root))
+        assertFalse(RenpyActivity.isContentMounted(root))
+    }
+
+    @Test
+    fun isContentMountedTrueWithCurrentMarkerAndLayout() {
+        val root = createMountedRoot("mounted")
+
+        assertTrue(GpackExtractor.isMarkerCurrent(root))
+        assertTrue(RenpyActivity.isContentMounted(root))
+    }
+
+    @Test
+    fun isContentMountedFalseWithCurrentMarkerButIncompleteLayout() {
+        val root = tempFolder.newFolder("partial")
+        File(root, "main.py").writeText("")
+        File(root, GpackExtractor.EXTRACTION_MARKER).writeText(GpackExtractor.EXTRACTION_VERSION)
+
+        assertTrue(GpackExtractor.isMarkerCurrent(root))
+        assertFalse(RenpyActivity.isGameMounted(root))
+        assertFalse(RenpyActivity.isContentMounted(root))
+    }
+
+    @Test
+    fun isMarkerCurrentFalseWhenMarkerIsDirectory() {
+        val root = tempFolder.newFolder("dir-marker")
+        File(root, GpackExtractor.EXTRACTION_MARKER).mkdirs()
+
+        assertFalse(GpackExtractor.isMarkerCurrent(root))
+    }
+
+    @Test
+    fun isMarkerCurrentFalseForMissingDirectory() {
+        val missing = File(tempFolder.root, "nope")
+        assertFalse(GpackExtractor.isMarkerCurrent(missing))
+    }
+
+    // --- save symlink redirection (finding 3 / isolation) ------------------
+
+    @Test
+    fun shouldLinkSaveDirectoryTrueWhenLegacyAbsent() {
+        val legacySaves = File(tempFolder.root, "game/saves")
+        assertTrue(RenpyActivity.shouldLinkSaveDirectory(legacySaves))
+    }
+
+    @Test
+    fun shouldLinkSaveDirectoryFalseWhenLegacyPresent() {
+        val legacySaves = tempFolder.newFolder("game", "saves")
+        assertFalse(RenpyActivity.shouldLinkSaveDirectory(legacySaves))
     }
 }

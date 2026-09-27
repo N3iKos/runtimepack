@@ -397,7 +397,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         try {
             mHIDDeviceManager = HIDDeviceManager.acquire(this);
-        } catch (Throwable e) {
+        } catch (UnsatisfiedLinkError | NoClassDefFoundError e) {
+            // The Ren'Py fat runtime (librenpython.so) does not export the HID
+            // natives and HID support is optional. Only these linkage errors are
+            // suppressed; any other failure still propagates.
             mHIDDeviceManager = null;
             Log.w(TAG, "HID device support unavailable: " + e.getMessage());
         }
