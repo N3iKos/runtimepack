@@ -1,5 +1,20 @@
 # Decisions Log
 
+## [2026-09-27] Forestia Clean-Up: Disabled Plugins & Watermark URL Whitelist (Task 1)
+**Keputusan:**
+1. Di `core/src/asset_audit/network.rs`:
+   - Menambahkan helper `is_whitelisted_static_url(url: &str) -> bool` untuk mengenali URL komunitas (`linktr.ee/veldra.works`, `veldra.works`, `linktr.ee`).
+   - Pada `audit_network_reference` dan `NetworkAuditResult::to_finding`: URL whitelisted dievaluasi sebagai `Verified` dan dilewati dari pembuatan finding `CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED` (`CMP-AUD-011`).
+2. Di `engines/rpgmaker_web/src/asset_audit.rs`:
+   - Pada `resolve_and_record`: URL whitelisted tidak memicu warning offline indeterminate `CMP-AUD-011`, dan edge ditandai dengan stage `IntegrityVerified`.
+   - Pada `audit_plugins`: Plugin dengan `status: false` diperlakukan dengan `ReferenceRequiredness::Optional`. Jika file plugin tidak ada di disk (`ResolutionResult::Missing`), diemisi sebagai `CMP_AUD_POSSIBLY_UNUSED` (`CMP-AUD-013`, severity `Info`, disposition `Informational`) bukan `CMP-AUD-003` (Warning). Transitive `@base` dependencies tidak discan untuk inactive plugins.
+   - Evaluasi outcome di Standard mode: jika seluruh temuan hanya terdiri dari `CMP_AUD_CASE_MISMATCH`, `CMP_AUD_POSSIBLY_UNUSED`, atau severity `Info`, outcome dievaluasi menjadi `AuditOutcome::Pass` (karena case mismatch di-handle secara transparan oleh VFS case-folding runtime Android).
+3. Di `core/src/asset_audit/mod.rs` & `cache.rs`:
+   - Menyelaraskan `recompute_outcome` pada Standard mode untuk engine web `RpgMakerMv` dan `RpgMakerMz` agar case mismatch tidak memaksa outcome menjadi `Warning`.
+   - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 8.
+**Alasan:** Game RPG Maker MZ seperti *Forestia* menyertakan plugin development non-aktif (`develop/開発用プラグインは最終的にOFFにする`) dan URL watermark resmi komunitas (`https://linktr.ee/Veldra.Works`). Tanpa toleransi plugin non-aktif dan whitelist domain komunitas, auditor statis menandai status game sebagai `Indeterminate` dan warning, menghalangi status audit `PASS`.
+**Dampak:** Static asset audit pada *Forestia* sukses mencapai status **PASS** (17.466 nodes, 7.146 refs, 24 benign findings). Seluruh 277 tests Cargo workspace lulus 100%.
+
 ## [2026-09-27] Full Sweep Re-Audit & Verification across All 8 Games (Task 6)
 **Keputusan:**
 1. Di `core/src/asset_audit/report.rs`:

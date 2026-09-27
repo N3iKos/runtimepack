@@ -38,7 +38,7 @@
   - In `core/src/asset_audit/network.rs`:
     - Whitelist known benign URLs (such as `linktr.ee/Veldra.Works` and internal community watermarks) so they do not produce blocking `CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED` findings.
 
-- [ ] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
+- [x] **Step 1: Write failing test in `web_asset_audit_test.rs`**:
   ```rust
   #[test]
   fn test_disabled_plugin_missing_does_not_fail_audit() {
@@ -49,9 +49,9 @@
       // Assert that NonExistentDevPlugin does not cause audit outcome to be Fail or Indeterminate
   }
   ```
-- [ ] **Step 2: Run test to verify failure**:
+- [x] **Step 2: Run test to verify failure**:
   `cargo test --test web_asset_audit_test test_disabled_plugin_missing_does_not_fail_audit`
-- [ ] **Step 3: Implement disabled plugin tolerance and URL whitelist**:
+- [x] **Step 3: Implement disabled plugin tolerance and URL whitelist**:
   - In `engines/rpgmaker_web/src/asset_audit.rs`:
     Ensure `status: false` plugins only record `ReferenceRequiredness::Optional` and `FindingSeverity::Info` if missing.
   - In `core/src/asset_audit/network.rs`:
@@ -63,12 +63,12 @@
     }
     ```
     If whitelisted, skip emitting `CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED`.
-- [ ] **Step 4: Run test to verify pass**:
+- [x] **Step 4: Run test to verify pass**:
   `cargo test --test web_asset_audit_test`
-- [ ] **Step 5: Verify on Forestia**:
+- [x] **Step 5: Verify on Forestia**:
   `cargo run --bin runtimepack -- audit "Raw-Game\Forestia1.4.4-IND" --mode standard --output dist/forestia/asset-audit-report.json`
   Assert outcome is `Pass`.
-- [ ] **Step 6: Commit**:
+- [x] **Step 6: Commit**:
   ```powershell
   git add engines/rpgmaker_web/src/asset_audit.rs core/src/asset_audit/network.rs tests/integration/web_asset_audit_test.rs
   git commit -m "feat(web): ignore disabled plugins in audit and whitelist community watermark URLs"

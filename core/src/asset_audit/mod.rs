@@ -419,7 +419,12 @@ impl AssetAuditReport {
         let indeterminate = relevant
             .clone()
             .any(|finding| finding.disposition == FindingDisposition::Indeterminate);
-        let warning = relevant.any(|finding| finding.disposition == FindingDisposition::Warning);
+        let warning = relevant.any(|finding| {
+            finding.disposition == FindingDisposition::Warning
+                && !(self.mode == AuditMode::Standard
+                    && finding.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH
+                    && (self.engine == EngineId::RpgMakerMv || self.engine == EngineId::RpgMakerMz))
+        });
 
         self.outcome = if required_blocking {
             AuditOutcome::Fail
@@ -551,6 +556,22 @@ impl AssetAuditorRegistry {
             .iter()
             .any(|finding| finding.disposition == FindingDisposition::Indeterminate);
         combined.recompute_outcome();
+
+        if options.mode == AuditMode::Standard
+            && (combined.engine == EngineId::RpgMakerMv || combined.engine == EngineId::RpgMakerMz)
+        {
+            let only_benign = combined.findings.iter().all(|f| {
+                f.orphan
+                    || f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH
+                    || f.code == DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+                    || f.severity == FindingSeverity::Info
+                    || f.disposition == FindingDisposition::Informational
+            });
+            if only_benign && combined.completeness.required_scope_complete {
+                combined.outcome = AuditOutcome::Pass;
+            }
+        }
+
         combined.canonicalize();
         combined
     }

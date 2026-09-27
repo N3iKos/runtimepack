@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-pub const CURRENT_AUDIT_RULESET_VERSION: u32 = 7;
+pub const CURRENT_AUDIT_RULESET_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditCacheKey {

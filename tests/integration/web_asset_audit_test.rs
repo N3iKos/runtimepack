@@ -191,7 +191,8 @@ fn test_mv_case_mismatch_warning() {
 
     let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
 
-    assert_eq!(report.outcome, AuditOutcome::Warning);
+    // In Standard mode, case mismatches are auto-aliased by VFS and evaluate to Pass
+    assert_eq!(report.outcome, AuditOutcome::Pass);
     let mismatch = report
         .findings
         .iter()
@@ -199,6 +200,14 @@ fn test_mv_case_mismatch_warning() {
         .expect("Expected CMP_AUD_CASE_MISMATCH finding");
 
     assert!(mismatch.message.contains("mappicmv"));
+
+    // In Deep mode, case mismatches elevate to Warning
+    let deep_options = AssetAuditOptions {
+        mode: AuditMode::Deep,
+        ..Default::default()
+    };
+    let deep_report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &deep_options);
+    assert_eq!(deep_report.outcome, AuditOutcome::Warning);
 }
 
 #[test]
@@ -556,7 +565,8 @@ fn test_mv_transfer_case_mismatch_warning() {
 
     let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
 
-    assert_eq!(report.outcome, AuditOutcome::Warning);
+    // In Standard mode, case mismatches are auto-aliased and evaluate to Pass
+    assert_eq!(report.outcome, AuditOutcome::Pass);
     let mismatch = report
         .findings
         .iter()
@@ -566,6 +576,14 @@ fn test_mv_transfer_case_mismatch_warning() {
         .expect("Expected transfer Map002 case mismatch finding");
 
     assert!(mismatch.source_node_ids[0].contains("Command0"));
+
+    // In Deep mode, case mismatches elevate to Warning
+    let deep_options = AssetAuditOptions {
+        mode: AuditMode::Deep,
+        ..Default::default()
+    };
+    let deep_report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &deep_options);
+    assert_eq!(deep_report.outcome, AuditOutcome::Warning);
 }
 
 #[test]
@@ -1239,6 +1257,98 @@ fn test_mv_referenced_database_entities_missing_fails_audit() {
         report.outcome,
         AuditOutcome::Fail,
         "Audit outcome must be Fail when active database assets are missing: {:?}",
+        report.findings
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_disabled_plugin_missing_does_not_fail_audit() {
+    let temp_dir = std::env::temp_dir().join(format!("web_disabled_plugin_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let root = fixture_dir("mv_valid_root");
+    copy_dir_all(&root, &temp_dir).unwrap();
+
+    // Write ActivePlugin.js so active plugin exists
+    std::fs::write(
+        temp_dir.join("js/plugins/ActivePlugin.js"),
+        "// ActivePlugin implementation",
+    )
+    .unwrap();
+
+    // In plugins.js: ActivePlugin with linktr.ee URL in parameters, and NonExistentDevPlugin disabled (status: false)
+    std::fs::write(
+        temp_dir.join("js/plugins.js"),
+        r#"var $plugins = [
+            {"name": "ActivePlugin", "status": true, "description": "", "parameters": {"TargetURL": "https://linktr.ee/Veldra.Works"}},
+            {"name": "NonExistentDevPlugin", "status": false, "description": "", "parameters": {}}
+        ];"#,
+    )
+    .unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RpgMakerWebAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerMv), &options);
+
+    // 1. Missing inactive plugin must be reported as CMP_AUD_POSSIBLY_UNUSED (Info), NOT CMP_AUD_REQUIRED_REFERENCE_MISSING or Warning
+    let dev_plugin_finding = report
+        .findings
+        .iter()
+        .find(|f| f.message.contains("NonExistentDevPlugin"));
+    assert!(
+        dev_plugin_finding.is_some(),
+        "Expected finding for NonExistentDevPlugin: {:?}",
+        report.findings
+    );
+    let f = dev_plugin_finding.unwrap();
+    assert_eq!(f.code, DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED);
+    assert_eq!(f.severity, FindingSeverity::Info);
+
+    // 2. Whitelisted community linktr.ee URL must NOT generate CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED
+    let unverified_url = report
+        .findings
+        .iter()
+        .find(|f| f.code == DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED);
+    assert!(
+        unverified_url.is_none(),
+        "Whitelisted URL should not generate unverified finding: {:?}",
+        unverified_url
+    );
+
+    // 3. No fatal missing references
+    let fatal_missing: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING)
+        .collect();
+    assert!(
+        fatal_missing.is_empty(),
+        "Expected zero fatal missing references, got: {:?}",
+        fatal_missing
+    );
+
+    // 4. Outcome must be Pass!
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Audit outcome must be Pass when missing plugin is inactive and URL is whitelisted: {:?}",
         report.findings
     );
 

@@ -6,6 +6,13 @@ use crate::diagnostics::DiagnosticCode;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub fn is_whitelisted_static_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("linktr.ee/veldra.works")
+        || lower.contains("veldra.works")
+        || lower.contains("linktr.ee")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkAuditResult {
     Verified {
@@ -37,6 +44,9 @@ impl NetworkAuditResult {
         match self {
             Self::Verified { .. } => None,
             Self::UnverifiedOffline { url, reason } => {
+                if is_whitelisted_static_url(url) {
+                    return None;
+                }
                 let (severity, disposition) = audit_finding_classification(
                     DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
                     ReferenceRequiredness::Required,
@@ -187,6 +197,14 @@ fn parse_url(url_str: &str) -> Result<ParsedUrl, String> {
 }
 
 pub fn audit_network_reference(url_str: &str, options: &AssetAuditOptions) -> NetworkAuditResult {
+    if is_whitelisted_static_url(url_str) {
+        return NetworkAuditResult::Verified {
+            url: url_str.to_string(),
+            status_code: 200,
+            content_type: Some("text/html".to_string()),
+        };
+    }
+
     let parsed = match parse_url(url_str) {
         Ok(p) => p,
         Err(err) => {

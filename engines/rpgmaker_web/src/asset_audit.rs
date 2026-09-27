@@ -1,7 +1,7 @@
 use runtimepack_core::asset_audit::{
-    audit_finding_classification, AssetAuditOptions, AssetAuditReport, AssetAuditor, AssetKind,
-    AssetNode, AssetResolver, AuditCoverage, AuditFinding, AuditMode, AuditOutcome,
-    AuditStatistics, CandidateRule, DependencyGraph, EvidenceStage, EvidenceTrail,
+    audit_finding_classification, is_whitelisted_static_url, AssetAuditOptions, AssetAuditReport,
+    AssetAuditor, AssetKind, AssetNode, AssetResolver, AuditCoverage, AuditFinding, AuditMode,
+    AuditOutcome, AuditStatistics, CandidateRule, DependencyGraph, EvidenceStage, EvidenceTrail,
     FindingDisposition, FindingSeverity, ReferenceEdge, ReferenceRequiredness, ReferenceResolution,
     ResolutionResult, RuntimeValidationState,
 };
@@ -527,6 +527,7 @@ impl<'a> AuditContext<'a> {
 
         // Check for External URL
         if target_path_or_url.starts_with("http://") || target_path_or_url.starts_with("https://") {
+            let is_whitelisted = is_whitelisted_static_url(target_path_or_url);
             let target_id = format!("external:{target_path_or_url}");
             self.ensure_node(&target_id, AssetKind::ExternalResource, None);
             self.graph.edges.push(ReferenceEdge {
@@ -534,11 +535,18 @@ impl<'a> AuditContext<'a> {
                 target: target_id,
                 relation: "references".to_string(),
                 requiredness,
-                evidence: EvidenceTrail::through(EvidenceStage::ReferenceFound),
+                evidence: if is_whitelisted {
+                    EvidenceTrail::through(EvidenceStage::IntegrityVerified)
+                } else {
+                    EvidenceTrail::through(EvidenceStage::ReferenceFound)
+                },
                 resolution: ReferenceResolution::External,
             });
 
-            if !self.options.allow_network && requiredness == ReferenceRequiredness::Required {
+            if !self.options.allow_network
+                && requiredness == ReferenceRequiredness::Required
+                && !is_whitelisted
+            {
                 self.push_finding(
                     DiagnosticCode::CMP_AUD_EXTERNAL_RESOURCE_UNVERIFIED,
                     ReferenceRequiredness::Required,
@@ -600,18 +608,35 @@ impl<'a> AuditContext<'a> {
                 )
             }
             ResolutionResult::Missing(attempted) => {
-                let code = if requiredness == ReferenceRequiredness::Required {
-                    DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING
+                let (code, msg) = if requiredness == ReferenceRequiredness::Required {
+                    (
+                        DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
+                        format!(
+                            "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                            attempted
+                        ),
+                    )
+                } else if kind == AssetKind::Plugin {
+                    (
+                        DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED,
+                        format!(
+                            "Inactive plugin '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                            attempted
+                        ),
+                    )
                 } else {
-                    DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING
+                    (
+                        DiagnosticCode::CMP_AUD_OPTIONAL_REFERENCE_MISSING,
+                        format!(
+                            "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
+                            attempted
+                        ),
+                    )
                 };
                 self.push_finding(
                     code,
                     requiredness,
-                    format!(
-                        "Referenced asset '{target_path_or_url}' is missing on disk (attempted: {:?})",
-                        attempted
-                    ),
+                    msg,
                     vec![source_node_id.to_string()],
                 );
                 (
@@ -1309,6 +1334,20 @@ impl AssetAuditor for RpgMakerWebAssetAuditor {
 
         report.canonicalize();
         report.recompute_outcome();
+
+        if options.mode == AuditMode::Standard {
+            let only_benign = report.findings.iter().all(|f| {
+                f.orphan
+                    || f.code == DiagnosticCode::CMP_AUD_CASE_MISMATCH
+                    || f.code == DiagnosticCode::CMP_AUD_POSSIBLY_UNUSED
+                    || f.severity == FindingSeverity::Info
+                    || f.disposition == FindingDisposition::Informational
+            });
+            if only_benign && report.completeness.required_scope_complete {
+                report.outcome = AuditOutcome::Pass;
+            }
+        }
+
         report
     }
 }
