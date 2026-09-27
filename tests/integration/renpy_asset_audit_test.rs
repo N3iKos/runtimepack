@@ -5,7 +5,9 @@ use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
-use runtimepack_engine_renpy::RenPyAssetAuditor;
+use runtimepack_engine_renpy::{
+    create_synthetic_rpa_v2, create_synthetic_rpa_v3, parse_rpa_index, RenPyAssetAuditor,
+};
 use std::path::{Path, PathBuf};
 
 fn workspace_root() -> PathBuf {
@@ -715,4 +717,151 @@ label start:
         runtime_nodes.iter().any(|n| n.id.contains("color")),
         "runtime:color nodes missing"
     );
+}
+
+#[test]
+fn test_synthetic_rpa_v3_archive_index_parsing() {
+    let key = 0x55aa55aa;
+    let entries = [
+        ("gui/main_menu.png", &b"PNG_DATA"[..]),
+        ("audio/theme.ogg", &b"OGG_DATA"[..]),
+    ];
+    let archive_bytes = create_synthetic_rpa_v3(&entries, key);
+    let index = parse_rpa_index(&archive_bytes).expect("parse_rpa_index failed");
+
+    assert_eq!(index.files.len(), 2);
+    assert!(index.has_file("gui/main_menu.png"));
+    assert!(index.has_file("audio/theme.ogg"));
+    assert_eq!(index.get_entry("gui/main_menu.png"), Some((34, 8)));
+}
+
+#[test]
+fn test_synthetic_rpa_v3_audits_pass_with_internal_assets() {
+    let temp_dir = std::env::temp_dir().join(format!("renpy_rpa_v3_pass_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let game_dir = temp_dir.join("game");
+    std::fs::create_dir_all(&game_dir).unwrap();
+
+    let options_rpy = "# renpy 8.2.1\ndefine config.name = \"Synthetic RPA v3\"\n";
+    std::fs::write(game_dir.join("options.rpy"), options_rpy).unwrap();
+
+    let script_rpy = r#"
+image bg_main = "images/bg_main.png"
+define audio.main_theme = "audio/theme.ogg"
+
+label start:
+    scene bg_main
+    play music main_theme
+    return
+"#;
+    std::fs::write(game_dir.join("script.rpy"), script_rpy).unwrap();
+
+    let entries = [
+        ("images/bg_main.png", &b"MOCK_PNG_IMAGE"[..]),
+        ("audio/theme.ogg", &b"MOCK_OGG_AUDIO"[..]),
+    ];
+    let archive_bytes = create_synthetic_rpa_v3(&entries, 0x12345678);
+    std::fs::write(game_dir.join("archive.rpa"), archive_bytes).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, findings: {:#?}",
+        report.findings
+    );
+    assert!(report.completeness.required_scope_complete);
+    assert!(
+        !report
+            .completeness
+            .uncovered_reference_classes
+            .iter()
+            .any(|c| c == "renpy-rpa-archive"),
+        "renpy-rpa-archive should be covered"
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == DiagnosticCode::CMP_AUD_LIMIT_REACHED),
+        "Expected no limit reached findings: {:#?}",
+        report.findings
+    );
+
+    // Verify image and audio references are resolved
+    let image_edge = report
+        .graph
+        .edges
+        .iter()
+        .find(|e| e.target.contains("bg_main.png"))
+        .expect("Missing edge for bg_main.png");
+    assert_eq!(image_edge.resolution, ReferenceResolution::Resolved);
+
+    let audio_edge = report
+        .graph
+        .edges
+        .iter()
+        .find(|e| e.target.contains("theme.ogg"))
+        .expect("Missing edge for theme.ogg");
+    assert_eq!(audio_edge.resolution, ReferenceResolution::Resolved);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_synthetic_rpa_v2_audits_pass_with_internal_assets() {
+    let temp_dir = std::env::temp_dir().join(format!("renpy_rpa_v2_pass_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let game_dir = temp_dir.join("game");
+    std::fs::create_dir_all(&game_dir).unwrap();
+
+    let options_rpy = "# renpy 7.4.11\ndefine config.name = \"Synthetic RPA v2\"\n";
+    std::fs::write(game_dir.join("options.rpy"), options_rpy).unwrap();
+
+    let script_rpy = r#"
+image bg_room = "images/bg_room.jpg"
+define audio.sfx_click = "audio/click.ogg"
+
+label start:
+    scene bg_room
+    play sound sfx_click
+    return
+"#;
+    std::fs::write(game_dir.join("script.rpy"), script_rpy).unwrap();
+
+    let entries = [
+        ("images/bg_room.jpg", &b"MOCK_JPEG_IMAGE"[..]),
+        ("audio/click.ogg", &b"MOCK_OGG_SOUND"[..]),
+    ];
+    let archive_bytes = create_synthetic_rpa_v2(&entries);
+    std::fs::write(game_dir.join("archive.rpa"), archive_bytes).unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RenPyAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RenPy), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, findings: {:#?}",
+        report.findings
+    );
+    assert!(report.completeness.required_scope_complete);
+    assert!(
+        !report
+            .completeness
+            .uncovered_reference_classes
+            .iter()
+            .any(|c| c == "renpy-rpa-archive"),
+        "renpy-rpa-archive should be covered"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }

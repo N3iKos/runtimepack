@@ -1,5 +1,10 @@
+pub mod archive;
 pub mod asset_audit;
 pub mod scanner;
+pub use archive::{
+    create_synthetic_rpa_v2, create_synthetic_rpa_v3, parse_rpa_index, read_rpa_index_from_file,
+    read_rpa_index_from_reader, RpaArchiveIndex,
+};
 pub use asset_audit::RenPyAssetAuditor;
 pub use scanner::RenPyAnalyzer;
 

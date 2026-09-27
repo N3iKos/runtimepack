@@ -185,20 +185,20 @@
   - Decompresses zlib index slice and extracts file paths.
   - Integrates with `RenPyAssetAuditor`: Populates internal archive files into index so `.rpa` assets resolve cleanly.
 
-- [ ] **Step 1: Write integration tests in `renpy_asset_audit_test.rs`**:
+- [x] **Step 1: Write integration tests in `renpy_asset_audit_test.rs`**:
   - Test synthetic RPAv3 archive index decompression and path parsing.
   - Verify `RenPyAssetAuditor` finds assets inside `.rpa` without reporting `CMP-AUD-007` archive limitation.
-- [ ] **Step 2: Implement `engines/renpy/src/archive.rs`**:
+- [x] **Step 2: Implement `engines/renpy/src/archive.rs`**:
   - Parse header line, read hex offset and key.
   - Decompress with `flate2::read::ZlibDecoder`.
   - Extract keys (paths) from Python pickle dictionary in index.
-- [ ] **Step 3: Integrate with `RenPyAssetAuditor`**:
+- [x] **Step 3: Integrate with `RenPyAssetAuditor`**:
   - Register internal `.rpa` paths into `effective_source`.
   - Elevate outcome to `Pass` when game assets are located in archives.
-- [ ] **Step 4: Run tests to verify pass**:
+- [x] **Step 4: Run tests to verify pass**:
   - `cargo test -p runtimepack-engine-renpy`
   - `cargo test --test renpy_asset_audit_test`
-- [ ] **Step 5: Commit**:
+- [x] **Step 5: Commit**:
   ```powershell
   git add engines/renpy/src/archive.rs engines/renpy/src/lib.rs engines/renpy/src/asset_audit.rs tests/integration/renpy_asset_audit_test.rs
   git commit -m "feat(renpy): implement in-memory RPA archive index parser for deep audit"

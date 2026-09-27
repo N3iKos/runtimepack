@@ -1,12 +1,33 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`) selesai 100%.
-- **Next step:** Melanjutkan Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`).
+- **Sedang kerjain apa:** Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`) selesai 100%.
+- **Next step:** Melanjutkan Task 6 Plan Remediasi Audit (Full Sweep Re-Audit & Verification across All 8 Games).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Parser indeks in-memory untuk format RGSSAD v1/v2 (XP/VX) dan RGSS3A v3 (VX Ace) telah diimplementasikan di `engines/rgss/src/archive.rs`. Pada `RgssAssetAuditor` (`engines/rgss/src/asset_audit.rs`), berkas arsip terenkripsi dipindai tabel indeksnya secara in-memory (tanpa ekstraksi ke disk), lalu seluruh entri internal digabungkan ke `effective_source.files` sebagai virtual `IndexedFile`. Audit data files memverifikasi kelengkapan database (`Data/System.*`, `Actors.*`, dll.) di dalam arsip. Warning `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED` tidak lagi diemisi jika seluruh berkas wajib ditemukan di dalam arsip, dan outcome berhasil mencapai `Pass` (terkonfirmasi bersih pada *To the Moon* dan *Hello Charlotte EP1*). Seluruh 273 Cargo workspace tests lulus 100%.
+- **Catatan fokus:** Parser indeks in-memory untuk format Ren'Py RPAv3 dan RPAv2 telah diimplementasikan di `engines/renpy/src/archive.rs` beserta decompressor zlib dan parser Python pickle dictionary (dengan deobfuscasi XOR key dan scanner fallback). Pada `RenPyAssetAuditor` (`engines/renpy/src/asset_audit.rs`), berkas arsip `.rpa` dipindai tabel indeksnya secara in-memory (tanpa ekstraksi ke disk), lalu seluruh entri internal digabungkan ke `effective_source.files` sebagai virtual `IndexedFile` (baik dengan prefix `game/` maupun path internal). Coverage `renpy-rpa-archive` ditandai sebagai covered, finding `CMP-AUD-007` (`CMP_AUD_LIMIT_REACHED`) tidak lagi diemisi jika seluruh arsip berhasil diindeks, dan outcome berhasil mencapai `Pass`. Seluruh 30 tests di `renpy_asset_audit_test` dan seluruh 276 Cargo workspace tests lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`) Selesai:
+  1. `engines/renpy/src/archive.rs` & `engines/renpy/src/lib.rs`:
+     - Implementasi `RpaArchiveIndex` mapping path ke `(offset, length)` dengan helper `has_file` dan `get_entry` case-insensitive & separator-normalized.
+     - Implementasi `parse_rpa_index(&bytes)` dan `read_rpa_index_from_reader(&mut reader)` / `read_rpa_index_from_file(&path)`:
+       - Header line parser: mem-parse `RPA-3.0 <offset_hex> <key_hex>` dan `RPA-2.0 <offset_hex> <key_hex>` atau `RPA-2.0 <offset_hex>`.
+       - Seek ke hex offset dan decompress zlib payload via `flate2::read::ZlibDecoder`.
+       - Parser Python pickle dictionary in-memory: mendukung opcode PROTO, FRAME, EMPTY_DICT, EMPTY_LIST, EMPTY_TUPLE, MARK, STOP, MEMOIZE, BINPUT, LONG_BINPUT, PUT, BINGET, LONG_BINGET, GET, GLOBAL, REDUCE, SHORT_BINUNICODE, BINUNICODE, BINUNICODE8, SHORT_BINSTRING, BINSTRING, STRING, UNICODE, SHORT_BINBYTES, BINBYTES, BININT1, BININT2, BININT, INT, LONG1, LONG4, TUPLE1/2/3/TUPLE, APPEND, APPENDS, SETITEM, SETITEMS, DICT.
+       - Deobfuscasi XOR `offset ^ key` dan `len ^ key` dari tuple value segmen file.
+       - Fallback regex scanner jika struktur pickle mengandung opcode kustom/eksotik.
+     - Helper generator arsip sintetis `create_synthetic_rpa_v3` dan `create_synthetic_rpa_v2` untuk TDD.
+  2. `engines/renpy/src/asset_audit.rs`:
+     - Membaca arsip `.rpa` in-memory via `read_rpa_index_from_reader` / `parse_rpa_index`.
+     - Mengisi `effective_source.files` dengan virtual `IndexedFile` entries (termasuk normalisasi prefix `game/` jika archive berada di folder `game/`).
+     - Menginisialisasi `AssetResolver` dengan `&effective_source`.
+     - Pada audit archive checks: menandai coverage `renpy-rpa-archive` sebagai covered dan mengeliminasi finding `CMP-AUD-007` (`CMP_AUD_LIMIT_REACHED`) untuk arsip yang berhasil diindeks.
+     - Outcome dievaluasi ke `Pass` saat seluruh referensi aset skrip teresolusi di dalam arsip.
+  3. Tests & Verifikasi:
+     - Unit tests `test_synthetic_rpa_v3_parsing`, `test_synthetic_rpa_v2_parsing`, `test_parse_invalid_header_fails`, `test_parse_real_archives_if_present` di `archive.rs`.
+     - Integration tests `test_synthetic_rpa_v3_archive_index_parsing`, `test_synthetic_rpa_v3_audits_pass_with_internal_assets`, dan `test_synthetic_rpa_v2_audits_pass_with_internal_assets` di `renpy_asset_audit_test.rs`.
+     - Memverifikasi arsip dummy pada `test_renpy_rpa_archive_yields_indeterminate` tetap gagal secara aman (fail-closed) menghasilkan `Indeterminate`.
+     - 30 tests di `renpy_asset_audit_test` dan seluruh 276 tests Cargo workspace lulus 100%.
 - [2026-09-27] Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`) Selesai (Commit `cb60b48`):
   1. `engines/rgss/src/archive.rs` & `engines/rgss/src/lib.rs`:
      - Implementasi `RgssArchiveIndex` dengan mapping file paths ke size/offset, serta method `has_file` dan `get_size` case-insensitive & path-normalized.

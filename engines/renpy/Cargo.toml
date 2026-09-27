@@ -9,6 +9,7 @@ authors.workspace = true
 runtimepack-core = { path = "../../core" }
 serde = { workspace = true }
 regex = { workspace = true }
+flate2 = { workspace = true }
 
 [[test]]
 name = "renpy_asset_audit_test"

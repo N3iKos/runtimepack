@@ -699,6 +699,7 @@ dependencies = [
 name = "runtimepack-engine-renpy"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "regex",
  "runtimepack-core",
  "serde",

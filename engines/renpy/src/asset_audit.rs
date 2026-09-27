@@ -10,7 +10,9 @@ use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::OnceLock;
+use crate::archive::{parse_rpa_index, read_rpa_index_from_reader};
 use crate::scanner::RenPyAnalyzer;
 
 static IMAGE_STMT_RE: OnceLock<regex::Regex> = OnceLock::new();
@@ -688,7 +690,60 @@ impl AssetAuditor for RenPyAssetAuditor {
         engine: &EngineDescriptor,
         options: &AssetAuditOptions,
     ) -> AssetAuditReport {
-        let resolver = AssetResolver::new(source);
+        let mut effective_source = source.clone();
+        let mut indexed_rpa_archives: HashSet<String> = HashSet::new();
+
+        for (path, file) in &source.files {
+            if path.ends_with(".rpa") {
+                let full_path = file.real_path(&source.root_path);
+                let rpa_index = if let Ok(mut f) = std::fs::File::open(&full_path) {
+                    read_rpa_index_from_reader(&mut f)
+                } else if let Ok(bytes) = std::fs::read(&full_path) {
+                    parse_rpa_index(&bytes)
+                } else {
+                    Err("Failed to open RPA archive file".to_string())
+                };
+
+                if let Ok(archive_index) = rpa_index {
+                    if !archive_index.files.is_empty() {
+                        indexed_rpa_archives.insert(path.clone());
+                        indexed_rpa_archives.insert(file.logical_path.clone());
+
+                        let in_game_dir = path.to_ascii_lowercase().starts_with("game/");
+
+                        for (entry_path, (_offset, length)) in &archive_index.files {
+                            let norm = entry_path.replace('\\', "/").trim_start_matches('/').to_string();
+                            let indexed = IndexedFile {
+                                logical_path: norm.clone(),
+                                relative_path: PathBuf::from(&norm),
+                                size_bytes: *length,
+                                source_root: None,
+                            };
+                            effective_source.files.insert(norm.to_ascii_lowercase(), indexed.clone());
+                            if norm != norm.to_ascii_lowercase() {
+                                effective_source.files.insert(norm.clone(), indexed.clone());
+                            }
+
+                            if in_game_dir && !norm.to_ascii_lowercase().starts_with("game/") {
+                                let with_game = format!("game/{norm}");
+                                let indexed_game = IndexedFile {
+                                    logical_path: with_game.clone(),
+                                    relative_path: PathBuf::from(&with_game),
+                                    size_bytes: *length,
+                                    source_root: None,
+                                };
+                                effective_source.files.insert(with_game.to_ascii_lowercase(), indexed_game.clone());
+                                if with_game != with_game.to_ascii_lowercase() {
+                                    effective_source.files.insert(with_game, indexed_game);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let resolver = AssetResolver::new(&effective_source);
         let mut graph = DependencyGraph::default();
         let mut node_ids = HashSet::new();
         let mut coverage = AuditCoverage::new();
@@ -861,7 +916,7 @@ impl AssetAuditor for RenPyAssetAuditor {
 
         // Check for RPA archives
         if !rpa_files.is_empty() {
-            coverage.add_unsupported("renpy-rpa-archive", ReferenceRequiredness::Required);
+            let mut any_unindexed = false;
             for rpa in &rpa_files {
                 let node_id = format!("archive:{rpa}");
                 ensure_node(
@@ -871,26 +926,36 @@ impl AssetAuditor for RenPyAssetAuditor {
                     AssetKind::ArchiveEntry,
                     Some(rpa.clone()),
                 );
-                finding_counter += 1;
-                findings.push(AuditFinding {
-                    id: format!("{}-{finding_counter}", DiagnosticCode::CMP_AUD_LIMIT_REACHED),
-                    code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
-                    severity: FindingSeverity::Warning,
-                    disposition: FindingDisposition::Indeterminate,
-                    requiredness: ReferenceRequiredness::Required,
-                    message: format!(
-                        "Archive '{rpa}' detected; RPA archive static asset auditing requires archive extraction or evidenced parser"
-                    ),
-                    source_node_ids: vec![node_id],
-                    orphan: false,
-                });
+
+                if !indexed_rpa_archives.contains(rpa) {
+                    any_unindexed = true;
+                    finding_counter += 1;
+                    findings.push(AuditFinding {
+                        id: format!("{}-{finding_counter}", DiagnosticCode::CMP_AUD_LIMIT_REACHED),
+                        code: DiagnosticCode::CMP_AUD_LIMIT_REACHED.to_string(),
+                        severity: FindingSeverity::Warning,
+                        disposition: FindingDisposition::Indeterminate,
+                        requiredness: ReferenceRequiredness::Required,
+                        message: format!(
+                            "Archive '{rpa}' detected; RPA archive static asset auditing requires archive extraction or evidenced parser"
+                        ),
+                        source_node_ids: vec![node_id],
+                        orphan: false,
+                    });
+                }
+            }
+
+            if any_unindexed {
+                coverage.add_unsupported("renpy-rpa-archive", ReferenceRequiredness::Required);
+            } else {
+                coverage.add_covered("renpy-rpa-archive");
             }
         }
 
         // Check for orphan compiled .rpyc files
         for rpyc in &rpyc_files {
             let base_rpy = rpyc.strip_suffix('c').unwrap_or(rpyc);
-            if !source.has_file(base_rpy) {
+            if !effective_source.has_file(base_rpy) {
                 coverage.add_unsupported("renpy-rpyc-bytecode", ReferenceRequiredness::Required);
                 let node_id = format!("script:{rpyc}");
                 ensure_node(
@@ -973,7 +1038,7 @@ impl AssetAuditor for RenPyAssetAuditor {
         }
 
         let mut ctx = AuditContext {
-            source,
+            source: &effective_source,
             options,
             resolver: &resolver,
             graph: &mut graph,

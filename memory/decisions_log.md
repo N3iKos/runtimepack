@@ -1,5 +1,20 @@
 # Decisions Log
 
+## [2026-09-27] In-Memory Ren'Py RPA Archive Indexer for Deep Asset Audit (Task 5)
+**Keputusan:**
+1. Di `engines/renpy/src/archive.rs` & `engines/renpy/src/lib.rs`:
+   - Implementasi parser in-memory `parse_rpa_index(&bytes)` dan streaming reader `read_rpa_index_from_reader(&mut reader)` / `read_rpa_index_from_file(&path)` untuk format Ren'Py RPAv3 (`RPA-3.0 <offset> <key>`) dan RPAv2 (`RPA-2.0 <offset> [key]`).
+   - Ekstraksi payload terkompresi zlib secara in-memory menggunakan `flate2::read::ZlibDecoder`.
+   - Implementasi parser Python pickle dictionary in-memory: mendukung opcode standar Python 2/3/4/5 pickle, deobfuscasi nilai segmen tuple `offset ^ key` dan `len ^ key`, serta fallback regex scanner untuk keamanan fail-safe.
+2. Di `engines/renpy/src/asset_audit.rs`:
+   - Memindai berkas arsip `.rpa` pada `source.files` dan mem-parse tabel indeks in-memory.
+   - Mengisi `effective_source.files` dengan entri virtual `IndexedFile` dari arsip (didukung pemetaan jalur internal dan jalur dengan prefix `game/`).
+   - Inisialisasi `AssetResolver` dengan `&effective_source`.
+   - Jika seluruh arsip `.rpa` berhasil diindeks, coverage `renpy-rpa-archive` ditandai sebagai covered, finding `CMP-AUD-007` (`CMP_AUD_LIMIT_REACHED`) tidak diemisi, dan outcome audit dievaluasi mencapai `Pass`.
+   - Arsip yang gagal diindeks (misalnya arsip dummy tanpa offset/index) tetap fail-closed mengemisikan `CMP_AUD_LIMIT_REACHED` dan menghasilkan `Indeterminate`.
+**Alasan:** Game Ren'Py modern seperti *Mizuki And Me* mengemas seluruh gambar, UI, audio, dan modul ke dalam arsip `.rpa` (`img_resource.rpa`, `gui_resource.rpa`, `sfx_resource.rpa`, `archive.rpa`). Tanpa inspeksi indeks arsip in-memory, auditor statis menandai status game sebagai `Indeterminate` dan seluruh referensi aset sebagai hilang, menghalangi proses verifikasi otomatis.
+**Dampak:** Memungkinkan Ren'Py static audit memverifikasi ketersediaan seluruh aset game di dalam `.rpa` secara deterministik dalam milidetik tanpa ekstraksi multi-ratusan megabyte ke disk. 30 integration tests `renpy_asset_audit_test` dan seluruh 276 tests workspace Cargo lulus 100%.
+
 ## [2026-09-27] In-Memory RGSS Archive Indexer for Deep Asset Audit (Task 4)
 **Keputusan:**
 1. Di `engines/rgss/src/archive.rs` & `engines/rgss/src/lib.rs`:
