@@ -10,6 +10,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.libsdl.app.SDLActivity
+import org.renpy.android.PythonSDLActivity
 import java.io.File
 
 class RenpyActivityTest {
@@ -241,5 +242,55 @@ class RenpyActivityTest {
         assertNotNull(cls)
         val method = cls.getMethod("getPythonObjectPointer")
         assertEquals(Long::class.javaPrimitiveType, method.returnType)
+    }
+
+    // --- PyJNIus PythonSDLActivity bridge (Blocker 3) --------------------
+
+    @Test
+    fun renpyActivityExtendsPythonSDLActivity() {
+        assertTrue(
+            "RenpyActivity must extend PythonSDLActivity for pyjnius compatibility",
+            PythonSDLActivity::class.java.isAssignableFrom(RenpyActivity::class.java)
+        )
+        assertTrue(
+            "PythonSDLActivity must extend SDLActivity",
+            SDLActivity::class.java.isAssignableFrom(PythonSDLActivity::class.java)
+        )
+    }
+
+    @Test
+    fun pythonSDLActivityClassIsLoadableAndHasExpectedMembers() {
+        // Ren'Py Python code executes: autoclass("org.renpy.android.PythonSDLActivity").mActivity
+        val cls = Class.forName("org.renpy.android.PythonSDLActivity")
+        assertNotNull(cls)
+
+        val mActivityField = cls.getField("mActivity")
+        assertTrue(java.lang.reflect.Modifier.isStatic(mActivityField.modifiers))
+        assertTrue(java.lang.reflect.Modifier.isPublic(mActivityField.modifiers))
+
+        // Bridge methods called by lib/python3.9/android/__init__.py and renpy/main.py
+        assertNotNull(cls.getMethod("vibrate", Double::class.javaPrimitiveType))
+        assertNotNull(cls.getMethod("getDPI"))
+        assertNotNull(cls.getMethod("openUrl", String::class.java))
+        assertNotNull(cls.getMethod("setWakeLock", Boolean::class.javaPrimitiveType))
+        assertNotNull(cls.getMethod("isChromebook"))
+        assertNotNull(cls.getMethod("toast", String::class.java))
+        assertNotNull(cls.getMethod("toastError", String::class.java))
+        assertNotNull(cls.getMethod("hidePresplash"))
+        assertNotNull(
+            cls.getDeclaredMethod(
+                "nativeSetEnv",
+                String::class.java,
+                String::class.java
+            )
+        )
+    }
+
+    @Test
+    fun renpyAndroidPackageClassesExist() {
+        assertNotNull(Class.forName("org.renpy.android.Constants"))
+        assertNotNull(Class.forName("org.renpy.android.StoreInterface"))
+        assertNotNull(Class.forName("org.renpy.android.ResourceManager"))
+        assertNotNull(Class.forName("org.renpy.android.Action"))
     }
 }

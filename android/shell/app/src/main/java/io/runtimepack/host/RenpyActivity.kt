@@ -5,10 +5,16 @@ import android.os.Bundle
 import android.system.Os
 import android.util.Log
 import org.libsdl.app.SDLActivity
+import org.renpy.android.PythonSDLActivity
 import java.io.File
 
 /**
  * SDL-backed runtime activity for Ren'Py games.
+ *
+ * Inherits from [PythonSDLActivity] so that PyJNIus lookups
+ * (`autoclass("org.renpy.android.PythonSDLActivity")`) succeed and can access
+ * [PythonSDLActivity.mActivity] and its bridge methods (vibrate, getDPI, openUrl,
+ * setWakeLock, etc.).
  *
  * This activity must NOT mount content itself: on Android 15+ `onCreate` is
  * required to call through to `super.onCreate` synchronously, while mounting an
@@ -17,7 +23,7 @@ import java.io.File
  * activity once the engine layout is present. Here, SDL initializes against
  * already-mounted content and the SDL thread is started from [onStart].
  */
-open class RenpyActivity : SDLActivity() {
+open class RenpyActivity : PythonSDLActivity() {
 
     companion object {
         private const val TAG = "RenpyActivity"
@@ -113,6 +119,8 @@ open class RenpyActivity : SDLActivity() {
     }
 
     fun preparePython() {
+        PythonSDLActivity.mActivity = this
+
         val root = gameRoot(filesDir)
         root.mkdirs()
 
@@ -124,6 +132,11 @@ open class RenpyActivity : SDLActivity() {
 
         runtimeEnv(filesDir, applicationInfo.sourceDir).forEach { (name, value) ->
             setEnv(name, value)
+            try {
+                nativeSetEnv(name, value)
+            } catch (ignored: Throwable) {
+                // In host unit tests where native library is not loaded
+            }
         }
 
         Log.i(TAG, "preparePython complete: ANDROID_PRIVATE=${root.absolutePath}")
