@@ -27,7 +27,7 @@ impl AsarArchive {
         file.read_exact(&mut header_buf)?;
 
         let magic = u32::from_le_bytes(header_buf[0..4].try_into().unwrap());
-        let _header_size = u32::from_le_bytes(header_buf[4..8].try_into().unwrap());
+        let header_size = u32::from_le_bytes(header_buf[4..8].try_into().unwrap());
         let _header_size_minus_4 = u32::from_le_bytes(header_buf[8..12].try_into().unwrap());
         let json_len = u32::from_le_bytes(header_buf[12..16].try_into().unwrap());
 
@@ -56,7 +56,7 @@ impl AsarArchive {
             Self::parse_node(files_obj, "", &mut files);
         }
 
-        let data_offset = 16 + json_len as u64;
+        let data_offset = 8 + header_size as u64;
 
         Ok(Self { data_offset, files })
     }
@@ -265,6 +265,85 @@ mod tests {
             fs::read(extract_dir.join("tyrano/tyrano.js")).unwrap(),
             b"Tyrano Script OK!"
         );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    /// Writes a synthetic ASAR archive with a real 4-byte-aligned header.
+    ///
+    /// The JSON header is padded with zero bytes up to the next 4-byte
+    /// boundary, and `header_size` accounts for that padding (matching the
+    /// on-disk layout produced by electron/asar).
+    fn write_synthetic_asar(asar_file: &Path, json_header: &str, payloads: &[&[u8]]) -> u32 {
+        let json_bytes = json_header.as_bytes();
+        let json_len = json_bytes.len() as u32;
+        let padding = (4 - (json_len % 4)) % 4;
+        let header_size = json_len + 8 + padding;
+        let header_size_minus_4 = header_size - 4;
+
+        let mut out = File::create(asar_file).unwrap();
+        out.write_all(&4u32.to_le_bytes()).unwrap();
+        out.write_all(&header_size.to_le_bytes()).unwrap();
+        out.write_all(&header_size_minus_4.to_le_bytes()).unwrap();
+        out.write_all(&json_len.to_le_bytes()).unwrap();
+        out.write_all(json_bytes).unwrap();
+        out.write_all(&vec![0u8; padding as usize]).unwrap();
+        for payload in payloads {
+            out.write_all(payload).unwrap();
+        }
+        out.flush().unwrap();
+        drop(out);
+        json_len
+    }
+
+    #[test]
+    fn test_asar_data_offset_with_4byte_padding() {
+        let temp_dir = std::env::temp_dir().join(format!("asar_pad_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let asar_file = temp_dir.join("padded.asar");
+
+        // Force `json_len % 4 != 0` so the header requires padding bytes.
+        let mut json_header =
+            String::from(r#"{"files":{"index.html":{"size":11,"offset":"0"}}}"#);
+        while json_header.len() % 4 == 0 {
+            json_header.push(' ');
+        }
+        assert_ne!(json_header.len() % 4, 0, "fixture must require padding");
+
+        let payload = b"Hello World";
+        let json_len = write_synthetic_asar(&asar_file, &json_header, &[payload]);
+        assert_ne!(json_len % 4, 0, "fixture json_len must be unaligned");
+
+        let archive = AsarArchive::load(&asar_file).unwrap();
+        let bytes = archive.read_file_bytes(&asar_file, "index.html").unwrap();
+        assert_eq!(bytes, payload);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_asar_data_offset_without_padding() {
+        let temp_dir = std::env::temp_dir().join(format!("asar_nopad_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let asar_file = temp_dir.join("aligned.asar");
+
+        // Force `json_len % 4 == 0` so the header needs no padding bytes.
+        let mut json_header =
+            String::from(r#"{"files":{"index.html":{"size":11,"offset":"0"}}}"#);
+        while json_header.len() % 4 != 0 {
+            json_header.push(' ');
+        }
+        assert_eq!(json_header.len() % 4, 0, "fixture must not require padding");
+
+        let payload = b"Hello World";
+        let json_len = write_synthetic_asar(&asar_file, &json_header, &[payload]);
+        assert_eq!(json_len % 4, 0, "fixture json_len must be aligned");
+
+        let archive = AsarArchive::load(&asar_file).unwrap();
+        let bytes = archive.read_file_bytes(&asar_file, "index.html").unwrap();
+        assert_eq!(bytes, payload);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
