@@ -30,6 +30,7 @@ open class RenpyActivity : PythonSDLActivity() {
 
         const val RENPY_LIBRARY = "renpython"
         const val GAME_DIR_NAME = "game"
+        const val PUBLIC_DIR_NAME = "public"
         const val SAVES_DIR_NAME = "saves"
         const val LEGACY_PUBLIC_DIR_NAME = "legacy_public"
         const val MAIN_SCRIPT_NAME = "main.py"
@@ -40,9 +41,14 @@ open class RenpyActivity : PythonSDLActivity() {
         const val ENV_ANDROID_PUBLIC = "ANDROID_PUBLIC"
         const val ENV_ANDROID_OLD_PUBLIC = "ANDROID_OLD_PUBLIC"
         const val ENV_ANDROID_APK = "ANDROID_APK"
+        const val ENV_ANDROID_ARGUMENT = "ANDROID_ARGUMENT"
+        const val ENV_RENPY_PATH_TO_SAVES = "RENPY_PATH_TO_SAVES"
 
         @JvmStatic
         fun gameRoot(filesDir: File): File = File(filesDir, GAME_DIR_NAME)
+
+        @JvmStatic
+        fun publicDir(filesDir: File): File = File(filesDir, PUBLIC_DIR_NAME)
 
         @JvmStatic
         fun saveDir(filesDir: File): File = File(filesDir, SAVES_DIR_NAME)
@@ -85,9 +91,11 @@ open class RenpyActivity : PythonSDLActivity() {
         @JvmStatic
         fun runtimeEnv(filesDir: File, apkPath: String): Map<String, String> = linkedMapOf(
             ENV_ANDROID_PRIVATE to gameRoot(filesDir).absolutePath,
-            ENV_ANDROID_PUBLIC to filesDir.absolutePath,
+            ENV_ANDROID_PUBLIC to publicDir(filesDir).absolutePath,
             ENV_ANDROID_OLD_PUBLIC to legacyPublicDir(filesDir).absolutePath,
-            ENV_ANDROID_APK to apkPath
+            ENV_ANDROID_APK to apkPath,
+            ENV_ANDROID_ARGUMENT to gameRoot(filesDir).absolutePath,
+            ENV_RENPY_PATH_TO_SAVES to saveDir(filesDir).absolutePath
         )
     }
 
@@ -127,6 +135,7 @@ open class RenpyActivity : PythonSDLActivity() {
         val saves = saveDir(filesDir)
         saves.mkdirs()
 
+        publicDir(filesDir).mkdirs()
         legacyPublicDir(filesDir).mkdirs()
         linkSaveDirectory(root, saves)
 

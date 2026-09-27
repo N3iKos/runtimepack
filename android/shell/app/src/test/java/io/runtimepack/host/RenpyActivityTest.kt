@@ -46,15 +46,32 @@ class RenpyActivityTest {
     }
 
     @Test
-    fun runtimeEnvPointsPrivateAtGameRootAndPublicAtFilesDir() {
+    fun runtimeEnvConfiguresIsolatedPaths() {
         val files = tempFolder.newFolder("files")
         val env = RenpyActivity.runtimeEnv(files, "/data/app/base.apk")
 
         assertEquals(RenpyActivity.gameRoot(files).absolutePath, env["ANDROID_PRIVATE"])
-        assertEquals(files.absolutePath, env["ANDROID_PUBLIC"])
+        assertEquals(RenpyActivity.publicDir(files).absolutePath, env["ANDROID_PUBLIC"])
         assertEquals(RenpyActivity.legacyPublicDir(files).absolutePath, env["ANDROID_OLD_PUBLIC"])
         assertEquals("/data/app/base.apk", env["ANDROID_APK"])
-        assertEquals(4, env.size)
+        assertEquals(RenpyActivity.gameRoot(files).absolutePath, env["ANDROID_ARGUMENT"])
+        assertEquals(RenpyActivity.saveDir(files).absolutePath, env["RENPY_PATH_TO_SAVES"])
+        assertEquals(6, env.size)
+    }
+
+    @Test
+    fun androidPublicIsIsolatedSubfolderNotFilesDirRoot() {
+        // Ren'Py appends os.path.join(ANDROID_PUBLIC, "game") to its searchpath.
+        // If ANDROID_PUBLIC was filesDir, filesDir/game would be added a second
+        // time (it is already in searchpath via ANDROID_PRIVATE), causing every
+        // script to load twice and crashing store.build.renpy.
+        val files = tempFolder.newFolder("files_iso")
+        val env = RenpyActivity.runtimeEnv(files, "/data/app/base.apk")
+        val androidPublic = env["ANDROID_PUBLIC"]!!
+
+        org.junit.Assert.assertNotEquals(files.absolutePath, androidPublic)
+        assertEquals(File(files, "public").absolutePath, androidPublic)
+        assertTrue(androidPublic.startsWith(files.absolutePath + File.separator))
     }
 
     @Test
