@@ -1,5 +1,7 @@
+pub mod archive;
 pub mod asset_audit;
 pub mod scanner;
+pub use archive::{parse_rgss_archive_index, RgssArchiveIndex};
 pub use asset_audit::RgssAssetAuditor;
 pub use scanner::RgssAnalyzer;
 

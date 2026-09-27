@@ -3,6 +3,9 @@ use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::{DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
+use runtimepack_engine_rgss::archive::{
+    create_synthetic_rgss3a_v3, create_synthetic_rgssad_v1, parse_rgss_archive_index,
+};
 use runtimepack_engine_rgss::RgssAssetAuditor;
 use std::path::{Path, PathBuf};
 
@@ -807,6 +810,126 @@ fn test_rgssad_corrupt_archive_emits_malformed_resource() {
 
     assert!(malformed.message.contains("To the Moon.rgssad"));
     assert!(malformed.message.contains("invalid header magic or version"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_synthetic_rgssad_v1_archive_audits_pass_without_indeterminate() {
+    let temp_dir = std::env::temp_dir().join(format!("rgssad_pass_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nLibrary=RGSS102E.dll\nScripts=Data\\Scripts.rxdata\nTitle=Synthetic XP Pass\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    let dummy_rxdata = b"dummy_rxdata_payload";
+    let entries = [
+        ("Data\\System.rxdata", &dummy_rxdata[..]),
+        ("Data\\Actors.rxdata", &dummy_rxdata[..]),
+        ("Data\\Classes.rxdata", &dummy_rxdata[..]),
+        ("Data\\Skills.rxdata", &dummy_rxdata[..]),
+        ("Data\\Items.rxdata", &dummy_rxdata[..]),
+        ("Data\\Weapons.rxdata", &dummy_rxdata[..]),
+        ("Data\\Armors.rxdata", &dummy_rxdata[..]),
+        ("Data\\Enemies.rxdata", &dummy_rxdata[..]),
+        ("Data\\Troops.rxdata", &dummy_rxdata[..]),
+        ("Data\\States.rxdata", &dummy_rxdata[..]),
+        ("Data\\Animations.rxdata", &dummy_rxdata[..]),
+        ("Data\\Tilesets.rxdata", &dummy_rxdata[..]),
+        ("Data\\CommonEvents.rxdata", &dummy_rxdata[..]),
+    ];
+    let archive_bytes = create_synthetic_rgssad_v1(&entries);
+
+    // Verify parser decodes in-memory without errors
+    let index_parsed = parse_rgss_archive_index(&archive_bytes).expect("parse_rgss_archive_index failed");
+    assert_eq!(index_parsed.files.len(), 13);
+    assert!(index_parsed.has_file("Data/System.rxdata"));
+
+    std::fs::write(temp_dir.join("Game.rgssad"), archive_bytes).unwrap();
+
+    let fonts_dir = temp_dir.join("Fonts");
+    std::fs::create_dir_all(&fonts_dir).unwrap();
+    std::fs::write(fonts_dir.join("WenQuanYi_Zen_Hei.ttf"), b"mock font").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerXp), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, got {:?}. Findings: {:?}",
+        report.outcome,
+        report.findings
+    );
+    assert!(report.completeness.required_scope_complete);
+    assert!(
+        !report.findings.iter().any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED),
+        "Expected no unextracted archive finding"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_synthetic_rgss3a_v3_archive_audits_pass_without_indeterminate() {
+    let temp_dir = std::env::temp_dir().join(format!("rgss3a_pass_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let ini_content = "[Game]\nRTP=RPGVXAce\nLibrary=System\\RGSS300.dll\nScripts=Data\\Scripts.rvdata2\nTitle=Synthetic VXAce Pass\n";
+    std::fs::write(temp_dir.join("Game.ini"), ini_content).unwrap();
+
+    let dummy_rvdata = b"dummy_rvdata2_payload";
+    let entries = [
+        ("Data\\System.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Actors.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Classes.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Skills.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Items.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Weapons.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Armors.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Enemies.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Troops.rvdata2", &dummy_rvdata[..]),
+        ("Data\\States.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Animations.rvdata2", &dummy_rvdata[..]),
+        ("Data\\Tilesets.rvdata2", &dummy_rvdata[..]),
+        ("Data\\CommonEvents.rvdata2", &dummy_rvdata[..]),
+    ];
+    let archive_bytes = create_synthetic_rgss3a_v3(&entries);
+
+    // Verify parser decodes in-memory without errors
+    let index_parsed = parse_rgss_archive_index(&archive_bytes).expect("parse_rgss_archive_index failed");
+    assert_eq!(index_parsed.files.len(), 13);
+    assert!(index_parsed.has_file("Data/System.rvdata2"));
+
+    std::fs::write(temp_dir.join("Game.rgss3a"), archive_bytes).unwrap();
+
+    let fonts_dir = temp_dir.join("Fonts");
+    std::fs::create_dir_all(&fonts_dir).unwrap();
+    std::fs::write(fonts_dir.join("VL-Gothic-Regular.ttf"), b"mock font").unwrap();
+
+    let index = make_index(&temp_dir);
+    let auditor = RgssAssetAuditor::new();
+    let options = AssetAuditOptions::default();
+
+    let report = auditor.audit(&index, &engine_desc(EngineId::RpgMakerVxAce), &options);
+
+    assert_eq!(
+        report.outcome,
+        AuditOutcome::Pass,
+        "Expected PASS, got {:?}. Findings: {:?}",
+        report.outcome,
+        report.findings
+    );
+    assert!(report.completeness.required_scope_complete);
+    assert!(
+        !report.findings.iter().any(|f| f.code == DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED),
+        "Expected no unextracted archive finding"
+    );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

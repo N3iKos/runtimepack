@@ -8,9 +8,11 @@ use runtimepack_core::asset_audit::{
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::DiagnosticCode;
 use runtimepack_core::domain::EngineId;
-use runtimepack_core::ingest::GameSourceIndex;
+use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::OnceLock;
+use crate::archive::parse_rgss_archive_index;
 
 fn make_finding(
     code: &'static str,
@@ -624,7 +626,42 @@ impl AssetAuditor for RgssAssetAuditor {
         let mut graph = DependencyGraph::default();
         let mut node_ids = HashSet::new();
         let mut coverage = AuditCoverage::new();
-        let resolver = AssetResolver::new(source);
+
+        let mut effective_source = source.clone();
+        let mut archive_parsed_successfully = false;
+
+        for f in source.files.values() {
+            let lower = f.logical_path.to_ascii_lowercase();
+            let is_rgssad = lower.ends_with(".rgssad");
+            let is_rgss2a = lower.ends_with(".rgss2a");
+            let is_rgss3a = lower.ends_with(".rgss3a");
+
+            if is_rgssad || is_rgss2a || is_rgss3a {
+                let full_path = f.real_path(&source.root_path);
+                if let Ok(bytes) = std::fs::read(&full_path) {
+                    if let Ok(archive_index) = parse_rgss_archive_index(&bytes) {
+                        if !archive_index.files.is_empty() {
+                            archive_parsed_successfully = true;
+                            for (entry_path, size) in &archive_index.files {
+                                let norm = entry_path.replace('\\', "/").trim_start_matches('/').to_string();
+                                let indexed = IndexedFile {
+                                    logical_path: norm.clone(),
+                                    relative_path: PathBuf::from(&norm),
+                                    size_bytes: *size as u64,
+                                    source_root: None,
+                                };
+                                effective_source.files.insert(norm.to_ascii_lowercase(), indexed.clone());
+                                if norm != norm.to_ascii_lowercase() {
+                                    effective_source.files.insert(norm, indexed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let resolver = AssetResolver::new(&effective_source);
 
         // Check limits: max_files, max_total_bytes, max_single_file_bytes
         if source.files.len() as u64 > options.limits.max_files
@@ -722,10 +759,10 @@ impl AssetAuditor for RgssAssetAuditor {
             ],
         };
 
-        if !has_encrypted_archive {
+        if !has_encrypted_archive || archive_parsed_successfully {
             for db_file in required_db_files {
                 let db_path = format!("Data/{db_file}");
-                if source.get_file(&db_path).is_none() {
+                if effective_source.get_file(&db_path).is_none() {
                     let source_id = format!("database_file:{db_path}");
                     findings.push(make_finding(
                         DiagnosticCode::CMP_AUD_REQUIRED_REFERENCE_MISSING,
@@ -750,7 +787,7 @@ impl AssetAuditor for RgssAssetAuditor {
         audit_system_file(
             &system_path,
             gen,
-            source,
+            &effective_source,
             &resolver,
             &mut graph,
             &mut node_ids,
@@ -761,7 +798,7 @@ impl AssetAuditor for RgssAssetAuditor {
         // 2. Audit Database files
         audit_database_files(
             gen,
-            source,
+            &effective_source,
             &resolver,
             &mut graph,
             &mut node_ids,
@@ -772,7 +809,7 @@ impl AssetAuditor for RgssAssetAuditor {
         // 3. Audit Map files
         audit_map_files(
             gen,
-            source,
+            &effective_source,
             &resolver,
             &mut graph,
             &mut node_ids,
@@ -783,7 +820,7 @@ impl AssetAuditor for RgssAssetAuditor {
         // 4. Audit Font & CJK requirements
         audit_font_requirements(
             gen,
-            source,
+            &effective_source,
             &mut coverage,
             &mut graph,
             &mut node_ids,
@@ -889,7 +926,9 @@ impl AssetAuditor for RgssAssetAuditor {
                 .map(|f| f.logical_path.clone())
                 .unwrap_or_default();
 
-            if options.mode == AuditMode::Deep {
+            if archive_parsed_successfully {
+                coverage.add_covered("encrypted_archive");
+            } else if options.mode == AuditMode::Deep {
                 coverage.add_unsupported("encrypted_archive", ReferenceRequiredness::Required);
                 findings.push(make_finding(
                     DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
@@ -898,7 +937,7 @@ impl AssetAuditor for RgssAssetAuditor {
                     vec![archive_path],
                     &mut finding_counter,
                 ));
-            } else if !source.has_file(&system_path) {
+            } else if !effective_source.has_file(&system_path) {
                 // In standard mode, if Data/System does not exist unpacked because it is in an encrypted archive
                 coverage.add_unsupported("encrypted_archive", ReferenceRequiredness::Required);
                 findings.push(make_finding(
@@ -913,43 +952,45 @@ impl AssetAuditor for RgssAssetAuditor {
 
         if options.mode == AuditMode::Deep {
             let scripts_path = format!("Data/Scripts.{ext}");
-            if let Some(indexed_file) = source.get_file(&scripts_path) {
+            if let Some(indexed_file) = effective_source.get_file(&scripts_path) {
                 let full_path = indexed_file.real_path(&source.root_path);
-                match std::fs::read(&full_path) {
-                    Ok(bytes) => match parse_marshal(&bytes) {
-                        Ok(_) => {
-                            coverage.add_unsupported("scripts", ReferenceRequiredness::Required);
-                            findings.push(make_finding(
-                                DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
-                                ReferenceRequiredness::Required,
-                                format!("RGSS script archive '{scripts_path}' contains dynamic Ruby code that cannot be fully verified statically"),
-                                vec![scripts_path],
-                                &mut finding_counter,
-                            ));
-                        }
+                if full_path.exists() {
+                    match std::fs::read(&full_path) {
+                        Ok(bytes) => match parse_marshal(&bytes) {
+                            Ok(_) => {
+                                coverage.add_unsupported("scripts", ReferenceRequiredness::Required);
+                                findings.push(make_finding(
+                                    DiagnosticCode::CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED,
+                                    ReferenceRequiredness::Required,
+                                    format!("RGSS script archive '{scripts_path}' contains dynamic Ruby code that cannot be fully verified statically"),
+                                    vec![scripts_path],
+                                    &mut finding_counter,
+                                ));
+                            }
+                            Err(e) => {
+                                findings.push(make_finding(
+                                    DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
+                                    ReferenceRequiredness::Required,
+                                    format!(
+                                        "Malformed or corrupt script archive '{scripts_path}': {e}"
+                                    ),
+                                    vec![scripts_path],
+                                    &mut finding_counter,
+                                ));
+                            }
+                        },
                         Err(e) => {
                             findings.push(make_finding(
                                 DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
                                 ReferenceRequiredness::Required,
-                                format!(
-                                    "Malformed or corrupt script archive '{scripts_path}': {e}"
-                                ),
+                                format!("Failed to read script archive '{scripts_path}': {e}"),
                                 vec![scripts_path],
                                 &mut finding_counter,
                             ));
                         }
-                    },
-                    Err(e) => {
-                        findings.push(make_finding(
-                            DiagnosticCode::CMP_AUD_MALFORMED_RESOURCE,
-                            ReferenceRequiredness::Required,
-                            format!("Failed to read script archive '{scripts_path}': {e}"),
-                            vec![scripts_path],
-                            &mut finding_counter,
-                        ));
                     }
                 }
-            } else {
+            } else if !archive_parsed_successfully {
                 coverage.add_unsupported("scripts", ReferenceRequiredness::Required);
             }
         }
@@ -980,6 +1021,9 @@ fn read_and_parse_data_file(
 ) -> Option<MarshalValue> {
     let indexed_file = source.get_file(logical_path)?;
     let full_path = indexed_file.real_path(&source.root_path);
+    if !full_path.exists() {
+        return None;
+    }
     let bytes = match std::fs::read(&full_path) {
         Ok(b) => b,
         Err(e) => {
@@ -1165,18 +1209,21 @@ fn audit_system_file(
     findings: &mut Vec<AuditFinding>,
     finding_counter: &mut usize,
 ) {
+    let sys_node_id = "Database:System".to_string();
+    if source.get_file(logical_path).is_some() {
+        if node_ids.insert(sys_node_id.clone()) {
+            graph.nodes.push(AssetNode {
+                id: sys_node_id.clone(),
+                kind: AssetKind::DatabaseEntity,
+                logical_path: Some(logical_path.to_string()),
+            });
+        }
+    }
+
     let sys = match read_and_parse_data_file(logical_path, source, findings, finding_counter) {
         Some(s) => s,
         None => return,
     };
-    let sys_node_id = "Database:System".to_string();
-    if node_ids.insert(sys_node_id.clone()) {
-        graph.nodes.push(AssetNode {
-            id: sys_node_id.clone(),
-            kind: AssetKind::DatabaseEntity,
-            logical_path: Some(logical_path.to_string()),
-        });
-    }
 
     match gen {
         RgssGeneration::Xp => {
