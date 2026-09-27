@@ -3,9 +3,9 @@
 **Date:** 2026-09-27  
 **Status:** Approved  
 **Specs:**
-- `Docs/superpowers/specs/2026-09-27-visual-novel-maker-support-design.md`
-- `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`
-- `Docs/superpowers/specs/2026-09-27-artemis-engine-support-design.md`
+- `Docs/execution-plans/track-a-visual-novel-maker/design.md`
+- `Docs/execution-plans/track-b-kirikiri/architecture-spec.md`
+- `Docs/execution-plans/track-c-artemis/design.md`
 
 ---
 
@@ -28,7 +28,7 @@ Install APK -> Tap Launcher Icon -> Direct Boot to Title Screen (Zero File Brows
 
 ```text
 Track A: Visual Novel Maker (VNM) [Fast-Track: High Feasibility, WebGL/NW.js Reuse]
-└── Plan: Docs/superpowers/plans/2026-09-27-visual-novel-maker-support-plan.md
+└── Plan: Docs/execution-plans/track-a-visual-novel-maker/plan.md
     ├── Task 1: Domain & Engine Registration (EngineId::VisualNovelMaker, RuntimeFamily::Web)
     ├── Task 2: Static Detector (engines/vnmaker, signature, data/System.json, package.json)
     ├── Task 3: Static Asset Reachability Auditor (data/Scenes.json, resources/)
@@ -36,16 +36,16 @@ Track A: Visual Novel Maker (VNM) [Fast-Track: High Feasibility, WebGL/NW.js Reu
 
 Track B: Kirikiri 2 / Kirikiri Z [Deep Native C++ Engine Pipeline]
 ├── Phase 1: Rust Host Tooling & In-Memory XP3 Parser
-│   └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-1-plan.md
+│   └── Plan: Docs/execution-plans/track-b-kirikiri/phase-1-plan.md
 ├── Phase 2: Compatibility Scanner & Plugin Validator
-│   └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-2-plan.md
+│   └── Plan: Docs/execution-plans/track-b-kirikiri/phase-2-plan.md
 ├── Phase 3: Headless Native C++ Runtime & Android Shell (libkrkr2.so, 16KB ELF, KirikiriActivity)
-│   └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-3-plan.md
+│   └── Plan: Docs/execution-plans/track-b-kirikiri/phase-3-plan.md
 └── Phase 4: Packaging Pipeline, VN VPad Overlay & End-to-End Build
-    └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-4-plan.md
+    └── Plan: Docs/execution-plans/track-b-kirikiri/phase-4-plan.md
 
 Track C: Artemis Engine (PFS / Lua) [In-Memory PFS & art3m1s-core Native Runner]
-└── Plan: Docs/superpowers/plans/2026-09-27-artemis-engine-support-plan.md
+└── Plan: Docs/execution-plans/track-c-artemis/plan.md
     ├── Task 1: Domain & Engine Registration (EngineId::Artemis, RuntimeFamily::ArtemisNative)
     ├── Task 2: In-Memory PFS Parser (PF8/PF6/PF2 with SHA-1 XOR stream cipher & multi-volume precedence)
     ├── Task 3: Static Detector & AST Script Auditor (root.pfs, system.ini, .ast token parsing)
@@ -58,12 +58,12 @@ Track C: Artemis Engine (PFS / Lua) [In-Memory PFS & art3m1s-core Native Runner]
 
 | Track / Phase | Plan File | Engine & Target Runtime | Status |
 | :--- | :--- | :--- | :---: |
-| **Track A (VNM)** | `Docs/superpowers/plans/2026-09-27-visual-novel-maker-support-plan.md` | Visual Novel Maker (WebActivity / Chromium) | **Ready** |
-| **Track B - Phase 1** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-1-plan.md` | Kirikiri (Rust XP3 parser & detector) | **Ready** |
-| **Track B - Phase 2** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-2-plan.md` | Kirikiri (Plugins.link & XP3 filter probe) | **Ready** |
-| **Track B - Phase 3** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-3-plan.md` | Kirikiri (C++ libkrkr2.so & KirikiriActivity) | **Ready** |
-| **Track B - Phase 4** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-4-plan.md` | Kirikiri (Packaging, VPad VN, full APK) | **Ready** |
-| **Track C (Artemis)** | `Docs/superpowers/plans/2026-09-27-artemis-engine-support-plan.md` | Artemis Engine (art3m1s-core C FFI / Android) | **Ready** |
+| **Track A (VNM)** | `Docs/execution-plans/track-a-visual-novel-maker/plan.md` | Visual Novel Maker (WebActivity / Chromium) | **Ready** |
+| **Track B - Phase 1** | `Docs/execution-plans/track-b-kirikiri/phase-1-plan.md` | Kirikiri (Rust XP3 parser & detector) | **Ready** |
+| **Track B - Phase 2** | `Docs/execution-plans/track-b-kirikiri/phase-2-plan.md` | Kirikiri (Plugins.link & XP3 filter probe) | **Ready** |
+| **Track B - Phase 3** | `Docs/execution-plans/track-b-kirikiri/phase-3-plan.md` | Kirikiri (C++ libkrkr2.so & KirikiriActivity) | **Ready** |
+| **Track B - Phase 4** | `Docs/execution-plans/track-b-kirikiri/phase-4-plan.md` | Kirikiri (Packaging, VPad VN, full APK) | **Ready** |
+| **Track C (Artemis)** | `Docs/execution-plans/track-c-artemis/plan.md` | Artemis Engine (art3m1s-core C FFI / Android) | **Ready** |
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27  
 **Status:** Approved  
-**Technical Basis:** `Docs/RuntimePack_Artemis_Research.md`  
+**Technical Basis:** `Docs/research/RuntimePack_Artemis_Research.md`  
 **Scope:** Host Rust Workspace, `EngineId::Artemis`, In-Memory PFS Parser (PF8/PF6/PF2 with SHA-1 XOR stream cipher), Static Detection, `art3m1s-core` C FFI Native Runtime, and `ArtemisActivity.kt` Shell.
 
 ---

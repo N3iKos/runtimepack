@@ -12,7 +12,7 @@
 
 **Tech Stack:** Rust (core, engines/vnmaker), HTML5/WebGL, Kotlin (`WebActivity.kt`, `VfsResourceInterceptor.kt`).
 
-**Spec:** `Docs/superpowers/specs/2026-09-27-visual-novel-maker-support-design.md`
+**Spec:** `Docs/execution-plans/track-a-visual-novel-maker/design.md`
 
 ## Global Constraints
 

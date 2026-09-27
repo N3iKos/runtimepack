@@ -8,7 +8,7 @@
 
 ## 1. Context & Objective
 
-RuntimePack currently supports RPG Maker (XP, VX, VX Ace, MV, MZ), Ren'Py (7/8), and TyranoScript. To expand support to Japanese visual novel engines, we are adding support for **Kirikiri 2 / Kirikiri Z (KAG / TVP Engine)**, inspired by the architecture of Kirikiroid2 as documented in `Docs/RuntimePack_Kirikiri_Android_Technical_Report.md`.
+RuntimePack currently supports RPG Maker (XP, VX, VX Ace, MV, MZ), Ren'Py (7/8), and TyranoScript. To expand support to Japanese visual novel engines, we are adding support for **Kirikiri 2 / Kirikiri Z (KAG / TVP Engine)**, inspired by the architecture of Kirikiroid2 as documented in `Docs/research/RuntimePack_Kirikiri_Android_Technical_Report.md`.
 
 Phase 1 focuses strictly on host-side capabilities:
 1. Registering `EngineId::Kirikiri` and `RuntimeFamily::KirikiriNative` in `core`.

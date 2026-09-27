@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-27  
 **Status:** Approved  
-**Spec Reference:** `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`  
-**Technical Basis:** `Docs/RuntimePack_Kirikiri_Android_Technical_Report.md`
+**Spec Reference:** `Docs/execution-plans/track-b-kirikiri/architecture-spec.md`  
+**Technical Basis:** `Docs/research/RuntimePack_Kirikiri_Android_Technical_Report.md`
 
 ---
 
@@ -35,10 +35,10 @@ Verification & Production Delivery
 
 | Phase | Plan Document | Scope & Key Artifacts | Status |
 | :---: | :--- | :--- | :---: |
-| **Phase 1** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-1-plan.md` | Domain registration, `engines/kirikiri`, 11-byte XP3 binary parser, static detector | **Ready** |
-| **Phase 2** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-2-plan.md` | `KirikiriAnalyzer`, `Plugins.link` AST scanner, C++ plugin mapping, encryption probe | **Ready** |
-| **Phase 3** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-3-plan.md` | Direct-boot C++ patches (`AndroidUtils.cpp`), NDK r28 toolchain, `KirikiriActivity.kt` | **Ready** |
-| **Phase 4** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-4-plan.md` | `generator.rs` emitter, VPad VN preset, save isolation, end-to-end APK verification | **Ready** |
+| **Phase 1** | `Docs/execution-plans/track-b-kirikiri/phase-1-plan.md` | Domain registration, `engines/kirikiri`, 11-byte XP3 binary parser, static detector | **Ready** |
+| **Phase 2** | `Docs/execution-plans/track-b-kirikiri/phase-2-plan.md` | `KirikiriAnalyzer`, `Plugins.link` AST scanner, C++ plugin mapping, encryption probe | **Ready** |
+| **Phase 3** | `Docs/execution-plans/track-b-kirikiri/phase-3-plan.md` | Direct-boot C++ patches (`AndroidUtils.cpp`), NDK r28 toolchain, `KirikiriActivity.kt` | **Ready** |
+| **Phase 4** | `Docs/execution-plans/track-b-kirikiri/phase-4-plan.md` | `generator.rs` emitter, VPad VN preset, save isolation, end-to-end APK verification | **Ready** |
 
 ---
 

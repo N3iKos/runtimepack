@@ -11,7 +11,7 @@
 
 **Tech Stack:** Rust (core audit, generator), Kotlin (AssetProbeRunner, GpackExtractor), Ruby (RGSS bootstrap, loader hooks), FreeType / TrueType font tables.
 
-**Spec:** `Docs/HASIL_INVESTIGASI_DIAGNOSTIC_BLACK_SOULS_2.md`
+**Spec:** `Docs/research/HASIL_INVESTIGASI_DIAGNOSTIC_BLACK_SOULS_2.md`
 
 ## Global Constraints
 

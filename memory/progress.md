@@ -4,10 +4,10 @@
 - **Sedang kerjain apa:** Master Roadmap & Rencana Implementasi Lengkap Triad Engine Visual Novel (Visual Novel Maker, Kirikiri 2/Z, dan Artemis Engine) selesai disusun dan dikomit ke repositori.
 - **Next step:** Menunggu konfirmasi user untuk memilih track mana yang akan mulai dieksekusi: Track A (Visual Novel Maker), Track B (Kirikiri 2/Z Fase 1), atau Track C (Artemis Engine).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Roadmap master `Docs/superpowers/plans/2026-09-27-visual-novel-expansion-master-roadmap.md` telah membagi arsitektur ekspansi visual novel ke dalam 3 Track independen (*decoupled tracks*):
-  1. **Track A (Visual Novel Maker) [Fast-Track]:** Pemanfaatan Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js polyfills (bypassing Cordova). Dokumen: `2026-09-27-visual-novel-maker-support-plan.md`.
+- **Catatan fokus:** Roadmap master `Docs/execution-plans/master-roadmap.md` telah membagi arsitektur ekspansi visual novel ke dalam 3 Track independen (*decoupled tracks*):
+  1. **Track A (Visual Novel Maker) [Fast-Track]:** Pemanfaatan Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js polyfills (bypassing Cordova). Dokumen: `Docs/execution-plans/track-a-visual-novel-maker/plan.md`.
   2. **Track B (Kirikiri 2 / Kirikiri Z) [Deep Native C++ Engine]:** Pipeline 4 fase mencakup in-memory XP3 11-byte parser di Rust, kompatibilitas scanner TJS, direct-boot native patch C++ (`libkrkr2.so` NDK r28 dengan 16 KB ELF alignment untuk Android 15), dan isolasi save data `filesDir/savedata`.
-  3. **Track C (Artemis Engine - PFS / Lua) [In-Memory PFS & art3m1s-core]:** Parser biner PFS (PF8/PF6/PF2) dengan dekripsi SHA-1 XOR stream cipher di Rust, prioritas patch multi-volume (`root.pfs.000..099`), runtime native bersih via `art3m1s-core` C FFI API v1 (MPL-2.0), dan `ArtemisActivity.kt` shell dengan isolasi save `filesDir/saves/<title-id>`. Dokumen: `2026-09-27-artemis-engine-support-plan.md`.
+  3. **Track C (Artemis Engine - PFS / Lua) [In-Memory PFS & art3m1s-core]:** Parser biner PFS (PF8/PF6/PF2) dengan dekripsi SHA-1 XOR stream cipher di Rust, prioritas patch multi-volume (`root.pfs.000..099`), runtime native bersih via `art3m1s-core` C FFI API v1 (MPL-2.0), dan `ArtemisActivity.kt` shell dengan isolasi save `filesDir/saves/<title-id>`. Dokumen: `Docs/execution-plans/track-c-artemis/plan.md`.
   Seluruh 8 game utama sebelumnya tetap berstatus 0 FAIL dan lolos build policy 100%.
 
 ## Selesai
@@ -513,7 +513,7 @@
 - [2026-09-18] Implementasi Engine-Agnostic Core Cheat Runner di runtimepack_bootstrap.rb, RgssActivity atomic IPC bridge, dan cheat_engine.js universal primitives
 - [2026-09-18] Implementasi JoiPlay/M-Tool style dynamic cheat UI di cheat_menu.js (Variables browser, Switches browser, Item spawner, M-Tool script console & snippet manager) serta test suite cheat_menu.test.js
 - [2026-09-18] Task 6: Kompilasi end-to-end APK Lona RPG, sinkronisasi assets ke dist/lona/android-project, instalasi dan verifikasi fungsional in-game pada MuMu Player (input state bin, cheat IPC evaluation, robust JSON serialization & exception handling)
-- [2026-09-19] Riset evidence-first MTool Smart Fix (RGSS3/mkxp-z) disimpan di `Docs/Riset_MTool_Smart_Fix_RGSS3_mkxp-z.md`; kesimpulan: mekanisme internal MTool tetap UNKNOWN, adopsi pola Smart Resolver deterministik + fail-closed.
+- [2026-09-19] Riset evidence-first MTool Smart Fix (RGSS3/mkxp-z) disimpan di `Docs/research/Riset_MTool_Smart_Fix_RGSS3_mkxp-z.md`; kesimpulan: mekanisme internal MTool tetap UNKNOWN, adopsi pola Smart Resolver deterministik + fail-closed.
 - [2026-09-19] Fix crash popup NPC/SKIP (`Font#shadow=` strict bool) via boolean coercion setter Font di bootstrap
 - [2026-09-19] Fix ALT + D-Pad tidak berfungsi (JS 18 tidak terpetakan) dan bug multi-touch melepas tombol lain; audit mapping JS→Android→VK (termasuk F1–F12, Delete)
 - [2026-09-19] Fix glyph kotak (fullwidth colon & panah) via `fontSub` di mkxp.json karena mkxp-z memakai typographic family FreeType

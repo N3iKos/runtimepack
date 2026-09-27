@@ -12,8 +12,8 @@
 
 **Tech Stack:** Rust (core, engines/artemis), `sha1` (RustCrypto), Kotlin (`ArtemisActivity.kt`), C FFI (`art3m1s-core` ABI v1).
 
-**Spec:** `Docs/superpowers/specs/2026-09-27-artemis-engine-support-design.md`
-**Technical Report:** `Docs/RuntimePack_Artemis_Research.md`
+**Spec:** `Docs/execution-plans/track-c-artemis/design.md`
+**Technical Report:** `Docs/research/RuntimePack_Artemis_Research.md`
 
 ## Global Constraints
 

@@ -11,7 +11,7 @@
 
 **Tech Stack:** JavaScript (Overlay UI), Kotlin (Android Host Shell, Memory Throttle), Ruby (RGSS Bootstrap), Web JS (MV/MZ/Tyrano Shims).
 
-**Spec Reference:** `Docs/HASIL_INVESTIGASI_DIAGNOSTIC_BLACK_SOULS_2.md`
+**Spec Reference:** `Docs/research/HASIL_INVESTIGASI_DIAGNOSTIC_BLACK_SOULS_2.md`
 
 ## Global Constraints
 

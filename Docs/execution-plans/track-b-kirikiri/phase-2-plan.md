@@ -12,7 +12,7 @@
 
 **Tech Stack:** Rust (core, engines/kirikiri), regex, JSON schemas.
 
-**Spec:** `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`
+**Spec:** `Docs/execution-plans/track-b-kirikiri/architecture-spec.md`
 
 ## Global Constraints
 

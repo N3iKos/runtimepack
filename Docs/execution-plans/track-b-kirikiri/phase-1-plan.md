@@ -12,7 +12,7 @@
 
 **Tech Stack:** Rust (core, engines/kirikiri), `flate2`, `serde`.
 
-**Spec:** `Docs/superpowers/specs/2026-09-27-kirikiri-engine-support-phase-1-design.md`
+**Spec:** `Docs/execution-plans/track-b-kirikiri/phase-1-design.md`
 
 ## Global Constraints
 

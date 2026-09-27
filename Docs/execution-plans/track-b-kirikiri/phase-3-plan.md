@@ -12,7 +12,7 @@
 
 **Tech Stack:** C++17, Android NDK r28, CMake 3.31.1, Kotlin (Android SDK API 34).
 
-**Spec:** `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`
+**Spec:** `Docs/execution-plans/track-b-kirikiri/architecture-spec.md`
 
 ## Global Constraints
 
