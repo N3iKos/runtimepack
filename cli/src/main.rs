@@ -566,6 +566,27 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
     out
 }
 
+/// Locates the Ren'Py launcher that RAPT renames to `main.py`.
+///
+/// RAPT's `split_renpy` renames every top-level `*.py` file (skipping
+/// `android-*` entries) to `main.py`, which the Android runtime then executes
+/// from `<ANDROID_PRIVATE>/main.py`. RuntimePack reproduces that alias inside
+/// the content container so the immutable source tree is never touched.
+fn find_renpy_root_launcher(index: &GameSourceIndex) -> Option<String> {
+    let mut candidates: Vec<String> = index
+        .files
+        .values()
+        .filter(|file| {
+            let logical = file.logical_path.replace('\\', "/");
+            let lower = logical.to_ascii_lowercase();
+            !logical.contains('/') && lower.ends_with(".py") && !lower.starts_with("android-")
+        })
+        .map(|file| file.logical_path.clone())
+        .collect();
+    candidates.sort();
+    candidates.into_iter().next()
+}
+
 fn cmd_build(args: BuildArgs) {
     let normalized_flavor = args.flavor.to_lowercase();
     if normalized_flavor != "beta" && normalized_flavor != "release" {
@@ -893,9 +914,34 @@ fn cmd_build(args: BuildArgs) {
         }
     }
 
+    // Ren'Py's Android runtime executes `<ANDROID_PRIVATE>/main.py`; RAPT
+    // renames the top-level `<game>.py` launcher to `main.py`. Reproduce that
+    // alias inside the content container without mutating the source tree.
+    let mut renpy_launcher_alias: Option<GameSourceIndex> = None;
+    if descriptor.id == EngineId::RenPy && !source_index.files.contains_key("main.py") {
+        match find_renpy_root_launcher(&source_index) {
+            Some(launcher_path) => {
+                let mut aliased = source_index.clone();
+                if let Some(mut main_alias) = aliased.get_file(&launcher_path).cloned() {
+                    main_alias.logical_path = "main.py".to_string();
+                    aliased.files.insert("main.py".to_string(), main_alias);
+                    renpy_launcher_alias = Some(aliased);
+                    println!("Ren'Py launcher alias: {} -> main.py", launcher_path);
+                }
+            }
+            None => {
+                eprintln!(
+                    "Warning: no top-level Ren'Py launcher '<game>.py' found; the runtime \
+                     expects <ANDROID_PRIVATE>/main.py and may not boot."
+                );
+            }
+        }
+    }
+
     let total_bytes = if content_source_dir == *path {
+        let content_index = renpy_launcher_alias.as_ref().unwrap_or(&source_index);
         match GpackPacker::pack_from_index_with_options(
-            &source_index,
+            content_index,
             &pack_path,
             encryption_key.as_ref(),
         ) {

@@ -202,7 +202,7 @@ impl RuntimeRegistry {
                 target_sdk: 34,
             },
             artifacts: Some(RuntimeArtifacts {
-                android_module: Some("runtime-renpy-7".to_string()),
+                android_module: Some("runtimes/renpy".to_string()),
                 aar_path: None,
             }),
             capabilities: vec![
@@ -224,7 +224,7 @@ impl RuntimeRegistry {
             manifest_version: 1,
             id: "renpy-android-8".to_string(),
             name: "RuntimePack Ren'Py 8 Runtime".to_string(),
-            version: "8.4.1".to_string(),
+            version: "8.3.7".to_string(),
             runtime_api: 1,
             family: RuntimeFamily::RenPy,
             engines: vec![EngineId::RenPy],
@@ -234,7 +234,7 @@ impl RuntimeRegistry {
                 target_sdk: 34,
             },
             artifacts: Some(RuntimeArtifacts {
-                android_module: Some("runtime-renpy-8".to_string()),
+                android_module: Some("runtimes/renpy".to_string()),
                 aar_path: None,
             }),
             capabilities: vec![

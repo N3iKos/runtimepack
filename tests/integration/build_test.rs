@@ -2480,3 +2480,180 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+fn renpy_build_manifest() -> BuildManifest {
+    BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-27T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        app: AppConfig {
+            name: "Mizuki And Me".to_string(),
+            package: "com.cherrykiss.mizukiandme".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "renpy".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("8.3.7".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "renpy-android-8".to_string(),
+            version: "8.3.7".to_string(),
+            family: "Ren'Py".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    }
+}
+
+#[test]
+fn test_generate_manifest_routes_renpy_family_to_renpy_activity() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "runtimepack_test_renpy_manifest_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let project_dir = temp_dir.join("android-project");
+
+    let manifest = renpy_build_manifest();
+    AndroidProjectGenerator::emit_project(&project_dir, &manifest, None).unwrap();
+
+    let manifest_xml_path = project_dir.join("app/src/main/AndroidManifest.xml");
+    let manifest_xml = std::fs::read_to_string(&manifest_xml_path).unwrap();
+    assert!(
+        manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyActivity\""),
+        "Ren'Py family must route to RenpyActivity, got:\n{manifest_xml}"
+    );
+
+    let renpy_lib = project_dir.join("app/src/main/jniLibs/arm64-v8a/librenpython.so");
+    assert!(
+        renpy_lib.exists(),
+        "RAPT runtime librenpython.so must be copied into generated jniLibs: {renpy_lib:?}"
+    );
+    assert!(
+        std::fs::metadata(&renpy_lib).unwrap().len() > 0,
+        "copied librenpython.so must be non-empty"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_renpy_packs_launcher_as_main_py() {
+    let fixture = test_temp_dir("renpy-main-alias");
+    let out_dir = test_temp_dir("renpy-main-alias-out");
+
+    std::fs::create_dir_all(fixture.join("renpy")).unwrap();
+    std::fs::create_dir_all(fixture.join("game")).unwrap();
+    std::fs::write(
+        fixture.join("renpy/vc_version.py"),
+        b"version = '8.3.7.25031702'\n",
+    )
+    .unwrap();
+    // Nested engine entry must never be mistaken for the root launcher.
+    std::fs::write(fixture.join("renpy/main.py"), b"# renpy engine entry\n").unwrap();
+    std::fs::write(
+        fixture.join("game/script.rpy"),
+        b"label start:\n    return\n",
+    )
+    .unwrap();
+
+    let launcher = b"# Ren'Py launcher for Mizuki And Me\nprint('mizuki')\n";
+    std::fs::write(fixture.join("mizuki-and-me.py"), launcher).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Ren'Py build must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Ren'Py launcher alias: mizuki-and-me.py -> main.py"),
+        "build must alias the Ren'Py launcher as main.py.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    let manifest_xml =
+        std::fs::read_to_string(out_dir.join("android-project/app/src/main/AndroidManifest.xml"))
+            .unwrap();
+    assert!(
+        manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyActivity\""),
+        "emitted AndroidManifest.xml must reference RenpyActivity:\n{manifest_xml}"
+    );
+    assert!(
+        out_dir
+            .join("android-project/app/src/main/jniLibs/arm64-v8a/librenpython.so")
+            .exists(),
+        "emitted project must bundle librenpython.so"
+    );
+
+    let pack_path = out_dir.join("game.pack");
+    let mut reader =
+        runtimepack_pack::GpackReader::open(&pack_path).expect("game.pack must be a valid GPACK");
+    assert!(
+        reader.has_file("main.py"),
+        "game.pack must contain main.py at the root for the Ren'Py runtime"
+    );
+    let packed_main = reader.read_file("main.py").unwrap();
+    assert_eq!(
+        packed_main, launcher,
+        "main.py must be byte-identical to the source launcher"
+    );
+
+    // The immutable source tree must remain untouched.
+    assert!(
+        !fixture.join("main.py").exists(),
+        "source fixture must not be mutated with a main.py alias"
+    );
+    assert!(fixture.join("mizuki-and-me.py").exists());
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}

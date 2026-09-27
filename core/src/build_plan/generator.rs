@@ -556,6 +556,7 @@ include(":app")
         let main_activity = match manifest.runtime.family.as_str() {
             "RGSS" => "io.runtimepack.host.RgssActivity",
             "RPG Maker Web" | "web" | "Tyrano Web" => "io.runtimepack.host.WebActivity",
+            "Ren'Py" => "io.runtimepack.host.RenpyActivity",
             _ => "io.runtimepack.host.BootstrapActivity",
         };
 
@@ -628,6 +629,15 @@ include(":app")
         if let Some(jni_src) = Self::find_template_file("android/shell/app/src/main/jniLibs") {
             let jni_dst = app_dir.join("src/main/jniLibs");
             copy_dir_all(&jni_src, &jni_dst)?;
+        }
+
+        // Ren'Py ships a single fat RAPT runtime (librenpython.so) under
+        // runtimes/renpy/jni/<abi>/ rather than the shared shell jniLibs.
+        if manifest.runtime.family == "Ren'Py" {
+            if let Some(renpy_jni_src) = Self::find_template_file("runtimes/renpy/jni") {
+                let jni_dst = app_dir.join("src/main/jniLibs");
+                copy_dir_all(&renpy_jni_src, &jni_dst)?;
+            }
         }
 
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
