@@ -1129,6 +1129,7 @@ fn test_generate_manifest_xml() {
         "sensorLandscape",
         &["android.permission.INTERNET".to_string()],
         "io.runtimepack.host.BootstrapActivity",
+        &[],
     )
     .unwrap();
 
@@ -1147,6 +1148,7 @@ fn test_generate_manifest_xml_escapes_ampersand_and_special_characters() {
         "sensorLandscape",
         &[],
         "io.runtimepack.host.WebActivity",
+        &[],
     )
     .unwrap();
 
@@ -2557,7 +2559,11 @@ fn test_generate_manifest_routes_renpy_family_to_renpy_activity() {
     let manifest_xml = std::fs::read_to_string(&manifest_xml_path).unwrap();
     assert!(
         manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyActivity\""),
-        "Ren'Py family must route to RenpyActivity, got:\n{manifest_xml}"
+        "Ren'Py family must declare RenpyActivity, got:\n{manifest_xml}"
+    );
+    assert!(
+        manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyBootstrapActivity\""),
+        "Ren'Py family must route its launcher through RenpyBootstrapActivity, got:\n{manifest_xml}"
     );
 
     let renpy_lib = project_dir.join("app/src/main/jniLibs/arm64-v8a/librenpython.so");
@@ -2626,6 +2632,10 @@ fn test_build_renpy_packs_launcher_as_main_py() {
     assert!(
         manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyActivity\""),
         "emitted AndroidManifest.xml must reference RenpyActivity:\n{manifest_xml}"
+    );
+    assert!(
+        manifest_xml.contains("android:name=\"io.runtimepack.host.RenpyBootstrapActivity\""),
+        "emitted AndroidManifest.xml must reference RenpyBootstrapActivity:\n{manifest_xml}"
     );
     assert!(
         out_dir

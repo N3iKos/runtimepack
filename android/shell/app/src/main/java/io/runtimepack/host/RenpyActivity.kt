@@ -1,18 +1,22 @@
 package io.runtimepack.host
 
 import android.app.AlertDialog
-import android.graphics.Color
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
-import android.view.Gravity
-import android.view.View
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import org.libsdl.app.SDLActivity
 import java.io.File
 
+/**
+ * SDL-backed runtime activity for Ren'Py games.
+ *
+ * This activity must NOT mount content itself: on Android 15+ `onCreate` is
+ * required to call through to `super.onCreate` synchronously, while mounting an
+ * ~850 MB `game.pack` cannot run on the UI thread. Content mounting is therefore
+ * owned by [RenpyBootstrapActivity], which runs first and only starts this
+ * activity once the engine layout is present. Here, SDL initializes against
+ * already-mounted content and the SDL thread is started from [onStart].
+ */
 open class RenpyActivity : SDLActivity() {
 
     companion object {
@@ -81,78 +85,31 @@ open class RenpyActivity : SDLActivity() {
         )
     }
 
-    @Volatile
-    private var sdlReady = false
-
-    @Volatile
-    private var activityResumed = false
-
-    private var pendingState: Bundle? = null
-    private var loadingView: View? = null
-
     override fun getLibraries(): Array<String> = arrayOf(RENPY_LIBRARY)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val root = gameRoot(filesDir)
-        if (isContentMounted(root)) {
-            startSdl(savedInstanceState)
-        } else {
-            pendingState = savedInstanceState
-            // Neutralize SDL lifecycle callbacks until the surface exists.
-            SDLActivity.mBrokenLibraries = true
-            showLoadingView()
-            Thread({ mountInBackground(root) }, "RenpyMount").start()
-        }
-    }
-
-    private fun mountInBackground(root: File) {
-        val extracted = try {
-            mountGameContent(root)
-        } catch (t: Throwable) {
-            Log.e(TAG, "mountGameContent threw: ${t.message}", t)
-            false
-        }
-
-        runOnUiThread {
-            if (isFinishing || isDestroyed) {
-                return@runOnUiThread
-            }
-            if (extracted && isContentMounted(root)) {
-                logMountedContent(root)
-                startSdl(pendingState)
-            } else {
-                showMountError(root, extracted)
-            }
-        }
-    }
-
-    private fun startSdl(savedInstanceState: Bundle?) {
-        loadingView = null
-        sdlReady = true
+        // Android 15 enforces a synchronous call-through to super.onCreate();
+        // deferring it to a background thread aborts the activity with
+        // SuperNotCalledException. Content is mounted beforehand by
+        // RenpyBootstrapActivity, so SDL can initialize immediately here.
         super.onCreate(savedInstanceState)
-        // The framework already delivered onResume while content was mounting,
-        // but SDL's own resume was suppressed. Replay it so the SDL thread starts.
-        if (activityResumed) {
+
+        val root = gameRoot(filesDir)
+        if (!isContentMounted(root)) {
+            // Defensive: the bootstrap normally guarantees mounted content.
+            // onStart() will not start the SDL thread while this is false.
+            Log.e(TAG, "RenpyActivity started without mounted content at ${root.absolutePath}")
+            showMountError(root, extractionSucceeded = false)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // SDL only starts its native thread from onStart on modern Android
+        // (see RgssActivity); guard it so an unmounted game never boots.
+        if (isContentMounted(gameRoot(filesDir))) {
             resumeNativeThread()
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        activityResumed = true
-    }
-
-    override fun onPause() {
-        super.onPause()
-        activityResumed = false
-    }
-
-    override fun onBackPressed() {
-        if (!sdlReady) {
-            finish()
-            return
-        }
-        super.onBackPressed()
     }
 
     fun preparePython() {
@@ -170,30 +127,6 @@ open class RenpyActivity : SDLActivity() {
         }
 
         Log.i(TAG, "preparePython complete: ANDROID_PRIVATE=${root.absolutePath}")
-    }
-
-    private fun mountGameContent(root: File): Boolean {
-        root.mkdirs()
-        val hasPack = try {
-            assets.open(GpackExtractor.GAME_PACK_ASSET).use { true }
-        } catch (_: Exception) {
-            false
-        }
-
-        if (!hasPack) {
-            Log.e(TAG, "${GpackExtractor.GAME_PACK_ASSET} not present in APK assets")
-            return false
-        }
-
-        val ok = GpackExtractor.extract(this, root)
-        if (!ok) {
-            Log.e(TAG, "Failed to extract ${GpackExtractor.GAME_PACK_ASSET} into ${root.absolutePath}")
-        }
-        return ok
-    }
-
-    private fun logMountedContent(root: File) {
-        Log.i(TAG, "Ren'Py content mounted at ${root.absolutePath}; rpa=${archivesIn(root).map { it.name }}")
     }
 
     private fun linkSaveDirectory(root: File, saves: File) {
@@ -214,23 +147,6 @@ open class RenpyActivity : SDLActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "Could not set $name: ${e.message}")
         }
-    }
-
-    private fun showLoadingView() {
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.BLACK)
-            setPadding(64, 64, 64, 64)
-        }
-        layout.addView(ProgressBar(this).apply { isIndeterminate = true })
-        layout.addView(TextView(this).apply {
-            text = "Preparing game content\u2026"
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-        })
-        setContentView(layout)
-        loadingView = layout
     }
 
     private fun showMountError(root: File, extractionSucceeded: Boolean) {

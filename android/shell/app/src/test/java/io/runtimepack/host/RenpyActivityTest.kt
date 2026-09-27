@@ -1,11 +1,15 @@
 package io.runtimepack.host
 
+import android.app.Activity
+import android.content.Context
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.libsdl.app.SDLActivity
 import java.io.File
 
 class RenpyActivityTest {
@@ -168,5 +172,42 @@ class RenpyActivityTest {
     fun shouldLinkSaveDirectoryFalseWhenLegacyPresent() {
         val legacySaves = tempFolder.newFolder("game", "saves")
         assertFalse(RenpyActivity.shouldLinkSaveDirectory(legacySaves))
+    }
+
+    // --- lifecycle split (Task 4 blocker) ----------------------------------
+
+    @Test
+    fun bootstrapIsAPlainActivityNotTheSdlActivity() {
+        // The launcher must be a plain Activity so its onCreate can call through
+        // to super synchronously while it mounts content off the UI thread.
+        assertTrue(Activity::class.java.isAssignableFrom(RenpyBootstrapActivity::class.java))
+        assertFalse(SDLActivity::class.java.isAssignableFrom(RenpyBootstrapActivity::class.java))
+    }
+
+    @Test
+    fun renpyActivityRemainsTheSdlActivity() {
+        assertTrue(SDLActivity::class.java.isAssignableFrom(RenpyActivity::class.java))
+    }
+
+    @Test
+    fun bootstrapExposesBackgroundMounter() {
+        val method = RenpyBootstrapActivity::class.java.getMethod(
+            "mountGameContent",
+            Context::class.java,
+            File::class.java
+        )
+        assertTrue(java.lang.reflect.Modifier.isStatic(method.modifiers))
+        assertTrue(java.lang.reflect.Modifier.isPublic(method.modifiers))
+    }
+
+    @Test
+    fun bootstrapReusesTheSharedContentContract() {
+        // The bootstrap must not re-implement the layout contract.
+        val mounted = RenpyBootstrapActivity::class.java
+        assertNotNull(mounted)
+        assertEquals(
+            listOf("main.py", "renpy", "lib"),
+            RenpyActivity.expectedLayout()
+        )
     }
 }

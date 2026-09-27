@@ -228,6 +228,7 @@ impl AndroidProjectGenerator {
         orientation: &str,
         permissions: &[String],
         main_activity: &str,
+        additional_activities: &[&str],
     ) -> Result<String, DiagnosticError> {
         let perms_xml = Self::generate_permissions_xml(permissions)?;
 
@@ -239,6 +240,17 @@ impl AndroidProjectGenerator {
         };
 
         let escaped_app_name = Self::escape_xml_attribute(app_name);
+
+        let mut additional_xml = String::new();
+        for activity in additional_activities {
+            additional_xml.push_str(&format!(
+                r#"
+        <activity
+            android:name="{activity}"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard" />"#
+            ));
+        }
 
         Ok(format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
@@ -264,7 +276,7 @@ impl AndroidProjectGenerator {
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity>{additional_xml}
     </application>
 
 </manifest>
@@ -273,7 +285,8 @@ impl AndroidProjectGenerator {
             perms_xml = perms_xml,
             app_name = escaped_app_name,
             screen_orientation = screen_orientation,
-            main_activity = main_activity
+            main_activity = main_activity,
+            additional_xml = additional_xml
         ))
     }
 
@@ -552,13 +565,22 @@ include(":app")
         fs::create_dir_all(&src_dir)?;
         fs::create_dir_all(&assets_dir)?;
 
-        // Choose main activity based on runtime family
-        let main_activity = match manifest.runtime.family.as_str() {
-            "RGSS" => "io.runtimepack.host.RgssActivity",
-            "RPG Maker Web" | "web" | "Tyrano Web" => "io.runtimepack.host.WebActivity",
-            "Ren'Py" => "io.runtimepack.host.RenpyActivity",
-            _ => "io.runtimepack.host.BootstrapActivity",
-        };
+        // Choose main activity based on runtime family. Ren'Py uses a launcher
+        // bootstrap that mounts content before the SDL-backed RenpyActivity
+        // starts (Android 15 requires RenpyActivity.onCreate to call through to
+        // super synchronously, so extraction cannot happen there).
+        let (main_activity, additional_activities): (&str, Vec<&str>) =
+            match manifest.runtime.family.as_str() {
+                "RGSS" => ("io.runtimepack.host.RgssActivity", vec![]),
+                "RPG Maker Web" | "web" | "Tyrano Web" => {
+                    ("io.runtimepack.host.WebActivity", vec![])
+                }
+                "Ren'Py" => (
+                    "io.runtimepack.host.RenpyBootstrapActivity",
+                    vec!["io.runtimepack.host.RenpyActivity"],
+                ),
+                _ => ("io.runtimepack.host.BootstrapActivity", vec![]),
+            };
 
         // Write AndroidManifest.xml
         let manifest_xml = Self::generate_manifest_xml(
@@ -567,6 +589,7 @@ include(":app")
             "sensorLandscape",
             &manifest.android.permissions,
             main_activity,
+            &additional_activities,
         )?;
         fs::write(app_dir.join("src/main/AndroidManifest.xml"), manifest_xml)?;
 
@@ -794,9 +817,30 @@ mod tests {
             "sensorLandscape",
             &[],
             "io.runtimepack.host.WebActivity",
+            &[],
         )
         .unwrap();
         assert!(xml.contains("android:label=\"Fear &amp; Hunger 2: Termina\""));
+    }
+
+    #[test]
+    fn test_generate_manifest_xml_declares_additional_activity() {
+        let xml = AndroidProjectGenerator::generate_manifest_xml(
+            "com.example.renpy",
+            "Mizuki And Me",
+            "sensorLandscape",
+            &[],
+            "io.runtimepack.host.RenpyBootstrapActivity",
+            &["io.runtimepack.host.RenpyActivity"],
+        )
+        .unwrap();
+
+        assert!(xml.contains("android:name=\"io.runtimepack.host.RenpyBootstrapActivity\""));
+        assert!(xml.contains("android:name=\"io.runtimepack.host.RenpyActivity\""));
+        // The SDL runtime activity must not be the exported launcher.
+        assert!(xml.contains(
+            "android:name=\"io.runtimepack.host.RenpyActivity\"\n            android:exported=\"false\""
+        ));
     }
 
     #[test]

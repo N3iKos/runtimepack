@@ -587,6 +587,24 @@ fn find_renpy_root_launcher(index: &GameSourceIndex) -> Option<String> {
     candidates.into_iter().next()
 }
 
+/// Picks a runtime id to prefer for engine resolution, derived from the
+/// compatibility report in an engine-agnostic way: if an analyzer emitted an
+/// informational finding that names one of the candidate runtime ids (e.g.
+/// Ren'Py's `RNP-100-VERSION` maps a detected generation to
+/// `renpy-android-8`), that id is preferred. Returns `None` when no candidate
+/// is named, in which case the registry's deterministic version ordering wins.
+fn preferred_runtime_id_from_report(
+    report: &runtimepack_core::compatibility::CompatibilityReport,
+    candidates: &[&runtimepack_core::runtime_registry::RuntimeManifest],
+) -> Option<String> {
+    report.issues.iter().find_map(|issue| {
+        candidates
+            .iter()
+            .find(|candidate| issue.message.contains(&candidate.id))
+            .map(|candidate| candidate.id.clone())
+    })
+}
+
 fn cmd_build(args: BuildArgs) {
     let normalized_flavor = args.flavor.to_lowercase();
     if normalized_flavor != "beta" && normalized_flavor != "release" {
@@ -815,7 +833,10 @@ fn cmd_build(args: BuildArgs) {
         }
     };
     let audit_hash = audit_artifacts.report_sha256.clone();
-    let runtime = runtimes[0];
+    let preferred_runtime_id = preferred_runtime_id_from_report(&report, &runtimes);
+    let resolved_runtimes =
+        registry.resolve_for_engine(descriptor.id, preferred_runtime_id.as_deref());
+    let runtime = resolved_runtimes.first().copied().unwrap_or(runtimes[0]);
     let cache_tag = if from_cache { " [cache hit]" } else { "" };
     println!(
         "Audit:         {:?} ({:?}){}",
@@ -1162,6 +1183,10 @@ fn cmd_build(args: BuildArgs) {
         }
 
         println!("\nCompiling standalone Android package with Gradle...");
+        // Always clean first: a bare `assembleDebug` can leave a stale
+        // app-debug.apk in place when inputs change (e.g. a new game.pack),
+        // producing an over-sized, incorrectly packaged APK.
+        gradle_cmd.arg("clean");
         gradle_cmd.arg("assembleDebug");
         gradle_cmd.arg("--console=plain");
         gradle_cmd.current_dir(&android_project_dir);

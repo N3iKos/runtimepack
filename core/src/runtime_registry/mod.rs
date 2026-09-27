@@ -1,8 +1,23 @@
 use crate::domain::{Abi, EngineId, RuntimeFamily};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+
+/// Compares two dotted version strings in descending order using numeric
+/// component comparison ("8.3.7" > "7.5.3"). Non-numeric components compare as
+/// 0 so the ordering is always total and deterministic.
+fn compare_versions_desc(a: &str, b: &str) -> Ordering {
+    let parse = |v: &str| -> Vec<u64> {
+        v.split('.')
+            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    let pa = parse(a);
+    let pb = parse(b);
+    pb.cmp(&pa)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeAndroidConfig {
@@ -79,10 +94,37 @@ impl RuntimeRegistry {
     }
 
     pub fn find_for_engine(&self, engine: EngineId) -> Vec<&RuntimeManifest> {
-        self.runtimes
+        let mut list: Vec<&RuntimeManifest> = self
+            .runtimes
             .values()
             .filter(|r| r.engines.contains(&engine))
-            .collect()
+            .collect();
+        // Deterministic order: newest version first, ties broken by id.
+        // `HashMap` iteration order is otherwise unspecified, which previously
+        // made `runtimes[0]` pick renpy-android-7 or -8 at random.
+        list.sort_by(|a, b| {
+            compare_versions_desc(&a.version, &b.version).then_with(|| a.id.cmp(&b.id))
+        });
+        list
+    }
+
+    /// Resolve runtimes for an engine deterministically, preferring an explicit
+    /// runtime id when the analyzer named one (e.g. Ren'Py's RNP-100-VERSION
+    /// finding maps a detected generation to a runtime id).
+    ///
+    /// The candidate list is already ordered newest-version-first; the preferred
+    /// entry, when present, is moved to the front and the remaining order is
+    /// preserved. Engine-agnostic: any engine may supply a preferred id.
+    pub fn resolve_for_engine(
+        &self,
+        engine: EngineId,
+        preferred_id: Option<&str>,
+    ) -> Vec<&RuntimeManifest> {
+        let mut list = self.find_for_engine(engine);
+        if let Some(preferred) = preferred_id {
+            list.sort_by_key(|r| if r.id == preferred { 0 } else { 1 });
+        }
+        list
     }
 
     pub fn load_dir(&mut self, dir: &Path) -> std::io::Result<usize> {
@@ -282,5 +324,58 @@ impl RuntimeRegistry {
                 notice_bundle: Some("licenses/tyrano".to_string()),
             }),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_for_engine_is_deterministic_and_newest_first() {
+        let registry = RuntimeRegistry::new();
+        let runtimes = registry.find_for_engine(EngineId::RenPy);
+        assert_eq!(runtimes.len(), 2, "expected both Ren'Py runtimes");
+        assert_eq!(
+            runtimes[0].id, "renpy-android-8",
+            "newest Ren'Py runtime must sort first regardless of HashMap order"
+        );
+        assert_eq!(runtimes[1].id, "renpy-android-7");
+
+        // Repeated calls must be stable.
+        for _ in 0..25 {
+            let again = registry.find_for_engine(EngineId::RenPy);
+            assert_eq!(again[0].id, "renpy-android-8");
+        }
+    }
+
+    #[test]
+    fn resolve_for_engine_prefers_requested_id() {
+        let registry = RuntimeRegistry::new();
+
+        let default = registry.resolve_for_engine(EngineId::RenPy, None);
+        assert_eq!(default[0].id, "renpy-android-8");
+
+        let preferred = registry.resolve_for_engine(EngineId::RenPy, Some("renpy-android-7"));
+        assert_eq!(
+            preferred[0].id, "renpy-android-7",
+            "explicit preference must win over version ordering"
+        );
+        assert_eq!(preferred[1].id, "renpy-android-8");
+    }
+
+    #[test]
+    fn resolve_for_engine_ignores_unknown_preference() {
+        let registry = RuntimeRegistry::new();
+        let resolved = registry.resolve_for_engine(EngineId::RenPy, Some("does-not-exist"));
+        assert_eq!(resolved[0].id, "renpy-android-8");
+    }
+
+    #[test]
+    fn compare_versions_desc_orders_numerically() {
+        assert_eq!(compare_versions_desc("8.3.7", "7.5.3"), Ordering::Less);
+        assert_eq!(compare_versions_desc("7.5.3", "8.3.7"), Ordering::Greater);
+        assert_eq!(compare_versions_desc("1.2.0", "1.2.0"), Ordering::Equal);
+        assert_eq!(compare_versions_desc("10.0.0", "9.9.9"), Ordering::Less);
     }
 }
