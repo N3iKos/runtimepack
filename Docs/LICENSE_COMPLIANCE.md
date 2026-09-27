@@ -44,6 +44,40 @@ Official Ren'Py documentation says most of Ren'Py uses MIT, while portions/depen
 
 Therefore the Ren'Py runtime package must ship an automatically generated third-party notice bundle based on the exact pinned runtime version.
 
+### 4.1 Pinned Android runtime (`renpy-android-8`)
+
+RuntimePack vendors the official RAPT native runtime for `arm64-v8a`:
+
+| Field | Value |
+| :--- | :--- |
+| Runtime id | `renpy-android-8` |
+| Ren'Py SDK version | `8.3.7.25031702` ("Second Star to the Right", official, branch `fix`) |
+| Python | 3.9 (statically linked) |
+| Source artifact | `renpy-8.3.7-rapt.zip` |
+| Source URL | https://www.renpy.org/dl/8.3.7/renpy-8.3.7-rapt.zip |
+| Artifact SHA-256 | `ea3a96dc59a276464fcec30eb5371e12178be563348b1e318a5f236c3511ef9f` |
+| Retrieved | 2026-09-27 (verified against PGP-signed `checksums.txt`) |
+
+Vendored binary (single fat library — CPython 3.9, SDL2, pygame_sdl2, Ren'Py
+Cython modules and libc++ are statically linked):
+
+| File | Size (bytes) | SHA-256 | ELF machine |
+| :--- | ---: | :--- | :--- |
+| `runtimes/renpy/jni/arm64-v8a/librenpython.so` | 27918624 | `e111aa6c02b040019e68f0e36361574d1110b577105de09636864c3a38fed80a` | AArch64 |
+
+Machine-readable provenance: `runtimes/renpy/manifest.json`.
+Notice bundle: `runtimes/renpy/licenses/` (`LICENSE.txt`, `NOTICE.txt`,
+`components.json`).
+
+Obligations:
+
+- the notice bundle and `licenses/LICENSE.txt` MUST be bundled into every
+  generated APK/AAB that contains `librenpython.so` (do not strip notices);
+- the exact pinned version, source URL and SHA-256 MUST be preserved to satisfy
+  the LGPL source/relink obligations of bundled components (FFmpeg, libusb,
+  fribidi, chardet, Pygame_SDL2 and others);
+- RuntimePack does not relicense Ren'Py or its bundled dependencies.
+
 ## 5. TyranoScript — hard gate
 
 The official public TyranoScript repository states that it is free/commercially usable for making works, but also lists prohibitions including redistributing TyranoScript itself and treating TyranoScript as a smartphone conversion-tool product, with instruction to consult the developer for such cases [S10].
