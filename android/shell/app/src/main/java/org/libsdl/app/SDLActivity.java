@@ -350,10 +350,14 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             String expected_version = String.valueOf(SDL_MAJOR_VERSION) + "." +
                                       String.valueOf(SDL_MINOR_VERSION) + "." +
                                       String.valueOf(SDL_MICRO_VERSION);
-            String version = nativeGetVersion();
-            if (!version.equals(expected_version)) {
-                mBrokenLibraries = true;
-                errorMsgBrokenLib = "SDL C/Java version mismatch (expected " + expected_version + ", got " + version + ")";
+            try {
+                String version = nativeGetVersion();
+                if (!version.equals(expected_version)) {
+                    mBrokenLibraries = true;
+                    errorMsgBrokenLib = "SDL C/Java version mismatch (expected " + expected_version + ", got " + version + ")";
+                }
+            } catch (UnsatisfiedLinkError e) {
+                Log.w(TAG, "nativeGetVersion unavailable; skipping SDL C/Java version check: " + e.getMessage());
             }
         }
 
@@ -391,7 +395,12 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         mClipboardHandler = new SDLClipboardHandler();
 
-        mHIDDeviceManager = HIDDeviceManager.acquire(this);
+        try {
+            mHIDDeviceManager = HIDDeviceManager.acquire(this);
+        } catch (Throwable e) {
+            mHIDDeviceManager = null;
+            Log.w(TAG, "HID device support unavailable: " + e.getMessage());
+        }
 
         // Set up the surface
         mSurface = createSDLSurface(getApplication());
