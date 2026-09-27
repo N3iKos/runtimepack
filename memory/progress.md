@@ -1,23 +1,13 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Plan All 8 Games PASS / Clean Static Audit Stabilization (Task 1 Forestia, Task 2 MV/Termina VFS fallback, Task 3 Tyrano clean-up, Task 4 Full Sweep Verification) selesai 100%.
-- **Next step:** Menunggu arahan pengguna untuk task berikutnya atau build packaging rilis final.
+- **Sedang kerjain apa:** Master Roadmap & Rencana Implementasi Lengkap Ekspansi Engine Visual Novel (Kirikiri 2/Z dan Visual Novel Maker) selesai disusun dan dikomit.
+- **Next step:** Menunggu konfirmasi user untuk memulai eksekusi: Track A (Visual Novel Maker) atau Track B Fase 1 (Kirikiri 2/Z).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Hasil verifikasi static audit sweep menyeluruh terhadap seluruh 8 game target di `Raw-Game/`:
-  | Game | Engine | Outcome | Nodes | References | Total Findings | Errors | Warnings | Info | Status Policy |
-  | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-  | *Hello Charlotte EP1* | RPG Maker VX Ace | **PASS** | 5 | 0 | 0 | 0 | 0 | 0 | Allow (0 overrides) |
-  | *To the Moon* | RPG Maker XP | **PASS** | 5 | 0 | 0 | 0 | 0 | 0 | Allow (0 overrides) |
-  | *Forestia* | RPG Maker MZ | **PASS** | 17,466 | 7,146 | 24 | 0 | 23 | 1 | Allow (0 overrides) |
-  | *Mizuki And Me* | Ren'Py | **WARNING** | 167 | 120 | 8 | 0 | 8 | 0 | Allow (0 overrides) |
-  | *The Witch's House MV* | RPG Maker MV | **WARNING** | 9,853 | 5,455 | 39 | 0 | 15 | 24 | Allow (0 overrides) |
-  | *Fear & Hunger 2: Termina* | RPG Maker MV | **WARNING** | 117,986 | 79,611 | 586 | 0 | 330 | 256 | Allow (0 overrides) |
-  | *[Kimochi] show_off* | TyranoScript | **WARNING** | 4,851 | 8,332 | 50 | 0 | 33 | 17 | Allow (0 overrides) |
-  | *[Kimochi] NTRdemic* | TyranoScript | **WARNING** | 1,960 | 2,577 | 447 | 0 | 446 | 1 | Allow (0 overrides) |
-
-  **Kesimpulan Audit:** ZERO games have outcome `FAIL`! 3 game mencapai status `PASS` (100% clean), 5 game mencapai status `WARNING` (clean VFS auto-shim/optional/desktop exclusions dengan 0 blocking errors). Seluruh 8 game secara otomatis menghasilkan `AuditPolicyDecision::Allow { overrides: vec![] }` tanpa membutuhkan flag override `--accept-audit-fail`.
-  Seluruh 278 tests Cargo workspace lulus 100%.
+- **Catatan fokus:** Roadmap master `Docs/superpowers/plans/2026-09-27-visual-novel-expansion-master-roadmap.md` telah membagi eksekusi ke dalam dua jalur independen:
+  1. **Track A (Visual Novel Maker):** Eksekusi cepat memanfaatkan arsitektur Web Runtime (`WebActivity.kt`), VFS streaming decrypter, dan NW.js shims tanpa kompilasi biner C++ baru.
+  2. **Track B (Kirikiri 2 / Kirikiri Z):** Pipeline 4 fase mendalam mencakup parser in-memory biner XP3 11-byte di Rust, kompatibilitas scanner TJS, direct-boot native patch C++ (`libkrkr2.so` NDK r28 dengan alignment 16 KB untuk Android 15), dan isolasi save data `filesDir/savedata`.
+  Seluruh 8 game utama sebelumnya tetap berstatus 0 FAIL dan lolos build policy 100%.
 
 ## Selesai
 - [2026-09-27] Task 4 Plan All 8 Games PASS (Full Sweep Re-Audit & Verification Across All 8 Games) Selesai:
