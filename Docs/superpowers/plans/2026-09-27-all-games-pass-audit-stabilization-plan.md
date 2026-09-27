@@ -138,24 +138,24 @@
   - In `runtimepack_web_shims.js`:
     - Stub placeholder jumps (`*未定`) so clicking a TBD button shows a brief toast message and returns cleanly.
 
-- [ ] **Step 1: Write failing test in `tyrano_asset_audit_test.rs`**:
+- [x] **Step 1: Write failing test in `tyrano_asset_audit_test.rs`**:
   - Test scenario with `[button target="*未定"]`, gallery macro with missing bonus CG, and `[image storage="&tf.img_path + 'title_bg.png'"]` where `data/image/title_bg.png` exists.
   - Assert that placeholder label is resolved, gallery asset is optional, and dynamic literal resolves cleanly.
-- [ ] **Step 2: Run test to verify failure**:
+- [x] **Step 2: Run test to verify failure**:
   `cargo test --test tyrano_asset_audit_test test_tyrano_placeholder_labels_and_gallery_assets_clean_audit`
-- [ ] **Step 3: Implement placeholder labels, gallery rules, and dynamic literal parsing**:
+- [x] **Step 3: Implement placeholder labels, gallery rules, and dynamic literal parsing**:
   - Implement `is_placeholder_label` and route to placeholder resolution.
   - Check scenario filename: if `cg.ks` / `replay.ks` / `album.ks`, set default requiredness to `Optional`.
   - Add string literal regex to extract `'filename.ext'` from dynamic expressions and check candidates in `data/image/`, `data/bgimage/`, `data/fgimage/`.
   - Deduplicate dynamic warnings by `(source_node_id, expr)`.
-- [ ] **Step 4: Run tests to verify pass**:
+- [x] **Step 4: Run tests to verify pass**:
   `cargo test --test tyrano_asset_audit_test`
   `cargo test -p runtimepack-engine-tyrano`
-- [ ] **Step 5: Verify on show_off & NTRdemic**:
+- [x] **Step 5: Verify on show_off & NTRdemic**:
   - `cargo run --bin runtimepack -- audit "Raw-Game\[Kimochi] show_off" --mode standard --output dist/show_off/asset-audit-report.json`
   - `cargo run --bin runtimepack -- audit "Raw-Game\[Kimochi] NTRdemic - I Will Rescue Her Without Yielding to Any Temptation" --mode standard --output dist/ntrdemic/asset-audit-report.json`
   - Assert that outcomes are `Pass` or clean `Warning`.
-- [ ] **Step 6: Commit**:
+- [x] **Step 6: Commit**:
   ```powershell
   git add engines/tyrano/src/asset_audit.rs android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js tests/integration/tyrano_asset_audit_test.rs
   git commit -m "feat(tyrano): resolve placeholder labels, gallery scenarios, and dynamic string literals"
@@ -169,7 +169,7 @@
 - Output targets: `dist/<game>/asset-audit-report.json` for all 8 games.
 - Documentation: `memory/progress.md`, `memory/decisions_log.md`.
 
-- [ ] **Step 1: Execute `runtimepack audit` for all 8 games sequentially**:
+- [x] **Step 1: Execute `runtimepack audit` for all 8 games sequentially**:
   1. *Hello Charlotte EP1* -> `dist/hc_ep1/asset-audit-report.json`
   2. *To the Moon* -> `dist/to_the_moon/asset-audit-report.json`
   3. *Mizuki And Me* -> `dist/mizuki_and_me/asset-audit-report.json`
@@ -178,9 +178,9 @@
   6. *Fear & Hunger 2: Termina* -> `dist/termina/asset-audit-report.json`
   7. *[Kimochi] show_off* -> `dist/show_off/asset-audit-report.json`
   8. *[Kimochi] NTRdemic* -> `dist/ntrdemic/asset-audit-report.json`
-- [ ] **Step 2: Verify that ZERO games have outcome `FAIL`**:
+- [x] **Step 2: Verify that ZERO games have outcome `FAIL`**:
   - Assert that all 8 games evaluate to either `PASS` or clean `WARNING` that satisfies the build policy without manual override flags.
-- [ ] **Step 3: Update documentation and commit**:
+- [x] **Step 3: Update documentation and commit**:
   ```powershell
   git add memory/progress.md memory/decisions_log.md
   git commit -m "chore: verify all 8 games achieve PASS or clean WARNING static audit"

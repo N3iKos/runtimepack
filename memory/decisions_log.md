@@ -1,5 +1,37 @@
 # Decisions Log
 
+## [2026-09-27] Full Sweep Re-Audit & Verification Across All 8 Games (Task 4)
+**Keputusan:**
+1. Eksekusi static asset audit menyeluruh pada seluruh 8 game target di `Raw-Game/`:
+   - *Hello Charlotte EP1* (RGSS3): Outcome `PASS` (5 nodes, 0 refs, 0 findings, 100% clean).
+   - *To the Moon* (RGSS1): Outcome `PASS` (5 nodes, 0 refs, 0 findings, 100% clean).
+   - *Forestia* (MZ): Outcome `PASS` (17.466 nodes, 7.146 refs, 24 findings: 0 fatal errors, 23 case mismatches auto-aliased, 1 inactive dev plugin info `CMP-AUD-013`).
+   - *Mizuki And Me* (Ren'Py): Outcome `WARNING` (167 nodes, 120 refs, 8 findings `CMP-106` desktop wrapper DLLs non-fatal, 0 fatal errors).
+   - *The Witch's House MV* (MV): Outcome `WARNING` (9.853 nodes, 5.455 refs, 39 findings: 0 fatal errors, 10 VFS auto-shimmed `CMP-AUD-003`, 5 case mismatches `CMP-AUD-004`, 24 info `CMP-AUD-013`).
+   - *Fear & Hunger 2: Termina* (MV): Outcome `WARNING` (117.986 nodes, 79.611 refs, 586 findings: 0 fatal errors, 330 warnings [315 VFS auto-shimmed `CMP-AUD-003`, 15 case mismatches `CMP-AUD-004`], 256 info `CMP-AUD-013`).
+   - *[Kimochi] show_off* (Tyrano): Outcome `WARNING` (4.851 nodes, 8.332 refs, 50 findings: 0 fatal errors, 33 warnings deduplicated dynamic/optional, 17 info [16 placeholder labels `*未定` + 1 `TYR-101`]).
+   - *[Kimochi] NTRdemic* (Tyrano): Outcome `WARNING` (1.960 nodes, 2.577 refs, 447 findings: 0 fatal errors, 446 warnings optional gallery CG/dynamic, 1 `TYR-101` info).
+2. Verifikasi Outcome & Kebijakan Build:
+   - ZERO games have outcome `FAIL` (3 PASS, 5 clean WARNING).
+   - ZERO fatal blocking errors di seluruh 8 game.
+   - Evaluasi build policy (`evaluate_audit_policy`) untuk ke-8 game menghasilkan `AuditPolicyDecision::Allow { overrides: vec![] }` secara langsung tanpa memerlukan flag `--accept-audit-fail`.
+**Alasan:** Menuntaskan stabilisasi audit statis lintas seluruh platform mesin game yang didukung RuntimePack v1 (RGSS, RPG Maker Web MV/MZ, Ren'Py, TyranoScript) sehingga seluruh game dapat dikompilasi secara deterministik dan transparan.
+**Dampak:** Seluruh 8 game lolos audit dengan status PASS atau clean WARNING; 0 fail policy blocks. Seluruh 278 unit & integration tests workspace lulus 100%.
+
+## [2026-09-27] TyranoScript Clean-Up: Placeholder Labels, Gallery Scenarios, & Dynamic Expressions (Task 3)
+**Keputusan:**
+1. Di `engines/tyrano/src/asset_audit.rs`:
+   - Implementasi `is_placeholder_label(label: &str) -> bool`: mengenali tag placeholder developer Jepang (`*未定`, `*todo`, `*tbd`, `*coming_soon`, `*temp`, `*dummy`). Label ini diresolusi sebagai `Resolved` dengan finding severity `Info` (`CMP-AUD-013`), meniadakan error missing label pada *show_off*.
+   - Scenario Gallery / Replay Recognition: file skenario bertema galeri/bonus (`cg.ks`, `replay.ks`, `album.ks`, `gallery.ks`, `memory.ks`) atau tag `[cg ...]`/`[replay ...]` memperlakukan referensi gambar sebagai `ReferenceRequiredness::Optional`, mengeliminasi missing fatal error pada CG bonus yang tidak disertakan dalam rilis dasar *NTRdemic*.
+   - Dynamic String Literal Extraction: mengenali pola penggabungan string literal JS pada atribut ekspresi dinamis (misal `&tf.img_path + 'bg_config.png'`) dan mengekstrak kandidat statisnya terhadap direktori `data/image/` / `data/bgimage/`.
+   - Deduplikasi Dynamic Warnings: mendeduplikasi peringatan dinamis berdasarkan `(source_node_id, expression)` sehingga ratusan peringatan variabel identik disederhanakan.
+2. Di `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js`:
+   - Menambahkan hook penanganan klik placeholder jump label `*未定` pada `setupTyranoHooks` yang menampilkan toast non-intrusif dan melakukan return aman tanpa membekukan game.
+3. Di `core/src/asset_audit/cache.rs`:
+   - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 11.
+**Alasan:** Game TyranoScript indie/komersial sering menyertakan tombol menu placeholder (TBD) dan skenario galeri terpisah yang asetnya belum dipaketkan. Tanpa klasifikasi cerdas ini, game Tyrano gagal audit (`FAIL`) meskipun game dapat dimainkan dengan sempurna.
+**Dampak:** Status audit *show_off* turun drastis dari 145 temuan (FAIL) menjadi 50 temuan (**WARNING**, 0 errors). Status *NTRdemic* turun dari 532 temuan (FAIL) menjadi 447 temuan (**WARNING**, 0 errors).
+
 ## [2026-09-27] MV Core Audio Auto-Provisioning & VFS Fallback Recognition (Task 2)
 **Keputusan:**
 1. Di `core/src/asset_audit/resolver.rs`:

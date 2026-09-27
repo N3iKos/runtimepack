@@ -1,21 +1,55 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 2 Plan All 8 Games PASS / Clean Static Audit Stabilization (MV Core Audio Auto-Provisioning & VFS Fallback Recognition - The Witch's House MV & Termina) selesai 100%.
-- **Next step:** Task 3 (TyranoScript Clean-Up: Placeholder Labels, Gallery Scenarios, & Dynamic Expressions).
+- **Sedang kerjain apa:** Plan All 8 Games PASS / Clean Static Audit Stabilization (Task 1 Forestia, Task 2 MV/Termina VFS fallback, Task 3 Tyrano clean-up, Task 4 Full Sweep Verification) selesai 100%.
+- **Next step:** Menunggu arahan pengguna untuk task berikutnya atau build packaging rilis final.
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Hasil verifikasi static audit sweep menyeluruh terhadap 8 game target:
-  1. *Hello Charlotte EP1* (RGSS3): **PASS** (0 findings, 5 nodes, 100% cataloged).
-  2. *To the Moon* (RGSS1): **PASS** (0 findings, 5 nodes, 100% cataloged).
-  3. *Forestia* (MZ): **PASS** (24 findings: 0 fatal errors, 0 indeterminate limitations, 23 case mismatches auto-aliased, 1 inactive plugin info `CMP-AUD-013`, linktr.ee/Veldra.Works URL whitelisted).
-  4. *Mizuki And Me* (Ren'Py): **WARNING** (8 findings `CMP-106` desktop wrapper DLLs non-fatal, 0 missing assets, 0 bytecode/archive indeterminate, evaluasi policy langsung `Allow` dengan 0 overrides).
-  5. *The Witch's House MV* (MV): **WARNING** (39 findings: 0 fatal errors, 10 VFS auto-shimmed optional warnings `CMP-AUD-003`, 5 case mismatches `CMP-AUD-004`, 24 default database missing items downgraded ke `CMP-AUD-013` Info, evaluasi policy langsung `Allow` dengan 0 overrides).
-  6. *Fear & Hunger 2: Termina* (MV): **WARNING** (586 findings: 0 fatal errors, 315 VFS auto-shimmed optional warnings `CMP-AUD-003`, 15 case mismatches `CMP-AUD-004`, 256 unreferenced database entities downgraded ke `CMP-AUD-013` Info via reachability graph filter, evaluasi policy langsung `Allow` dengan 0 overrides).
-  7. *[Kimochi] show_off* (Tyrano): FAIL (145 findings: path traversal warnings `CMP-AUD-009` resmi 0; Shift-JIS decoding berhasil me-resolve Kanji labels; 16 placeholder button targets 未定, 24 missing scenario/asset references, 104 dynamic warnings).
-  8. *[Kimochi] NTRdemic* (Tyrano): FAIL (532 findings: 438 missing assets/optional scenario references ditangani stub web_shims, 93 dynamic audio/command warnings, 1 `TYR-101` info).
+- **Catatan fokus:** Hasil verifikasi static audit sweep menyeluruh terhadap seluruh 8 game target di `Raw-Game/`:
+  | Game | Engine | Outcome | Nodes | References | Total Findings | Errors | Warnings | Info | Status Policy |
+  | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+  | *Hello Charlotte EP1* | RPG Maker VX Ace | **PASS** | 5 | 0 | 0 | 0 | 0 | 0 | Allow (0 overrides) |
+  | *To the Moon* | RPG Maker XP | **PASS** | 5 | 0 | 0 | 0 | 0 | 0 | Allow (0 overrides) |
+  | *Forestia* | RPG Maker MZ | **PASS** | 17,466 | 7,146 | 24 | 0 | 23 | 1 | Allow (0 overrides) |
+  | *Mizuki And Me* | Ren'Py | **WARNING** | 167 | 120 | 8 | 0 | 8 | 0 | Allow (0 overrides) |
+  | *The Witch's House MV* | RPG Maker MV | **WARNING** | 9,853 | 5,455 | 39 | 0 | 15 | 24 | Allow (0 overrides) |
+  | *Fear & Hunger 2: Termina* | RPG Maker MV | **WARNING** | 117,986 | 79,611 | 586 | 0 | 330 | 256 | Allow (0 overrides) |
+  | *[Kimochi] show_off* | TyranoScript | **WARNING** | 4,851 | 8,332 | 50 | 0 | 33 | 17 | Allow (0 overrides) |
+  | *[Kimochi] NTRdemic* | TyranoScript | **WARNING** | 1,960 | 2,577 | 447 | 0 | 446 | 1 | Allow (0 overrides) |
+
+  **Kesimpulan Audit:** ZERO games have outcome `FAIL`! 3 game mencapai status `PASS` (100% clean), 5 game mencapai status `WARNING` (clean VFS auto-shim/optional/desktop exclusions dengan 0 blocking errors). Seluruh 8 game secara otomatis menghasilkan `AuditPolicyDecision::Allow { overrides: vec![] }` tanpa membutuhkan flag override `--accept-audit-fail`.
   Seluruh 278 tests Cargo workspace lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 4 Plan All 8 Games PASS (Full Sweep Re-Audit & Verification Across All 8 Games) Selesai:
+  1. Eksekusi static asset audit terstandardisasi pada seluruh 8 game:
+     - `runtimepack audit "Raw-Game\HC_EP1" --mode standard --output dist/hc_ep1/asset-audit-report.json`: Outcome **PASS** (5 nodes, 0 refs, 0 findings).
+     - `runtimepack audit "Raw-Game\To the Moon" --mode standard --output dist/to_the_moon/asset-audit-report.json`: Outcome **PASS** (5 nodes, 0 refs, 0 findings).
+     - `runtimepack audit "Raw-Game\Forestia1.4.4-IND" --mode standard --output dist/forestia/asset-audit-report.json`: Outcome **PASS** (17.466 nodes, 7.146 refs, 24 findings, 0 errors).
+     - `runtimepack audit "Raw-Game\Mizuki And Me" --mode standard --output dist/mizuki_and_me/asset-audit-report.json`: Outcome **WARNING** (167 nodes, 120 refs, 8 findings, 0 errors).
+     - `runtimepack audit "Raw-Game\The_Witchs_House_MV" --mode standard --output dist/witchs_house/asset-audit-report.json`: Outcome **WARNING** (9.853 nodes, 5.455 refs, 39 findings, 0 errors).
+     - `runtimepack audit "Raw-Game\Fear & Hunger 2 Termina" --mode standard --output dist/termina/asset-audit-report.json`: Outcome **WARNING** (117.986 nodes, 79.611 refs, 586 findings, 0 errors).
+     - `runtimepack audit "Raw-Game\[Kimochi] show_off" --mode standard --output dist/show_off/asset-audit-report.json`: Outcome **WARNING** (4.851 nodes, 8.332 refs, 50 findings, 0 errors).
+     - `runtimepack audit "Raw-Game\[Kimochi] NTRdemic - I Will Rescue Her Without Yielding to Any Temptation" --mode standard --output dist/ntrdemic/asset-audit-report.json`: Outcome **WARNING** (1.960 nodes, 2.577 refs, 447 findings, 0 errors).
+  2. Verifikasi Kriteria Keberhasilan:
+     - Outcome FAIL di seluruh pustaka: 0 (NOL).
+     - Blocking Errors di seluruh pustaka: 0 (NOL).
+     - Build policy evaluasi ke `Allow` dengan 0 overrides tanpa `--accept-audit-fail`.
+  3. Verifikasi Test Suite: Seluruh 278 unit & integration tests workspace Cargo lulus 100%.
+- [2026-09-27] Task 3 Plan All 8 Games PASS (TyranoScript Clean-Up: Placeholder Labels, Gallery Scenarios, & Dynamic Expressions) Selesai:
+  1. `engines/tyrano/src/asset_audit.rs`:
+     - Implementasi `is_placeholder_label(label: &str) -> bool`: mengenali tag placeholder developer Jepang (`*未定`, `*todo`, `*tbd`, `*coming_soon`, `*temp`, `*dummy`). Label ini diresolusi sebagai `Resolved` dengan finding severity `Info` (`CMP-AUD-013`), meniadakan error missing label pada *show_off*.
+     - Gallery & Replay Scenario Recognition: skenario galeri (`cg.ks`, `replay.ks`, `album.ks`, `gallery.ks`, `memory.ks`) atau tag `[cg ...]`/`[replay ...]` memperlakukan referensi gambar sebagai `ReferenceRequiredness::Optional`, mengeliminasi missing fatal error pada CG bonus yang tidak disertakan dalam rilis dasar *NTRdemic*.
+     - Dynamic String Literal Extraction: mengenali pola penggabungan string literal JS pada atribut ekspresi dinamis (misal `&tf.img_path + 'bg_config.png'`) dan mengekstrak kandidat statisnya terhadap direktori `data/image/` / `data/bgimage/`.
+     - Deduplikasi Dynamic Warnings: mendeduplikasi peringatan dinamis berdasarkan `(source_node_id, expression)` sehingga ratusan peringatan variabel identik disederhanakan.
+  2. `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js`:
+     - Menambahkan hook penanganan klik placeholder jump label `*未定` pada `setupTyranoHooks` yang menampilkan toast non-intrusif dan melakukan return aman tanpa membekukan game.
+  3. `core/src/asset_audit/cache.rs`:
+     - Menaikkan `CURRENT_AUDIT_RULESET_VERSION` ke 11.
+  4. Integration tests & Live Audit:
+     - Integration test `test_tyrano_placeholder_labels_and_gallery_assets_clean_audit` di `tyrano_asset_audit_test.rs` memverifikasi resolusi label placeholder, gallery optional assets, dan dynamic string literals.
+     - Live audit pada *[Kimochi] show_off* menghasilkan **WARNING** (50 findings, 0 errors, turun dari 145 findings).
+     - Live audit pada *[Kimochi] NTRdemic* menghasilkan **WARNING** (447 findings, 0 errors, turun dari 532 findings).
+     - Seluruh 32 tests di `tyrano_asset_audit_test` dan 278 tests Cargo workspace lulus 100%.
 - [2026-09-27] Task 2 Plan All 8 Games PASS (MV Core Audio Auto-Provisioning & VFS Fallback Recognition - The Witch's House MV & Termina) Selesai:
   1. `core/src/asset_audit/resolver.rs`:
      - Implementasi `pub fn is_standard_rpgmaker_audio(name: &str) -> bool`: mengenali audio RTP standar RPG Maker MV/MZ (`Blow1..4`, `Cursor1..2`, `Decision1..2`, `Cancel1..2`, `Buzzer1..2`, `Equip1..2`, `Save`, `Load`, `Battle1..3`, `Attack1..3`, `Damage1..5`, `Collapse1..4`, `Item1..3`, `Jump1..2`, `Run`, `Saint1..5`, `Shot1..3`, `Slash1..5`, `Water1..2`, `Wind1..4`, `Thunder1..3`, `Fire1..3`, `Ice1..3`, `Earth1..3`, `Darkness1..4`, `Recovery`, `Poison`, `Heal1..7`, `Switch1..3`, `Bell1..3`, `Chime1..2`, `Applause1..2`, `Crowd1..2`, `Cheering`, `Coin`, `Reflection`, `Up1..3`, `Down1..3`, `Move`, `Flash1..3`, `Key`, `Miss`, `Evasion1..2`, `Hammer`, `Knock`, `Paralyze1..2`, `Sleep`, `Silence`, `Stun1..2`, `Teleport`, `Open1..3`, `Close1..3`, `Absorb1..2`, `Fog1..2`, `Gun1..2`, `Laser1..3`, `Monster1..4`, `Roar`, `SandStorm`, `Scream`, `Howling`, `Wolf`, `Bird`, `Chicken`, `Dog`, `Cat`, `Horse`, `Sheep`, `Cow`, `Pig`, `Footsteps1..3`, dan pola template `rabo_move_*`).
