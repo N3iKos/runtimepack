@@ -1,12 +1,32 @@
 # Progress
 
 ## Status saat ini (update setiap sesi)
-- **Sedang kerjain apa:** Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy) selesai 100%.
-- **Next step:** Melanjutkan Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`).
+- **Sedang kerjain apa:** Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`) selesai 100%.
+- **Next step:** Melanjutkan Task 5 Plan Remediasi Audit (In-Memory Ren'Py RPA Archive Indexer `.rpa`).
 - **Blocker:** Tidak ada blocker aktif.
-- **Catatan fokus:** Case mismatch di disk kini diakui sebagai auto-aliased oleh VFS Android runtime (`VfsResourceInterceptor.kt` & `GpackExtractor.kt`). Pada `evaluate_audit_policy` (`core/src/build_plan/audit_policy.rs`), laporan audit dengan temuan hanya `CMP_AUD_CASE_MISMATCH` (maupun jika outcome bertanda `Fail` akibat casing mismatch) dievaluasi sebagai `AuditPolicyDecision::Allow` dengan 0 overrides tanpa mewajibkan `--accept-audit-fail`. `ResolutionResult::is_auto_aliased` ditambahkan pada `core/src/asset_audit/resolver.rs`. Seluruh 269 Cargo workspace tests lulus 100%.
+- **Catatan fokus:** Parser indeks in-memory untuk format RGSSAD v1/v2 (XP/VX) dan RGSS3A v3 (VX Ace) telah diimplementasikan di `engines/rgss/src/archive.rs`. Pada `RgssAssetAuditor` (`engines/rgss/src/asset_audit.rs`), berkas arsip terenkripsi dipindai tabel indeksnya secara in-memory (tanpa ekstraksi ke disk), lalu seluruh entri internal digabungkan ke `effective_source.files` sebagai virtual `IndexedFile`. Audit data files memverifikasi kelengkapan database (`Data/System.*`, `Actors.*`, dll.) di dalam arsip. Warning `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED` tidak lagi diemisi jika seluruh berkas wajib ditemukan di dalam arsip, dan outcome berhasil mencapai `Pass` (terkonfirmasi bersih pada *To the Moon* dan *Hello Charlotte EP1*). Seluruh 273 Cargo workspace tests lulus 100%.
 
 ## Selesai
+- [2026-09-27] Task 4 Plan Remediasi Audit (In-Memory RGSS Archive Indexer `.rgssad`, `.rgss2a`, `.rgss3a`) Selesai (Commit `cb60b48`):
+  1. `engines/rgss/src/archive.rs` & `engines/rgss/src/lib.rs`:
+     - Implementasi `RgssArchiveIndex` dengan mapping file paths ke size/offset, serta method `has_file` dan `get_size` case-insensitive & path-normalized.
+     - Implementasi `parse_rgss_archive_index(&bytes)` yang mengenali header magic `RGSSAD\0` (8 byte) dan `RGSSAD` (7 byte) versi 1, 2, dan 3.
+     - RGSSAD v1/v2: Rolling XOR key `0xDEADCAFE` (progresi `key * 7 + 3`), membaca length, filename, file size, dan memajukan kursor melewati payload secara in-memory.
+     - RGSS3A v3: Header key XOR `raw_key * 9 + 3`, membaca TOC entries (`offset`, `size`, `file_key`, `name_len`, `filename`), dan berhenti saat terminator `offset == 0` tercapai.
+     - Helper generator arsip sintetis `create_synthetic_rgssad_v1` dan `create_synthetic_rgss3a_v3` untuk pengujian TDD.
+  2. `engines/rgss/src/asset_audit.rs`:
+     - Membaca arsip `.rgssad`, `.rgss2a`, `.rgss3a` dan mem-parse indeks in-memory via `parse_rgss_archive_index`.
+     - Mengisi `effective_source.files` dengan virtual `IndexedFile` entries dari arsip.
+     - Menginisialisasi `AssetResolver` dengan `&effective_source`.
+     - Pada `audit()`: jika arsip berhasil di-index (`archive_parsed_successfully`), memeriksa kelengkapan `required_db_files` di `effective_source`.
+     - `read_and_parse_data_file`: jika file berupa virtual entry di dalam arsip (`!full_path.exists()`), mengembalikan `None` tanpa mengemisikan `CMP_AUD_MALFORMED_RESOURCE`.
+     - Encrypted archive check: jika `archive_parsed_successfully`, menambahkan `coverage.add_covered("encrypted_archive")` dan tidak mengemisikan finding unextracted `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`.
+     - Outcome dievaluasi ke `Pass` jika seluruh file esensial ada di dalam arsip.
+  3. Tests & Verifikasi:
+     - Unit test `test_synthetic_rgssad_v1_parsing`, `test_synthetic_rgss3a_v3_parsing`, `test_parse_invalid_header_fails`, `test_parse_real_archives_if_present` di `archive.rs` (terkonfirmasi mem-parse 391 file di `HC_EP1` dan 979 file di `To the Moon` dalam 0.04 detik).
+     - Integration test `test_synthetic_rgssad_v1_archive_audits_pass_without_indeterminate` dan `test_synthetic_rgss3a_v3_archive_audits_pass_without_indeterminate` di `rgss_asset_audit_test.rs`.
+     - Verifikasi live `runtimepack audit`: *To the Moon* dan *HC_EP1* keduanya berhasil mencapai `Outcome: Pass`!
+     - 29 tests di `rgss_asset_audit_test` dan seluruh 273 tests Cargo workspace lulus 100%.
 - [2026-09-27] Task 3 Plan Remediasi Audit (VFS Auto-Aliasing Resolution for Case Mismatches in Policy) Selesai (Commit `aa0b28c`):
   1. `core/src/asset_audit/resolver.rs`:
      - Menambahkan helper `pub fn is_auto_aliased(&self) -> bool` pada `ResolutionResult` yang mengembalikan `true` untuk `ResolutionResult::CaseMismatch`.

@@ -1,5 +1,20 @@
 # Decisions Log
 
+## [2026-09-27] In-Memory RGSS Archive Indexer for Deep Asset Audit (Task 4)
+**Keputusan:**
+1. Di `engines/rgss/src/archive.rs` & `engines/rgss/src/lib.rs`:
+   - Implementasi parser indeks in-memory `parse_rgss_archive_index(&bytes)` untuk arsip `.rgssad`, `.rgss2a`, dan `.rgss3a`.
+   - RGSSAD v1/v2 didekode menggunakan rolling XOR key `0xDEADCAFE` dengan pemajuan kursor in-memory melewati ukuran berkas, tanpa ekstraksi fisik ke filesystem.
+   - RGSS3A v3 didekode membaca tabel TOC di bagian awal arsip dengan header key `raw_key * 9 + 3` dan terminator `offset == 0`.
+2. Di `engines/rgss/src/asset_audit.rs`:
+   - Mengisi `effective_source.files` dengan entri virtual `IndexedFile` dari arsip terenkripsi.
+   - `AssetResolver` diinisialisasi menggunakan `&effective_source`.
+   - Kelengkapan database `required_db_files` diverifikasi dari `effective_source`.
+   - `read_and_parse_data_file` mengembalikan `None` secara aman jika file adalah virtual entry di dalam arsip (`!full_path.exists()`) tanpa memicu false error `CMP_AUD_MALFORMED_RESOURCE`.
+   - Jika arsip berhasil diindeks, status `encrypted_archive` ditandai sebagai covered, dan tidak mengemisikan warning `CMP_AUD_DYNAMIC_REFERENCE_UNRESOLVED`. Outcome berhasil mencapai `Pass`.
+**Alasan:** Game terenkripsi seperti *To the Moon* dan *Hello Charlotte EP1* menyimpan seluruh data game di dalam arsip terenkripsi. Membaca tabel indeks secara in-memory menghilangkan status `Indeterminate` palsu dan membuktikan kelengkapan aset tanpa mengekstrak ratusan megabyte ke disk.
+**Dampak:** Static audit untuk *To the Moon* dan *Hello Charlotte EP1* langsung mencapai `Outcome: Pass`. 29 integration tests `rgss_asset_audit_test` dan seluruh 273 tests workspace Cargo lulus 100%.
+
 ## [2026-09-27] VFS Auto-Aliasing Resolution for Case Mismatches in Policy (Task 3)
 **Keputusan:**
 1. Di `core/src/asset_audit/resolver.rs`:
