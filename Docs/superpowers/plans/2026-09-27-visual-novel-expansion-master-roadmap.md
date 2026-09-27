@@ -1,24 +1,30 @@
-# Master Roadmap: Visual Novel Engines Expansion (Kirikiri 2/Z & Visual Novel Maker)
+# Master Roadmap: Visual Novel Engines Expansion (VNM, Kirikiri 2/Z & Artemis Engine)
 
 **Date:** 2026-09-27  
 **Status:** Approved  
 **Specs:**
-- `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`
 - `Docs/superpowers/specs/2026-09-27-visual-novel-maker-support-design.md`
+- `Docs/superpowers/specs/2026-09-27-kirikiri-complete-architecture-spec.md`
+- `Docs/superpowers/specs/2026-09-27-artemis-engine-support-design.md`
 
 ---
 
 ## 1. Executive Summary & Objective
 
-This master roadmap establishes the end-to-end plan for expanding RuntimePack to support major dedicated Japanese Visual Novel engines:
-1. **Kirikiri 2 / Kirikiri Z (KAG / TVP Engine):** Native C++ runtime (`libkrkr2.so` via NDK r28, 16 KB page-size alignment) with in-memory `.xp3` binary archive parsing and direct-boot execution (zero file browser UI).
-2. **Visual Novel Maker (VNM):** WebGL/HTML5 engine compiled to dedicated standalone Android APKs via the existing high-performance **Web Runtime (`WebActivity.kt`)** and streaming decrypter, bypassing Apache Cordova.
+This master roadmap establishes the complete architecture and delivery plan for expanding RuntimePack to support the **Top 3 Dedicated Japanese Visual Novel Engines**:
 
-Both engines produce dedicated single-game APKs that boot directly into the game title screen upon tapping the Android launcher icon.
+1. **Visual Novel Maker (VNM):** HTML5/WebGL visual novel suite (Degica / Gotcha Gotcha Games). Directly compiled into standalone Android APKs via the high-performance **Web Runtime (`WebActivity.kt`)**, streaming VFS decrypter, and NW.js polyfills (bypassing Apache Cordova).
+2. **Kirikiri 2 / Kirikiri Z (KAG / TVP Engine):** C++/TJS2 visual novel engine. Powered by native `libkrkr2.so` (NDK r28, 16 KB page-size alignment) with in-memory 11-byte `.xp3` binary parsing and direct-boot execution (zero file browser UI).
+3. **Artemis Engine (PFS / Lua):** Lua-scripted visual novel engine (iMel Inc. / Mikage) behind 730+ commercial visual novels. Powered by in-memory `.pfs` (PF8, PF6, PF2) binary parsing with SHA-1 XOR stream cipher decryption in Rust, coupled with the clean `art3m1s-core` C FFI native runtime (`ArtemisActivity.kt`) and save data isolation.
+
+All 3 engine tracks guarantee **dedicated, direct-boot standalone APKs**:
+```text
+Install APK -> Tap Launcher Icon -> Direct Boot to Title Screen (Zero File Browser / Zero Multi-Engine Launcher)
+```
 
 ---
 
-## 2. Track & Phase Decomposition
+## 2. Track & Phase Architecture
 
 ```text
 Track A: Visual Novel Maker (VNM) [Fast-Track: High Feasibility, WebGL/NW.js Reuse]
@@ -37,11 +43,18 @@ Track B: Kirikiri 2 / Kirikiri Z [Deep Native C++ Engine Pipeline]
 │   └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-3-plan.md
 └── Phase 4: Packaging Pipeline, VN VPad Overlay & End-to-End Build
     └── Plan: Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-4-plan.md
+
+Track C: Artemis Engine (PFS / Lua) [In-Memory PFS & art3m1s-core Native Runner]
+└── Plan: Docs/superpowers/plans/2026-09-27-artemis-engine-support-plan.md
+    ├── Task 1: Domain & Engine Registration (EngineId::Artemis, RuntimeFamily::ArtemisNative)
+    ├── Task 2: In-Memory PFS Parser (PF8/PF6/PF2 with SHA-1 XOR stream cipher & multi-volume precedence)
+    ├── Task 3: Static Detector & AST Script Auditor (root.pfs, system.ini, .ast token parsing)
+    └── Task 4: Android Shell Activity & Generator Wiring (art3m1s-core C FFI, ArtemisActivity.kt)
 ```
 
 ---
 
-## 3. Directory of Plans
+## 3. Directory of Expansion Plans
 
 | Track / Phase | Plan File | Engine & Target Runtime | Status |
 | :--- | :--- | :--- | :---: |
@@ -50,12 +63,14 @@ Track B: Kirikiri 2 / Kirikiri Z [Deep Native C++ Engine Pipeline]
 | **Track B - Phase 2** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-2-plan.md` | Kirikiri (Plugins.link & XP3 filter probe) | **Ready** |
 | **Track B - Phase 3** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-3-plan.md` | Kirikiri (C++ libkrkr2.so & KirikiriActivity) | **Ready** |
 | **Track B - Phase 4** | `Docs/superpowers/plans/2026-09-27-kirikiri-engine-support-phase-4-plan.md` | Kirikiri (Packaging, VPad VN, full APK) | **Ready** |
+| **Track C (Artemis)** | `Docs/superpowers/plans/2026-09-27-artemis-engine-support-plan.md` | Artemis Engine (art3m1s-core C FFI / Android) | **Ready** |
 
 ---
 
-## 4. Execution Policy & Constraints
+## 4. Execution Policy & Governance
 
-1. **Independent Parallel Execution:** Track A (Visual Novel Maker) and Track B (Kirikiri) are completely decoupled. Track A can be executed first as a fast-win without waiting for C++ NDK compilation.
+1. **Independent Decoupled Tracks:** Each track is architecturally self-contained. Track A (VNM), Track B (Kirikiri), and Track C (Artemis) can be executed in any order according to priority.
 2. **Strict Immortality:** Input games in `Raw-Game/` remain strictly 100% immutable.
 3. **Mandatory Flavor Beta:** Autonomous builds must always enforce `--flavor beta`.
-4. **Verification Requirement:** Each task must be accompanied by comprehensive tests and 100% workspace passing status before being marked completed.
+4. **Zero-Disk Extraction for Host Inspection:** All archive parsing (XP3, PFS) and script reachability analysis operate strictly in-memory.
+5. **100% Test Passing Gate:** No phase is marked completed without passing all integration tests across Cargo and Android Gradle.
