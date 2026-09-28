@@ -1140,15 +1140,17 @@
     // ------------------------------------------------------------------------
     const MAX_TRAIL_AGE = 450; // ms (smooth fluid trail length)
     const TRAIL_SAMPLE_DIST_SQ = 9; // >= 3px distance threshold (3 * 3)
-    const trailStrokes = new Map(); // pointerId -> Array<{ x, y, time, width }>
+    const TRAIL_ACTIVATION_DIST_SQ = 100; // >= 10px distance threshold (10 * 10)
+    const trailStrokes = new Map(); // strokeId -> Array<{ x, y, time, width }>
     let trailAnimationFrameId = null;
-    const activeFeedbackPointers = new Map();
+    const activeFeedbackPointers = new Map(); // pid -> { startX, startY, lastX, lastY, strokeId, active }
 
     function getTrailCanvas() {
-        let canvas = document.getElementById("vpad-trail-canvas");
-        if (!canvas) {
+        let canvas = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-trail-canvas") : null;
+        if (!canvas && typeof document !== "undefined" && typeof document.getElementById === "function") {
             const layer = document.getElementById("vpad-touch-ripple-layer");
-            if (layer) {
+            if (layer && typeof document.createElement === "function") {
                 canvas = document.createElement("canvas");
                 canvas.id = "vpad-trail-canvas";
                 layer.appendChild(canvas);
@@ -1209,15 +1211,13 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        for (const [pid, points] of trailStrokes.entries()) {
+        for (const [strokeId, points] of trailStrokes.entries()) {
             while (points.length > 0 && (now - points[0].time) > MAX_TRAIL_AGE) {
                 points.shift();
             }
 
             if (points.length === 0) {
-                if (!activeFeedbackPointers.has(pid) || !activeFeedbackPointers.get(pid).active) {
-                    trailStrokes.delete(pid);
-                }
+                trailStrokes.delete(strokeId);
                 continue;
             }
 
@@ -1229,10 +1229,12 @@
                 const progress = Math.min(1, Math.max(0, age / MAX_TRAIL_AGE));
                 const alpha = Math.max(0, (1 - progress) * 0.85);
                 const radius = Math.max(1, (1 - progress) * (p0.width / 2));
-                ctx.beginPath();
-                ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                ctx.fill();
+                if (alpha > 0) {
+                    ctx.beginPath();
+                    ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+                    ctx.fill();
+                }
             } else {
                 for (let i = 0; i < points.length - 1; i++) {
                     const p0 = points[i];
@@ -1254,7 +1256,7 @@
                     ctx.quadraticCurveTo(p0.x, p0.y, mid.x, mid.y);
                     ctx.lineWidth = segWidth;
                     ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                    ctx.lineCap = "round";
+                    ctx.lineCap = "butt";
                     ctx.lineJoin = "round";
                     ctx.stroke();
 
@@ -1264,10 +1266,23 @@
                         ctx.lineTo(p1.x, p1.y);
                         ctx.lineWidth = segWidth;
                         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                        ctx.lineCap = "round";
+                        ctx.lineCap = "butt";
                         ctx.lineJoin = "round";
                         ctx.stroke();
                     }
+                }
+
+                // Only draw a round cap / circle at the very leading head (points[points.length - 1])
+                const head = points[points.length - 1];
+                const headAge = now - head.time;
+                const headProgress = Math.min(1, Math.max(0, headAge / MAX_TRAIL_AGE));
+                const headAlpha = Math.max(0, (1 - headProgress) * 0.85);
+                const headRadius = Math.max(1, (1 - headProgress) * (head.width / 2));
+                if (headAlpha > 0) {
+                    ctx.beginPath();
+                    ctx.arc(head.x, head.y, headRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${headAlpha.toFixed(3)})`;
+                    ctx.fill();
                 }
             }
         }
@@ -1297,12 +1312,12 @@
         }
     }
 
-    function addTrailPoint(pid, x, y) {
+    function addTrailPoint(strokeId, x, y) {
         const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-        let points = trailStrokes.get(pid);
+        let points = trailStrokes.get(strokeId);
         if (!points) {
             points = [];
-            trailStrokes.set(pid, points);
+            trailStrokes.set(strokeId, points);
         }
         points.push({ x, y, time: now, width: 8 });
         startTrailLoop();
@@ -1311,7 +1326,8 @@
     function clearTrailCanvas() {
         trailStrokes.clear();
         activeFeedbackPointers.clear();
-        const canvas = document.getElementById("vpad-trail-canvas");
+        const canvas = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-trail-canvas") : null;
         if (canvas && typeof canvas.getContext === "function") {
             const ctx = canvas.getContext("2d");
             if (ctx) {
@@ -1333,10 +1349,22 @@
         trailAnimationFrameId = null;
     }
 
+    let lastRippleTime = 0;
+    let lastRippleX = -9999;
+    let lastRippleY = -9999;
+
     function spawnTouchRipple(clientX, clientY) {
         if (!state.touchRipple) return;
-        const layer = document.getElementById("vpad-touch-ripple-layer");
-        if (!layer) return;
+        const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        if (now - lastRippleTime < 60 && Math.hypot(clientX - lastRippleX, clientY - lastRippleY) < 15) {
+            return;
+        }
+        lastRippleTime = now;
+        lastRippleX = clientX;
+        lastRippleY = clientY;
+        const layer = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-touch-ripple-layer") : null;
+        if (!layer || typeof document.createElement !== "function") return;
         const ripple = document.createElement("div");
         ripple.className = "vpad-touch-ripple";
         ripple.style.left = clientX + "px";
@@ -1345,6 +1373,176 @@
         setTimeout(() => {
             if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
         }, 380);
+    }
+
+    let trailListenersAttached = false;
+    function setupTrailListeners() {
+        if (trailListenersAttached) return;
+        trailListenersAttached = true;
+
+        window.addEventListener("pointerdown", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (shouldIgnoreTouchForFeedback(e.target)) return;
+            const cx = typeof e.clientX === "number" ? e.clientX : 0;
+            const cy = typeof e.clientY === "number" ? e.clientY : 0;
+            spawnTouchRipple(cx, cy);
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            activeFeedbackPointers.set(pid, {
+                startX: cx,
+                startY: cy,
+                lastX: cx,
+                lastY: cy,
+                strokeId: null,
+                active: true
+            });
+            if (e.target && typeof e.target.setPointerCapture === "function" && e.pointerId !== undefined) {
+                try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("pointermove", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            let tracked = activeFeedbackPointers.get(pid);
+            if (!tracked || !tracked.active) return;
+
+            const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
+            const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
+
+            if (!tracked.strokeId) {
+                const distSq = (cx - tracked.startX) * (cx - tracked.startX) + (cy - tracked.startY) * (cy - tracked.startY);
+                if (distSq >= TRAIL_ACTIVATION_DIST_SQ) {
+                    const strokeId = "stroke_" + pid + "_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+                    tracked.strokeId = strokeId;
+                    addTrailPoint(strokeId, tracked.startX, tracked.startY);
+                    addTrailPoint(strokeId, cx, cy);
+                    tracked.lastX = cx;
+                    tracked.lastY = cy;
+                }
+            } else {
+                const dx = cx - tracked.lastX;
+                const dy = cy - tracked.lastY;
+                if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                    addTrailPoint(tracked.strokeId, cx, cy);
+                    tracked.lastX = cx;
+                    tracked.lastY = cy;
+                }
+            }
+        }, { passive: true, capture: true });
+
+        // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
+        window.addEventListener("touchstart", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                let tracked = activeFeedbackPointers.get(pid);
+                if (!tracked || !tracked.active) {
+                    spawnTouchRipple(t.clientX, t.clientY);
+                    activeFeedbackPointers.set(pid, {
+                        startX: t.clientX,
+                        startY: t.clientY,
+                        lastX: t.clientX,
+                        lastY: t.clientY,
+                        strokeId: null,
+                        active: true
+                    });
+                }
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchmove", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                let tracked = activeFeedbackPointers.get(pid);
+                if (!tracked || !tracked.active) {
+                    if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                    tracked = {
+                        startX: t.clientX,
+                        startY: t.clientY,
+                        lastX: t.clientX,
+                        lastY: t.clientY,
+                        strokeId: null,
+                        active: true
+                    };
+                    activeFeedbackPointers.set(pid, tracked);
+                    continue;
+                }
+                const cx = t.clientX;
+                const cy = t.clientY;
+                if (!tracked.strokeId) {
+                    const distSq = (cx - tracked.startX) * (cx - tracked.startX) + (cy - tracked.startY) * (cy - tracked.startY);
+                    if (distSq >= TRAIL_ACTIVATION_DIST_SQ) {
+                        const strokeId = "stroke_" + pid + "_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+                        tracked.strokeId = strokeId;
+                        addTrailPoint(strokeId, tracked.startX, tracked.startY);
+                        addTrailPoint(strokeId, cx, cy);
+                        tracked.lastX = cx;
+                        tracked.lastY = cy;
+                    }
+                } else {
+                    const dx = cx - tracked.lastX;
+                    const dy = cy - tracked.lastY;
+                    if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                        addTrailPoint(tracked.strokeId, cx, cy);
+                        tracked.lastX = cx;
+                        tracked.lastY = cy;
+                    }
+                }
+            }
+        }, { passive: true, capture: true });
+
+        function resetFeedbackPointer(e) {
+            const pid = e && e.pointerId !== undefined ? e.pointerId : (e && e.identifier !== undefined ? e.identifier : 1);
+            const tracked = activeFeedbackPointers.get(pid);
+            if (tracked) {
+                tracked.active = false;
+            }
+            activeFeedbackPointers.delete(pid);
+        }
+
+        window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
+        window.addEventListener("pointercancel", resetFeedbackPointer, { passive: true, capture: true });
+
+        window.addEventListener("touchend", (e) => {
+            if (e.changedTouches) {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
+                }
+            }
+            if (!e.touches || e.touches.length === 0) {
+                for (const tracked of activeFeedbackPointers.values()) {
+                    tracked.active = false;
+                }
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchcancel", (e) => {
+            if (e.changedTouches) {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
+                }
+            }
+            if (!e.touches || e.touches.length === 0) {
+                for (const tracked of activeFeedbackPointers.values()) {
+                    tracked.active = false;
+                }
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("blur", () => {
+            for (const tracked of activeFeedbackPointers.values()) {
+                tracked.active = false;
+            }
+            activeFeedbackPointers.clear();
+        }, { passive: true });
     }
 
     function setupOverlayLogic() {
@@ -2020,113 +2218,7 @@
         // --------------------------------------------------------------------
         // HTML5 Canvas Swipe Motion Trail & Visual Ripple Indicator Listeners
         // --------------------------------------------------------------------
-        window.addEventListener("pointerdown", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (shouldIgnoreTouchForFeedback(e.target)) return;
-            spawnTouchRipple(e.clientX, e.clientY);
-            const pid = e.pointerId !== undefined ? e.pointerId : 1;
-            const cx = typeof e.clientX === "number" ? e.clientX : 0;
-            const cy = typeof e.clientY === "number" ? e.clientY : 0;
-            activeFeedbackPointers.set(pid, { lastX: cx, lastY: cy, active: true });
-            addTrailPoint(pid, cx, cy);
-            if (e.target && typeof e.target.setPointerCapture === "function" && e.pointerId !== undefined) {
-                try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("pointermove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            const pid = e.pointerId !== undefined ? e.pointerId : 1;
-            let tracked = activeFeedbackPointers.get(pid);
-            if (!tracked || !tracked.active) return;
-
-            const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
-            const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
-            const dx = cx - tracked.lastX;
-            const dy = cy - tracked.lastY;
-            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
-                addTrailPoint(pid, cx, cy);
-                tracked.lastX = cx;
-                tracked.lastY = cy;
-            }
-        }, { passive: true, capture: true });
-
-        // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
-        window.addEventListener("touchstart", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (!e.touches) return;
-            for (let i = 0; i < e.touches.length; i++) {
-                const t = e.touches[i];
-                if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
-                const pid = t.identifier !== undefined ? t.identifier : 1;
-                activeFeedbackPointers.set(pid, { lastX: t.clientX, lastY: t.clientY, active: true });
-                addTrailPoint(pid, t.clientX, t.clientY);
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchmove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (!e.touches) return;
-            for (let i = 0; i < e.touches.length; i++) {
-                const t = e.touches[i];
-                const pid = t.identifier !== undefined ? t.identifier : 1;
-                let tracked = activeFeedbackPointers.get(pid);
-                if (!tracked || !tracked.active) {
-                    if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
-                    tracked = { lastX: t.clientX, lastY: t.clientY, active: true };
-                    activeFeedbackPointers.set(pid, tracked);
-                    addTrailPoint(pid, t.clientX, t.clientY);
-                    continue;
-                }
-                const cx = t.clientX;
-                const cy = t.clientY;
-                const dx = cx - tracked.lastX;
-                const dy = cy - tracked.lastY;
-                if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
-                    addTrailPoint(pid, cx, cy);
-                    tracked.lastX = cx;
-                    tracked.lastY = cy;
-                }
-            }
-        }, { passive: true, capture: true });
-
-        function resetFeedbackPointer(e) {
-            const pid = e && e.pointerId !== undefined ? e.pointerId : 1;
-            const tracked = activeFeedbackPointers.get(pid);
-            if (tracked) {
-                tracked.active = false;
-            }
-            activeFeedbackPointers.delete(pid);
-        }
-
-        window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
-        window.addEventListener("pointercancel", (e) => {
-            // In Android WebView, pointercancel fires when scrolling begins, but touchmove continues.
-            // Only deactivate if there are no active touches.
-            if (!e || e.pointerType !== "touch") {
-                resetFeedbackPointer(e);
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchend", (e) => {
-            if (e.changedTouches) {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
-                }
-            }
-            if (!e.touches || e.touches.length === 0) {
-                activeFeedbackPointers.clear();
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchcancel", (e) => {
-            if (!e.touches || e.touches.length === 0) {
-                activeFeedbackPointers.clear();
-            }
-        }, { passive: true, capture: true });
-        window.addEventListener("blur", () => {
-            activeFeedbackPointers.clear();
-        }, { passive: true });
+        setupTrailListeners();
 
         window.addEventListener("resize", () => {
             resizeTrailCanvas();
@@ -3079,6 +3171,8 @@
         window.clearTrailCanvas = clearTrailCanvas;
         window.addTrailPoint = addTrailPoint;
         window.trailStrokes = trailStrokes;
+        window.activeFeedbackPointers = activeFeedbackPointers;
+        window.setupTrailListeners = setupTrailListeners;
     }
 
     if (typeof module !== "undefined" && module.exports) {
@@ -3094,7 +3188,9 @@
             renderTrailLoop,
             clearTrailCanvas,
             addTrailPoint,
-            trailStrokes
+            trailStrokes,
+            activeFeedbackPointers,
+            setupTrailListeners
         };
     }
 
