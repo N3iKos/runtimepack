@@ -1138,8 +1138,8 @@
     // ------------------------------------------------------------------------
     // HTML5 Canvas Swipe Motion Trail & Visual Ripple Indicator
     // ------------------------------------------------------------------------
-    const MAX_TRAIL_AGE = 220; // ms
-    const TRAIL_SAMPLE_DIST_SQ = 16; // >= 4px distance threshold (4 * 4)
+    const MAX_TRAIL_AGE = 450; // ms (smooth fluid trail length)
+    const TRAIL_SAMPLE_DIST_SQ = 9; // >= 3px distance threshold (3 * 3)
     const trailStrokes = new Map(); // pointerId -> Array<{ x, y, time, width }>
     let trailAnimationFrameId = null;
     const activeFeedbackPointers = new Map();
@@ -2029,22 +2029,64 @@
             const cy = typeof e.clientY === "number" ? e.clientY : 0;
             activeFeedbackPointers.set(pid, { lastX: cx, lastY: cy, active: true });
             addTrailPoint(pid, cx, cy);
+            if (e.target && typeof e.target.setPointerCapture === "function" && e.pointerId !== undefined) {
+                try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+            }
         }, { passive: true, capture: true });
 
         window.addEventListener("pointermove", (e) => {
             if (isEditMode || !state.touchRipple) return;
             const pid = e.pointerId !== undefined ? e.pointerId : 1;
-            const tracked = activeFeedbackPointers.get(pid);
+            let tracked = activeFeedbackPointers.get(pid);
             if (!tracked || !tracked.active) return;
 
             const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
             const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
             const dx = cx - tracked.lastX;
             const dy = cy - tracked.lastY;
-            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) { // >= 4px distance threshold
+            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
                 addTrailPoint(pid, cx, cy);
                 tracked.lastX = cx;
                 tracked.lastY = cy;
+            }
+        }, { passive: true, capture: true });
+
+        // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
+        window.addEventListener("touchstart", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                activeFeedbackPointers.set(pid, { lastX: t.clientX, lastY: t.clientY, active: true });
+                addTrailPoint(pid, t.clientX, t.clientY);
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchmove", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                let tracked = activeFeedbackPointers.get(pid);
+                if (!tracked || !tracked.active) {
+                    if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                    tracked = { lastX: t.clientX, lastY: t.clientY, active: true };
+                    activeFeedbackPointers.set(pid, tracked);
+                    addTrailPoint(pid, t.clientX, t.clientY);
+                    continue;
+                }
+                const cx = t.clientX;
+                const cy = t.clientY;
+                const dx = cx - tracked.lastX;
+                const dy = cy - tracked.lastY;
+                if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                    addTrailPoint(pid, cx, cy);
+                    tracked.lastX = cx;
+                    tracked.lastY = cy;
+                }
             }
         }, { passive: true, capture: true });
 
@@ -2058,7 +2100,30 @@
         }
 
         window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
-        window.addEventListener("pointercancel", resetFeedbackPointer, { passive: true, capture: true });
+        window.addEventListener("pointercancel", (e) => {
+            // In Android WebView, pointercancel fires when scrolling begins, but touchmove continues.
+            // Only deactivate if there are no active touches.
+            if (!e || e.pointerType !== "touch") {
+                resetFeedbackPointer(e);
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchend", (e) => {
+            if (e.changedTouches) {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
+                }
+            }
+            if (!e.touches || e.touches.length === 0) {
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchcancel", (e) => {
+            if (!e.touches || e.touches.length === 0) {
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
         window.addEventListener("blur", () => {
             activeFeedbackPointers.clear();
         }, { passive: true });

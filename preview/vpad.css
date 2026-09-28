@@ -26,6 +26,12 @@
 /* ============================================================================
    Root Container & Anti-Glitch Resets
    ============================================================================ */
+html, body {
+    touch-action: none !important;
+    -ms-touch-action: none !important;
+    overscroll-behavior: none !important;
+}
+
 #vpad-root {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -34,6 +40,7 @@
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
     pointer-events: none;
+    touch-action: none !important;
     z-index: 99990;
     user-select: none;
     -webkit-user-select: none;
@@ -193,12 +200,14 @@
     width: 100vw;
     height: 100vh;
     pointer-events: none;
+    touch-action: none !important;
     z-index: 99997;
     overflow: hidden;
 }
 
 #vpad-trail-canvas {
     pointer-events: none;
+    touch-action: none !important;
     position: fixed;
     top: 0;
     left: 0;

@@ -502,9 +502,9 @@ renderTrailLoop();
 assert(clearRectCount >= 1, "renderTrailLoop must clear canvas before drawing");
 assert(quadraticCurvesDrawn >= 1, "renderTrailLoop must draw Bézier spline segments using quadraticCurveTo");
 
-// Simulate time passing > 220ms (points expire)
+// Simulate time passing > MAX_TRAIL_AGE (points expire)
 const stroke = trailStrokes.get(1);
-stroke.forEach(pt => { pt.time -= 300; }); // make older than MAX_TRAIL_AGE (220ms)
+stroke.forEach(pt => { pt.time -= 800; }); // make older than MAX_TRAIL_AGE
 
 const prevClearCount = clearRectCount;
 renderTrailLoop();
