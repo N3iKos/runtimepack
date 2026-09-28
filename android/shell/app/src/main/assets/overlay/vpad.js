@@ -807,8 +807,10 @@
                 <div class="vpad-popover-item" data-id="retro">3. Retro OSD</div>
             </div>
 
-            <!-- Touchscreen Visual Ripple Layer -->
-            <div id="vpad-touch-ripple-layer"></div>
+            <!-- Touchscreen Visual Ripple Layer & Motion Trail Canvas -->
+            <div id="vpad-touch-ripple-layer">
+                <canvas id="vpad-trail-canvas"></canvas>
+            </div>
 
             <!-- Gamepad Controls Layer -->
             <div id="vpad-controls"></div>
@@ -1035,10 +1037,16 @@
         if (typeof target.closest === "function") {
             return !!(
                 target.closest(".vpad-control-item") ||
+                target.closest("#vpad-controls") ||
+                target.closest(".vpad-btn") ||
+                target.closest(".vpad-top-btn") ||
+                target.closest(".vpad-dpad-container") ||
+                target.closest(".vpad-joystick-container") ||
                 target.closest("#vpad-topbar") ||
                 target.closest("#vpad-editor-bar") ||
                 target.closest("#vpad-prop-panel") ||
                 target.closest("#vpad-key-modal") ||
+                target.closest(".vpad-modal-box") ||
                 target.closest("#fnh-cheat-overlay") ||
                 target.closest("#rp-diag-modal") ||
                 target.closest(".vpad-popover")
@@ -1048,10 +1056,16 @@
         while (cur) {
             if (typeof cur.matches === "function" && (
                 cur.matches(".vpad-control-item") ||
+                cur.matches("#vpad-controls") ||
+                cur.matches(".vpad-btn") ||
+                cur.matches(".vpad-top-btn") ||
+                cur.matches(".vpad-dpad-container") ||
+                cur.matches(".vpad-joystick-container") ||
                 cur.matches("#vpad-topbar") ||
                 cur.matches("#vpad-editor-bar") ||
                 cur.matches("#vpad-prop-panel") ||
                 cur.matches("#vpad-key-modal") ||
+                cur.matches(".vpad-modal-box") ||
                 cur.matches("#fnh-cheat-overlay") ||
                 cur.matches("#rp-diag-modal") ||
                 cur.matches(".vpad-popover")
@@ -1061,6 +1075,218 @@
             cur = cur.parentElement;
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------------
+    // HTML5 Canvas Swipe Motion Trail & Visual Ripple Indicator
+    // ------------------------------------------------------------------------
+    const MAX_TRAIL_AGE = 220; // ms
+    const TRAIL_SAMPLE_DIST_SQ = 16; // >= 4px distance threshold (4 * 4)
+    const trailStrokes = new Map(); // pointerId -> Array<{ x, y, time, width }>
+    let trailAnimationFrameId = null;
+    const activeFeedbackPointers = new Map();
+
+    function getTrailCanvas() {
+        let canvas = document.getElementById("vpad-trail-canvas");
+        if (!canvas) {
+            const layer = document.getElementById("vpad-touch-ripple-layer");
+            if (layer) {
+                canvas = document.createElement("canvas");
+                canvas.id = "vpad-trail-canvas";
+                layer.appendChild(canvas);
+            }
+        }
+        return canvas;
+    }
+
+    function resizeTrailCanvas() {
+        const canvas = getTrailCanvas();
+        if (!canvas) return;
+        const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+        const w = (typeof window !== "undefined" && window.innerWidth) || 800;
+        const h = (typeof window !== "undefined" && window.innerHeight) || 600;
+        const bufW = Math.round(w * dpr);
+        const bufH = Math.round(h * dpr);
+
+        if (canvas.width !== bufW || canvas.height !== bufH) {
+            canvas.width = bufW;
+            canvas.height = bufH;
+        }
+        if (canvas.style) {
+            canvas.style.width = w + "px";
+            canvas.style.height = h + "px";
+        }
+
+        if (typeof canvas.getContext === "function") {
+            const ctx = canvas.getContext("2d");
+            if (ctx && typeof ctx.setTransform === "function") {
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+        }
+    }
+
+    function renderTrailLoop() {
+        const canvas = getTrailCanvas();
+        if (!canvas || typeof canvas.getContext !== "function") {
+            trailAnimationFrameId = null;
+            return;
+        }
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+            trailAnimationFrameId = null;
+            return;
+        }
+
+        const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        let totalActivePoints = 0;
+
+        if (typeof ctx.save === "function") {
+            ctx.save();
+            if (typeof ctx.setTransform === "function") {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        } else if (typeof ctx.clearRect === "function") {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        for (const [pid, points] of trailStrokes.entries()) {
+            while (points.length > 0 && (now - points[0].time) > MAX_TRAIL_AGE) {
+                points.shift();
+            }
+
+            if (points.length === 0) {
+                if (!activeFeedbackPointers.has(pid) || !activeFeedbackPointers.get(pid).active) {
+                    trailStrokes.delete(pid);
+                }
+                continue;
+            }
+
+            totalActivePoints += points.length;
+
+            if (points.length === 1) {
+                const p0 = points[0];
+                const age = now - p0.time;
+                const progress = Math.min(1, Math.max(0, age / MAX_TRAIL_AGE));
+                const alpha = Math.max(0, (1 - progress) * 0.85);
+                const radius = Math.max(1, (1 - progress) * (p0.width / 2));
+                ctx.beginPath();
+                ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+                ctx.fill();
+            } else {
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p0 = points[i];
+                    const p1 = points[i + 1];
+                    const mid = {
+                        x: (p0.x + p1.x) / 2,
+                        y: (p0.y + p1.y) / 2
+                    };
+                    const age = now - p1.time;
+                    const progress = Math.min(1, Math.max(0, age / MAX_TRAIL_AGE));
+                    const alpha = Math.max(0, (1 - progress) * 0.85);
+                    const segWidth = Math.max(1, (1 - progress) * p1.width);
+
+                    const startX = (i === 0) ? p0.x : ((points[i - 1].x + p0.x) / 2);
+                    const startY = (i === 0) ? p0.y : ((points[i - 1].y + p0.y) / 2);
+
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.quadraticCurveTo(p0.x, p0.y, mid.x, mid.y);
+                    ctx.lineWidth = segWidth;
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+                    ctx.lineCap = "round";
+                    ctx.lineJoin = "round";
+                    ctx.stroke();
+
+                    if (i === points.length - 2) {
+                        ctx.beginPath();
+                        ctx.moveTo(mid.x, mid.y);
+                        ctx.lineTo(p1.x, p1.y);
+                        ctx.lineWidth = segWidth;
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+                        ctx.lineCap = "round";
+                        ctx.lineJoin = "round";
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        if (totalActivePoints > 0) {
+            trailAnimationFrameId = (typeof requestAnimationFrame === "function") ?
+                requestAnimationFrame(renderTrailLoop) : null;
+        } else {
+            if (typeof ctx.save === "function") {
+                ctx.save();
+                if (typeof ctx.setTransform === "function") {
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                }
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            } else if (typeof ctx.clearRect === "function") {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            trailAnimationFrameId = null;
+        }
+    }
+
+    function startTrailLoop() {
+        if (trailAnimationFrameId) return;
+        if (typeof requestAnimationFrame === "function") {
+            trailAnimationFrameId = requestAnimationFrame(renderTrailLoop);
+        }
+    }
+
+    function addTrailPoint(pid, x, y) {
+        const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        let points = trailStrokes.get(pid);
+        if (!points) {
+            points = [];
+            trailStrokes.set(pid, points);
+        }
+        points.push({ x, y, time: now, width: 8 });
+        startTrailLoop();
+    }
+
+    function clearTrailCanvas() {
+        trailStrokes.clear();
+        activeFeedbackPointers.clear();
+        const canvas = document.getElementById("vpad-trail-canvas");
+        if (canvas && typeof canvas.getContext === "function") {
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+                if (typeof ctx.save === "function") {
+                    ctx.save();
+                    if (typeof ctx.setTransform === "function") {
+                        ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    }
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.restore();
+                } else if (typeof ctx.clearRect === "function") {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            }
+        }
+        if (trailAnimationFrameId && typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(trailAnimationFrameId);
+        }
+        trailAnimationFrameId = null;
+    }
+
+    function spawnTouchRipple(clientX, clientY) {
+        if (!state.touchRipple) return;
+        const layer = document.getElementById("vpad-touch-ripple-layer");
+        if (!layer) return;
+        const ripple = document.createElement("div");
+        ripple.className = "vpad-touch-ripple";
+        ripple.style.left = clientX + "px";
+        ripple.style.top = clientY + "px";
+        layer.appendChild(ripple);
+        setTimeout(() => {
+            if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
+        }, 380);
     }
 
     function setupOverlayLogic() {
@@ -1234,6 +1460,9 @@
         if (rippleBtn) {
             bindTap(rippleBtn, () => {
                 state.touchRipple = !state.touchRipple;
+                if (!state.touchRipple && typeof clearTrailCanvas === "function") {
+                    clearTrailCanvas();
+                }
                 saveState();
                 updateRippleBtnUI();
             });
@@ -1681,37 +1910,9 @@
         document.addEventListener("pointerdown", handleEmptyDeselect);
         document.addEventListener("touchstart", handleEmptyDeselect, { passive: true });
 
-        // Touchscreen Visual Ripple Indicator & Swipe Motion Trail
-        function spawnTouchRipple(clientX, clientY) {
-            if (!state.touchRipple) return;
-            const layer = document.getElementById("vpad-touch-ripple-layer");
-            if (!layer) return;
-            const ripple = document.createElement("div");
-            ripple.className = "vpad-touch-ripple";
-            ripple.style.left = clientX + "px";
-            ripple.style.top = clientY + "px";
-            layer.appendChild(ripple);
-            setTimeout(() => {
-                if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
-            }, 380);
-        }
-
-        function spawnTouchTail(clientX, clientY) {
-            if (!state.touchRipple) return;
-            const layer = document.getElementById("vpad-touch-ripple-layer");
-            if (!layer) return;
-            const tail = document.createElement("div");
-            tail.className = "vpad-touch-tail-segment";
-            tail.style.left = clientX + "px";
-            tail.style.top = clientY + "px";
-            layer.appendChild(tail);
-            setTimeout(() => {
-                if (tail.parentNode) tail.parentNode.removeChild(tail);
-            }, 240);
-        }
-
-        const activeFeedbackPointers = new Map();
-
+        // --------------------------------------------------------------------
+        // HTML5 Canvas Swipe Motion Trail & Visual Ripple Indicator Listeners
+        // --------------------------------------------------------------------
         window.addEventListener("pointerdown", (e) => {
             if (isEditMode || !state.touchRipple) return;
             if (shouldIgnoreTouchForFeedback(e.target)) return;
@@ -1719,45 +1920,57 @@
             const pid = e.pointerId !== undefined ? e.pointerId : 1;
             const cx = typeof e.clientX === "number" ? e.clientX : 0;
             const cy = typeof e.clientY === "number" ? e.clientY : 0;
-            activeFeedbackPointers.set(pid, { x: cx, y: cy });
+            activeFeedbackPointers.set(pid, { lastX: cx, lastY: cy, active: true });
+            addTrailPoint(pid, cx, cy);
         }, { passive: true, capture: true });
 
         window.addEventListener("pointermove", (e) => {
             if (isEditMode || !state.touchRipple) return;
             const pid = e.pointerId !== undefined ? e.pointerId : 1;
             const tracked = activeFeedbackPointers.get(pid);
-            if (!tracked) return;
+            if (!tracked || !tracked.active) return;
 
-            const cx = typeof e.clientX === "number" ? e.clientX : tracked.x;
-            const cy = typeof e.clientY === "number" ? e.clientY : tracked.y;
-            const dx = cx - tracked.x;
-            const dy = cy - tracked.y;
-            if (dx * dx + dy * dy >= 100) { // ~10px distance threshold
-                spawnTouchTail(cx, cy);
-                tracked.x = cx;
-                tracked.y = cy;
+            const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
+            const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
+            const dx = cx - tracked.lastX;
+            const dy = cy - tracked.lastY;
+            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) { // >= 4px distance threshold
+                addTrailPoint(pid, cx, cy);
+                tracked.lastX = cx;
+                tracked.lastY = cy;
             }
         }, { passive: true, capture: true });
 
         function resetFeedbackPointer(e) {
             const pid = e && e.pointerId !== undefined ? e.pointerId : 1;
+            const tracked = activeFeedbackPointers.get(pid);
+            if (tracked) {
+                tracked.active = false;
+            }
             activeFeedbackPointers.delete(pid);
         }
 
         window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
         window.addEventListener("pointercancel", resetFeedbackPointer, { passive: true, capture: true });
-        window.addEventListener("blur", () => { activeFeedbackPointers.clear(); }, { passive: true });
+        window.addEventListener("blur", () => {
+            activeFeedbackPointers.clear();
+        }, { passive: true });
 
         window.addEventListener("resize", () => {
+            resizeTrailCanvas();
             applyToolbarPosition();
             applyPanelPosition();
             renderControls();
         });
 
+        resizeTrailCanvas();
         renderControls();
     }
 
     function enterEditMode() {
+        if (typeof clearTrailCanvas === "function") {
+            clearTrailCanvas();
+        }
         isEditMode = true;
         document.body.classList.add("vpad-edit-mode");
         const editorBar = document.getElementById("vpad-editor-bar");
@@ -2663,10 +2876,29 @@
         window.openLinktree = openLinktree;
         window.vpadSwitchPreset = switchPreset;
         window.shouldIgnoreTouchForFeedback = shouldIgnoreTouchForFeedback;
+        window.getTrailCanvas = getTrailCanvas;
+        window.resizeTrailCanvas = resizeTrailCanvas;
+        window.renderTrailLoop = renderTrailLoop;
+        window.clearTrailCanvas = clearTrailCanvas;
+        window.addTrailPoint = addTrailPoint;
+        window.trailStrokes = trailStrokes;
     }
 
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch, shouldIgnoreTouchForFeedback };
+        module.exports = {
+            pressKey,
+            releaseKey,
+            openLinktree,
+            setupDirectManipulation,
+            setupDpadTouch,
+            shouldIgnoreTouchForFeedback,
+            getTrailCanvas,
+            resizeTrailCanvas,
+            renderTrailLoop,
+            clearTrailCanvas,
+            addTrailPoint,
+            trailStrokes
+        };
     }
 
     // ------------------------------------------------------------------------

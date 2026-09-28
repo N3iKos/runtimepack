@@ -70,7 +70,20 @@ global.window = {
 
 // Load vpad.js
 const vpadPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.js");
-const { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch, shouldIgnoreTouchForFeedback } = require(vpadPath);
+const {
+    pressKey,
+    releaseKey,
+    openLinktree,
+    setupDirectManipulation,
+    setupDpadTouch,
+    shouldIgnoreTouchForFeedback,
+    getTrailCanvas,
+    resizeTrailCanvas,
+    renderTrailLoop,
+    clearTrailCanvas,
+    addTrailPoint,
+    trailStrokes
+} = require(vpadPath);
 
 // Test 1: pressKey(90) -> window.RuntimePackVPad.onKeyDown(90)
 keyDownCalls.length = 0;
@@ -367,40 +380,144 @@ assert(vpadSource.includes('activeThemeId: "matte"'), "Default active theme must
 assert(vpadSource.includes('vpad-touch-ripple'), "vpad.js must implement touchscreen visual ripple");
 console.log("✔ Layout preset D-Pad raised (cy: 0.75), STORAGE_KEY v11, classic wrench icon, Liquid Glass, and Matte default verified");
 
-// Test 11: Universal Thin-Ring Visual Ripple, Swipe Motion Trail, and Touch Feedback Filtering
+// Test 11: Universal Thin-Ring Visual Ripple, HTML5 Canvas Motion Trail, and Strict Control Isolation
 const vpadCss = fs.readFileSync(path.join(__dirname, "../../main/assets/overlay/vpad.css"), "utf8");
+
 // 1. Universal thin 1.5px white ring styling across themes
 assert(vpadCss.includes('border: 1.5px solid rgba(255, 255, 255, 0.9) !important;'), "vpad.css must define universal 1.5px thin white ring");
 assert(vpadCss.includes('background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 55%, transparent 75%) !important;'), "vpad.css must define subtle inner gradient");
 assert(vpadCss.includes('box-shadow: 0 0 6px rgba(0, 0, 0, 0.45) !important;'), "vpad.css must define subtle 6px shadow");
-// 2. Swipe motion trail styling and animation
-assert(vpadCss.includes('.vpad-touch-tail-segment'), "vpad.css must define .vpad-touch-tail-segment");
-assert(vpadCss.includes('background: rgba(255, 255, 255, 0.45);'), "vpad.css must style tail segment with 0.45 background opacity");
-assert(vpadCss.includes('border: 1px solid rgba(255, 255, 255, 0.8);'), "vpad.css must style tail segment with 1px solid white border");
-assert(vpadCss.includes('animation: vpad-tail-fade 0.22s ease-out forwards;'), "vpad.css must define vpad-tail-fade 0.22s animation");
-assert(vpadCss.includes('@keyframes vpad-tail-fade'), "vpad.css must define @keyframes vpad-tail-fade");
 
-// 3. Filter controls from touch feedback in vpad.js
-assert(vpadSource.includes('shouldIgnoreTouchForFeedback'), "vpad.js must implement shouldIgnoreTouchForFeedback");
-assert(vpadSource.includes('.vpad-control-item'), "vpad.js must check .vpad-control-item to ignore button touches for ripples/trails");
-assert(vpadSource.includes('vpad-touch-tail-segment'), "vpad.js must reference vpad-touch-tail-segment");
+// 2. Full-screen HTML5 Canvas motion trail styling (#vpad-trail-canvas)
+assert(vpadCss.includes('#vpad-trail-canvas'), "vpad.css must define #vpad-trail-canvas");
+assert(vpadCss.includes('pointer-events: none;'), "vpad.css must set pointer-events: none on #vpad-trail-canvas");
+assert(vpadCss.includes('position: fixed;'), "vpad.css must set position: fixed on #vpad-trail-canvas");
+assert(vpadCss.includes('z-index: 99996;'), "vpad.css must set z-index: 99996 on #vpad-trail-canvas");
+assert(!vpadCss.includes('.vpad-touch-tail-segment'), "vpad.css must remove deprecated .vpad-touch-tail-segment");
+assert(!vpadCss.includes('@keyframes vpad-tail-fade'), "vpad.css must remove deprecated @keyframes vpad-tail-fade");
 
+// 3. Canvas element initialization and particle deprecation in vpad.js
+assert(vpadSource.includes('id="vpad-trail-canvas"'), "vpad.js template must initialize canvas#vpad-trail-canvas");
+assert(vpadSource.includes('vpad-trail-canvas'), "vpad.js must reference vpad-trail-canvas");
+assert(!vpadSource.includes('.vpad-touch-tail-segment'), "vpad.js must not contain deprecated .vpad-touch-tail-segment");
+assert(!vpadSource.includes('spawnTouchTail'), "vpad.js must remove deprecated spawnTouchTail function");
+
+// 4. Canvas motion trail renderer logic (points buffer, sampling, rAF, Bézier spline ribbon)
+assert(vpadSource.includes('trailStrokes'), "vpad.js must maintain a motion trail points buffer");
+assert(vpadSource.includes('TRAIL_SAMPLE_DIST_SQ') || vpadSource.includes('>= 16'), "vpad.js must sample points at >= 4px threshold");
+assert(vpadSource.includes('requestAnimationFrame'), "vpad.js must use requestAnimationFrame loop");
+assert(vpadSource.includes('quadraticCurveTo'), "vpad.js must render Bézier spline ribbon via quadraticCurveTo");
+assert(vpadSource.includes('clearRect'), "vpad.js must clear canvas via clearRect");
+assert(vpadSource.includes('MAX_TRAIL_AGE') || vpadSource.includes('220'), "vpad.js must fade trail with 220ms max age");
+
+// 5. Strict control isolation in shouldIgnoreTouchForFeedback
 const makeMockTarget = (matchedSelector) => ({
     closest: (sel) => sel === matchedSelector ? { className: matchedSelector } : null
 });
 
 assert.strictEqual(typeof shouldIgnoreTouchForFeedback, "function", "shouldIgnoreTouchForFeedback must be a function");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-control-item")), true, "must ignore .vpad-control-item");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-controls")), true, "must ignore #vpad-controls");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-btn")), true, "must ignore .vpad-btn");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-top-btn")), true, "must ignore .vpad-top-btn");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-dpad-container")), true, "must ignore .vpad-dpad-container");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-joystick-container")), true, "must ignore .vpad-joystick-container");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-topbar")), true, "must ignore #vpad-topbar");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-editor-bar")), true, "must ignore #vpad-editor-bar");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-prop-panel")), true, "must ignore #vpad-prop-panel");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-key-modal")), true, "must ignore #vpad-key-modal");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-modal-box")), true, "must ignore .vpad-modal-box");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#fnh-cheat-overlay")), true, "must ignore #fnh-cheat-overlay");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#rp-diag-modal")), true, "must ignore #rp-diag-modal");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-popover")), true, "must ignore .vpad-popover");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("canvas")), false, "must NOT ignore game canvas");
 assert.strictEqual(shouldIgnoreTouchForFeedback(null), false, "must NOT ignore null target");
 assert.strictEqual(shouldIgnoreTouchForFeedback({}), false, "must NOT ignore plain object without closest/matches");
-console.log("✔ Universal thin-ring ripple, .vpad-touch-tail-segment, and control feedback filtering verified");
+console.log("✔ Universal thin-ring ripple, canvas motion trail logic, and strict control isolation verified");
+
+// Test 12: Continuous Bézier Spline Ribbon Rendering & Zero Idle CPU Usage
+let clearRectCount = 0;
+let quadraticCurvesDrawn = 0;
+let rAFScheduled = 0;
+let rAFCancellations = 0;
+
+const mockCanvas = {
+    id: "vpad-trail-canvas",
+    width: 0,
+    height: 0,
+    style: {},
+    getContext: (mode) => {
+        if (mode !== "2d") return null;
+        return {
+            clearRect: (x, y, w, h) => { clearRectCount++; },
+            beginPath: () => {},
+            moveTo: () => {},
+            quadraticCurveTo: (cpx, cpy, x, y) => { quadraticCurvesDrawn++; },
+            lineTo: () => {},
+            stroke: () => {},
+            arc: () => {},
+            fill: () => {},
+            save: () => {},
+            restore: () => {},
+            setTransform: () => {}
+        };
+    }
+};
+
+const origGetElementById = global.document.getElementById;
+global.document.getElementById = (id) => {
+    if (id === "vpad-trail-canvas") return mockCanvas;
+    if (origGetElementById) return origGetElementById(id);
+    return null;
+};
+
+global.requestAnimationFrame = (cb) => {
+    rAFScheduled++;
+    return rAFScheduled;
+};
+global.cancelAnimationFrame = (id) => {
+    rAFCancellations++;
+};
+
+// Verify canvas resize and DPI scaling
+global.window.innerWidth = 1280;
+global.window.innerHeight = 720;
+global.window.devicePixelRatio = 2;
+resizeTrailCanvas();
+assert.strictEqual(mockCanvas.width, 2560, "Canvas buffer width must be scaled by devicePixelRatio");
+assert.strictEqual(mockCanvas.height, 1440, "Canvas buffer height must be scaled by devicePixelRatio");
+assert.strictEqual(mockCanvas.style.width, "1280px", "Canvas CSS style width must match window.innerWidth");
+assert.strictEqual(mockCanvas.style.height, "720px", "Canvas CSS style height must match window.innerHeight");
+
+// Add simulated points to trail buffer
+clearTrailCanvas();
+addTrailPoint(1, 100, 100);
+addTrailPoint(1, 120, 120);
+addTrailPoint(1, 145, 135);
+assert.strictEqual(trailStrokes.has(1), true, "Trail buffer must record points for active pointer");
+assert.strictEqual(trailStrokes.get(1).length, 3, "Trail buffer must contain 3 sampled points");
+
+// Render one frame
+renderTrailLoop();
+assert(clearRectCount >= 1, "renderTrailLoop must clear canvas before drawing");
+assert(quadraticCurvesDrawn >= 1, "renderTrailLoop must draw Bézier spline segments using quadraticCurveTo");
+
+// Simulate time passing > 220ms (points expire)
+const stroke = trailStrokes.get(1);
+stroke.forEach(pt => { pt.time -= 300; }); // make older than MAX_TRAIL_AGE (220ms)
+
+const prevClearCount = clearRectCount;
+renderTrailLoop();
+assert(clearRectCount > prevClearCount, "renderTrailLoop must clear canvas when buffer empties");
+assert.strictEqual(trailStrokes.has(1), false, "Expired stroke must be pruned from buffer");
+
+// Verify clearTrailCanvas resets buffer and halts animation
+addTrailPoint(2, 200, 200);
+clearTrailCanvas();
+assert.strictEqual(trailStrokes.size, 0, "clearTrailCanvas must wipe all active trail strokes");
+
+// Restore original document.getElementById
+global.document.getElementById = origGetElementById;
+console.log("✔ Continuous Bézier spline ribbon rendering and zero idle CPU lifecycle verified");
 
 console.log("\nAll test assertions passed successfully.");
