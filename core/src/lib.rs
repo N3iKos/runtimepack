@@ -7,9 +7,11 @@ pub mod domain;
 pub mod ingest;
 pub mod provenance;
 pub mod runtime_registry;
+pub mod theme;
 
 pub use domain::*;
 pub use ingest::{find_system_rtp_path, rtp};
+pub use theme::*;
 
 #[cfg(test)]
 mod tests {
