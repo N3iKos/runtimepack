@@ -739,3 +739,65 @@ fn test_theme_catalog_discovery_and_selection() {
 
     let _ = fs::remove_dir_all(&catalog_dir);
 }
+
+#[test]
+fn test_builtin_theme_packages_are_valid_and_complete() {
+    let root = workspace_root();
+    let themes_dir = root.join("runtimes/themes");
+    assert!(themes_dir.exists(), "runtimes/themes must exist");
+
+    let expected_themes = [
+        ("matte", "Minimalist Matte"),
+        ("liquid_glass", "Liquid Glass"),
+        ("retro_osd", "Retro OSD"),
+    ];
+
+    for (theme_id, theme_name) in expected_themes {
+        let pkg_dir = themes_dir.join(theme_id);
+        assert!(pkg_dir.exists(), "Theme package directory missing: {:?}", pkg_dir);
+
+        let pkg = ThemePackage::load_from_dir(&pkg_dir)
+            .unwrap_or_else(|e| panic!("Failed to load theme '{}': {:?}", theme_id, e));
+
+        assert_eq!(pkg.manifest.id, theme_id);
+        assert_eq!(pkg.manifest.name, theme_name);
+        assert_eq!(pkg.manifest.version, "1.0.0");
+        assert_eq!(pkg.manifest.theme_api, "1.0.0");
+        assert!(pkg.manifest.stylesheets.effects.is_some());
+
+        // Validate API compatibility and asset safety
+        let validation_res = pkg.validate("1.0.0");
+        assert!(
+            validation_res.is_ok(),
+            "Theme '{}' failed validation: {:?}",
+            theme_id,
+            validation_res.err()
+        );
+
+        // Verify all 4 stylesheets can be read and are non-empty
+        for sheet in &["tokens", "components", "layout", "effects"] {
+            let content = pkg
+                .read_stylesheet(sheet)
+                .unwrap_or_else(|e| panic!("Failed to read stylesheet '{}' for '{}': {:?}", sheet, theme_id, e));
+            assert!(!content.trim().is_empty(), "Stylesheet '{}' in '{}' must not be empty", sheet, theme_id);
+        }
+    }
+
+    // Strict constraint test: Retro OSD must contain zero cyan or blue tokens
+    let retro_pkg = ThemePackage::load_from_dir(&themes_dir.join("retro_osd")).expect("Load retro_osd");
+    for sheet in &["tokens", "components", "layout", "effects"] {
+        let content = retro_pkg.read_stylesheet(sheet).expect("read retro stylesheet");
+        let lower = content.to_lowercase();
+        assert!(
+            !lower.contains("#38bdf8") && !lower.contains("#007aff") && !lower.contains("#2563eb"),
+            "Retro OSD stylesheet '{}' contains prohibited cyan/blue hex codes",
+            sheet
+        );
+        assert!(
+            !lower.contains("cyan") && !lower.contains("blue"),
+            "Retro OSD stylesheet '{}' contains prohibited cyan/blue color references",
+            sheet
+        );
+    }
+}
+

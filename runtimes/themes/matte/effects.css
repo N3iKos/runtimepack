@@ -1,0 +1,22 @@
+/* Minimalist Matte Tactile Effects */
+
+.vpad-btn:active,
+.vpad-btn.vpad-btn-pressed,
+.vpad-top-btn:active,
+.vpad-top-btn.vpad-btn-pressed,
+#vpad-main-trigger-btn:active,
+#vpad-main-trigger-btn.vpad-btn-pressed {
+  transform: scale(0.88);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.vpad-top-btn.active:active,
+.vpad-top-btn.active.vpad-btn-pressed,
+#vpad-main-trigger-btn.active:active,
+#vpad-main-trigger-btn.active.vpad-btn-pressed {
+  background: #172554;
+  border-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+  transform: scale(0.88);
+}

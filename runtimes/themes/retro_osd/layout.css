@@ -1,0 +1,18 @@
+/* Retro OSD Layout Rules */
+
+#vpad-topbar {
+  gap: 6px;
+}
+
+.vpad-modal-box,
+#vpad-prop-panel,
+#rp-diag-modal,
+#fnh-cheat-overlay {
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+#vpad-editor-bar {
+  padding: 6px 10px;
+  gap: 8px;
+}
