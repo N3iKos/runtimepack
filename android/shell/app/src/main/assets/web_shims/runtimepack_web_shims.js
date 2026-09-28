@@ -306,6 +306,9 @@
         if (typeof root.StorageManager !== "undefined") {
             patchStorageManager(root.StorageManager);
         }
+        if (typeof root.Graphics !== "undefined") {
+            patchGraphics(root.Graphics);
+        }
         root.executeCheatCmd = executeCheatCmd;
         if (typeof root.window !== "undefined") {
             root.window.executeCheatCmd = executeCheatCmd;
@@ -821,6 +824,24 @@
         });
     } catch (e) {}
 
+    if (typeof root.Graphics !== "undefined") {
+        patchGraphics(root.Graphics);
+    }
+    try {
+        var _graphics = root.Graphics;
+        Object.defineProperty(root, "Graphics", {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+                return _graphics;
+            },
+            set: function(val) {
+                _graphics = val;
+                patchGraphics(_graphics);
+            }
+        });
+    } catch (e) {}
+
     function patchAudioManager(am) {
         if (!am) return;
         if (!am.audioFileExt || !am.audioFileExt.__patched) {
@@ -841,13 +862,70 @@
     }
 
     function patchGraphics(g) {
-        if (!g || !g._clearUpperCanvas || g._clearUpperCanvas.__patched) return;
-        var origClear = g._clearUpperCanvas;
-        g._clearUpperCanvas = function() {
-            if (!this._upperCanvas) return;
-            return origClear.apply(this, arguments);
+        if (!g) return;
+        if (g._clearUpperCanvas && !g._clearUpperCanvas.__patched) {
+            var origClear = g._clearUpperCanvas;
+            g._clearUpperCanvas = function() {
+                if (!this._upperCanvas) return;
+                return origClear.apply(this, arguments);
+            };
+            g._clearUpperCanvas.__patched = true;
+        }
+
+        var fullHeightFn = function() {
+            return (typeof window !== "undefined" && window.innerHeight) ?
+                window.innerHeight : (document.documentElement ? document.documentElement.clientHeight : 600);
         };
-        g._clearUpperCanvas.__patched = true;
+        fullHeightFn.__rp_fit_patched = true;
+
+        if (typeof g._stretchHeight === "function") {
+            if (!g._stretchHeight.__rp_fit_patched) {
+                g._stretchHeight = fullHeightFn;
+            }
+        } else {
+            try {
+                Object.defineProperty(g, "_stretchHeight", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() {
+                        return fullHeightFn;
+                    },
+                    set: function(val) {
+                        // Retain 100% viewport height
+                    }
+                });
+            } catch (e) {}
+        }
+
+        var fullWidthFn = function() {
+            return (typeof window !== "undefined" && window.innerWidth) ?
+                window.innerWidth : (document.documentElement ? document.documentElement.clientWidth : 800);
+        };
+        fullWidthFn.__rp_fit_patched = true;
+
+        if (typeof g._stretchWidth === "function") {
+            if (!g._stretchWidth.__rp_fit_patched) {
+                g._stretchWidth = fullWidthFn;
+            }
+        } else {
+            try {
+                Object.defineProperty(g, "_stretchWidth", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() {
+                        return fullWidthFn;
+                    },
+                    set: function(val) {
+                        // Retain 100% viewport width
+                    }
+                });
+            } catch (e) {}
+        }
+    }
+
+    root.patchGraphics = patchGraphics;
+    if (typeof root.window !== "undefined") {
+        root.window.patchGraphics = patchGraphics;
     }
 
     function patchSceneManager(sm) {
@@ -897,6 +975,8 @@
             Greenworks: root.Greenworks,
             greenworks: root.greenworks,
             StorageManager: root.StorageManager,
+            Graphics: root.Graphics,
+            patchGraphics: patchGraphics,
             executeCheatCmd: executeCheatCmd
         };
     }

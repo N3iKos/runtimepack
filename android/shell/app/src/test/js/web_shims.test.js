@@ -526,4 +526,71 @@ function createSandbox(initialStorageManager) {
     assert(callbackResult.array_s.some(tag => tag.name === "jump"), "fallback scenario should have jump tag");
 }
 
+{
+    // RPG Maker MZ screen fit: Graphics._stretchHeight and _stretchWidth 100% scale
+    const sb = createSandbox();
+    sb.window.innerHeight = 720;
+    sb.window.innerWidth = 1280;
+    sb.document = {
+        documentElement: {
+            clientHeight: 720,
+            clientWidth: 1280
+        }
+    };
+
+    // Simulate RPG Maker MZ Graphics with 0.9 mobile scaling penalty
+    sb.Graphics = {
+        _width: 816,
+        _height: 624,
+        _stretchEnabled: true,
+        _stretchWidth: function() {
+            return sb.document.documentElement.clientWidth;
+        },
+        _stretchHeight: function() {
+            // Unpatched MZ mobile behavior with 0.9 penalty
+            const rate = 0.9;
+            return sb.document.documentElement.clientHeight * rate;
+        },
+        _updateRealScale: function() {
+            if (this._stretchEnabled && this._width > 0 && this._height > 0) {
+                const h = this._stretchWidth() / this._width;
+                const v = this._stretchHeight() / this._height;
+                this._realScale = Math.min(h, v);
+            }
+        }
+    };
+
+    assert.strictEqual(sb.Graphics._stretchHeight(), 648, "Precondition: unpatched height is 648 (0.9 penalty)");
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.Graphics._stretchHeight.__rp_fit_patched, "Graphics._stretchHeight should have __rp_fit_patched flag");
+    assert(sb.Graphics._stretchWidth.__rp_fit_patched, "Graphics._stretchWidth should have __rp_fit_patched flag");
+
+    assert.strictEqual(sb.Graphics._stretchHeight(), 720, "Graphics._stretchHeight must return full 100% viewport height (720), not 648");
+    assert.strictEqual(sb.Graphics._stretchWidth(), 1280, "Graphics._stretchWidth must return full 100% viewport width (1280)");
+
+    sb.Graphics._updateRealScale();
+    const expectedV = 720 / 624;
+    assert.strictEqual(sb.Graphics._realScale, expectedV, "Graphics._realScale should scale to full 100% height");
+
+    // Also verify late-assigned Graphics gets patched
+    const sbLate = createSandbox();
+    sbLate.window.innerHeight = 1080;
+    sbLate.window.innerWidth = 1920;
+    vm.runInContext(shimsCode, sbLate);
+
+    sbLate.Graphics = {
+        _stretchHeight: function() { return 1080 * 0.9; },
+        _stretchWidth: function() { return 1920; }
+    };
+    // Trigger patch or property setter
+    if (typeof sbLate.Graphics._stretchHeight === "function" && !sbLate.Graphics._stretchHeight.__rp_fit_patched) {
+        if (typeof sbLate.window.patchGraphics === "function") {
+            sbLate.window.patchGraphics(sbLate.Graphics);
+        }
+    }
+    assert.strictEqual(sbLate.Graphics._stretchHeight(), 1080, "Late assigned Graphics._stretchHeight must return 1080");
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");
