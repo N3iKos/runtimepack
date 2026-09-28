@@ -4,6 +4,7 @@ const path = require("path");
 const vm = require("vm");
 
 const overlayDir = path.resolve(__dirname, "../../main/assets/overlay");
+const themeLoaderCode = fs.readFileSync(path.join(overlayDir, "theme_loader.js"), "utf8");
 const vpadCode = fs.readFileSync(path.join(overlayDir, "vpad.js"), "utf8");
 const cheatCode = fs.readFileSync(path.join(overlayDir, "cheat_menu.js"), "utf8");
 const diagnosticCode = fs.readFileSync(path.join(overlayDir, "diagnostic_suite.js"), "utf8");
@@ -855,8 +856,12 @@ test("Theme-Neutral Core Architecture: CSS variables, neutralized components, ze
     const vpadHex = vpadCode.match(hexPattern);
     assert.strictEqual(vpadHex, null, `vpad.js must have 0 hex colors, found: ${vpadHex}`);
 
+    const themeLoaderHex = themeLoaderCode.match(hexPattern);
+    assert.strictEqual(themeLoaderHex, null, `theme_loader.js must have 0 hex colors, found: ${themeLoaderHex}`);
+
     // 5. Verify DOM initializes without injecting style tags
     const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
     env.run(vpadCode, "vpad.js");
     env.run(cheatCode, "cheat_menu.js");
     env.run(diagnosticCode, "diagnostic_suite.js");
@@ -869,4 +874,173 @@ test("Theme-Neutral Core Architecture: CSS variables, neutralized components, ze
     assert.strictEqual(env.document.getElementById("rp-diag-styles"), null, "must not inject #rp-diag-styles");
     assert(env.document.getElementById("fnh-cheat-overlay"), "Cheat overlay DOM must exist");
     assert(env.document.getElementById("rp-diag-modal"), "Diagnostic modal DOM must exist");
+});
+
+test("RuntimePackTheme: dynamic theme list query and active theme retrieval", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
+    assert(env.window.RuntimePackTheme, "window.RuntimePackTheme must exist");
+
+    const themes = env.window.RuntimePackTheme.getAvailableThemes();
+    assert(Array.isArray(themes), "getAvailableThemes must return array");
+    assert(themes.length >= 3, "must have at least 3 packaged themes");
+
+    const expectedIds = ["matte", "liquid_glass", "retro_osd"];
+    expectedIds.forEach(id => {
+        const found = themes.find(t => t.id === id);
+        assert(found, `must include theme '${id}'`);
+        assert(found.name, `theme '${id}' must have name`);
+        assert(found.version, `theme '${id}' must have version`);
+    });
+
+    assert.strictEqual(env.window.RuntimePackTheme.getCurrentTheme(), "matte", "default theme must be matte");
+});
+
+test("RuntimePackTheme: applyTheme unmounts previous theme sheets before mounting new ones and updates attributes", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
+
+    let themeChangeDispatched = false;
+    let dispatchedThemeId = null;
+    env.window.addEventListener("vpad:themechange", (e) => {
+        themeChangeDispatched = true;
+        dispatchedThemeId = e.detail && e.detail.themeId;
+    });
+
+    const res = env.window.RuntimePackTheme.applyTheme("liquid_glass");
+    assert.strictEqual(res, true, "applyTheme must return true for valid theme");
+    assert.strictEqual(env.window.RuntimePackTheme.getCurrentTheme(), "liquid_glass");
+    assert.strictEqual(env.document.body.getAttribute("data-theme"), "liquid_glass");
+    assert(env.document.body.classList.contains("vpad-theme-liquid_glass"), "body must have vpad-theme-liquid_glass");
+    assert(env.document.body.classList.contains("vpad-theme-clean"), "body must have vpad-theme-clean for backwards compatibility");
+    assert.strictEqual(themeChangeDispatched, true, "vpad:themechange event must be dispatched");
+    assert.strictEqual(dispatchedThemeId, "liquid_glass");
+    assert.strictEqual(env.window.localStorage.getItem(env.window.RuntimePackTheme.STORAGE_KEY), "liquid_glass");
+
+    const links1 = env.document.head.querySelectorAll("link[data-theme-sheet]");
+    assert.strictEqual(links1.length, 4, "must mount exactly 4 theme stylesheets");
+    const hrefs1 = links1.map(l => l.href);
+    assert(hrefs1.some(h => h.endsWith("/tokens.css")), "must mount tokens.css");
+    assert(hrefs1.some(h => h.endsWith("/components.css")), "must mount components.css");
+    assert(hrefs1.some(h => h.endsWith("/layout.css")), "must mount layout.css");
+    assert(hrefs1.some(h => h.endsWith("/effects.css")), "must mount effects.css");
+
+    // Switch to Retro OSD
+    const res2 = env.window.RuntimePackTheme.applyTheme("retro_osd");
+    assert.strictEqual(res2, true);
+    assert.strictEqual(env.window.RuntimePackTheme.getCurrentTheme(), "retro_osd");
+    assert.strictEqual(env.document.body.getAttribute("data-theme"), "retro_osd");
+    assert(env.document.body.classList.contains("vpad-theme-retro_osd"));
+    assert(env.document.body.classList.contains("vpad-theme-retro"), "body must have vpad-theme-retro for backwards compatibility");
+    assert.strictEqual(env.document.body.classList.contains("vpad-theme-liquid_glass"), false, "old theme class must be removed");
+    assert.strictEqual(env.window.localStorage.getItem(env.window.RuntimePackTheme.STORAGE_KEY), "retro_osd");
+
+    const links2 = env.document.head.querySelectorAll("link[data-theme-sheet]");
+    assert.strictEqual(links2.length, 4, "previous sheets must be unmounted, keeping exactly 4 sheets");
+    links2.forEach(l => {
+        assert.strictEqual(l.getAttribute("data-theme-sheet"), "retro_osd", "links must have retro_osd data-theme-sheet");
+    });
+});
+
+test("Theme Popover in vpad.js dynamically populates from RuntimePackTheme and updates bar text", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
+    env.run(vpadCode, "vpad.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+
+    const themeNameEl = env.document.getElementById("vpad-bar-theme-name");
+    assert(themeNameEl, "vpad-bar-theme-name element must exist");
+    assert(themeNameEl.textContent.includes("Minimalist Matte"), "initial theme text must reflect default theme");
+
+    const themeBtn = env.document.getElementById("vpad-bar-theme-btn");
+    const themePopover = env.document.getElementById("vpad-theme-popover");
+    env.advance(300);
+    themeBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert(themePopover.classList.contains("show"), "Theme popover must show");
+
+    const items = themePopover.querySelectorAll(".vpad-popover-item");
+    assert(items.length >= 3, "Popover must have items for all packaged themes");
+    const retroItem = items.find(it => it.getAttribute("data-id") === "retro_osd" || it.getAttribute("data-id") === "retro");
+    assert(retroItem, "Retro OSD item must exist in popover");
+
+    retroItem.dispatchEvent({ type: "click", cancelable: true });
+    assert.strictEqual(env.window.RuntimePackTheme.getCurrentTheme(), "retro_osd");
+    assert(themeNameEl.textContent.includes("Retro OSD"), "Theme button text must update to 'Retro OSD'");
+});
+
+test("Panel stacking hierarchy: opening Diagnostic Suite over Cheat Menu elevates Diagnostic Suite above Cheat Menu", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
+    env.run(vpadCode, "vpad.js");
+    const CheatMenu = env.run(cheatCode, "cheat_menu.js");
+    const DiagnosticSuite = env.run(diagnosticCode, "diagnostic_suite.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+    env.runTimers();
+    CheatMenu.initDOM();
+    DiagnosticSuite.init();
+
+    const cheatBtn = env.document.getElementById("vpad-btn-cheat");
+    const diagBtn = env.document.getElementById("vpad-btn-diag");
+    assert(cheatBtn, "#vpad-btn-cheat must exist");
+    assert(diagBtn, "#vpad-btn-diag must exist");
+
+    const cheatOverlay = env.document.getElementById("fnh-cheat-overlay");
+    const diagModal = env.document.getElementById("rp-diag-modal");
+    assert(cheatOverlay, "#fnh-cheat-overlay must exist");
+    assert(diagModal, "#rp-diag-modal must exist");
+
+    // 1. Open Cheat Menu
+    cheatBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert.notStrictEqual(cheatOverlay.style.display, "none", "Cheat overlay must be open");
+    const cheatZ1 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ1 >= 100010, "Cheat overlay must have base z-index");
+
+    // 2. Open Diagnostic Suite while Cheat Menu is open
+    env.advance(300);
+    diagBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert.notStrictEqual(diagModal.style.display, "none", "Diagnostic modal must be open");
+    const diagZ1 = Number(diagModal.style.zIndex || 0);
+    assert(diagZ1 > cheatZ1, "Opening Diagnostic Suite over Cheat Menu must elevate Diagnostic Suite above Cheat Menu");
+
+    // 3. Tap Cheat Menu -> brings Cheat Menu above Diagnostic Suite
+    cheatOverlay.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const cheatZ2 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ2 > diagZ1, "Tapping Cheat Menu must bring Cheat Menu above Diagnostic Suite");
+
+    // 4. Tap Diagnostic Suite -> brings Diagnostic Suite back above Cheat Menu
+    diagModal.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const diagZ2 = Number(diagModal.style.zIndex || 0);
+    assert(diagZ2 > cheatZ2, "Tapping Diagnostic Suite must bring Diagnostic Suite back above Cheat Menu");
+});
+
+test("Dynamic panel stacking: single clean event capture without triple-increment on pointerdown", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(themeLoaderCode, "theme_loader.js");
+    env.run(vpadCode, "vpad.js");
+    const DiagnosticSuite = env.run(diagnosticCode, "diagnostic_suite.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+    env.runTimers();
+    DiagnosticSuite.init();
+
+    const diagBtn = env.document.getElementById("vpad-btn-diag");
+    diagBtn.dispatchEvent({ type: "click", cancelable: true });
+    const diagModal = env.document.getElementById("rp-diag-modal");
+    const diagHeader = env.document.getElementById("rp-diag-header");
+    assert(diagModal && diagHeader, "Diagnostic modal and header must exist");
+
+    const zBefore = Number(diagModal.style.zIndex || 0);
+
+    // Advance time past initial open so header tap is a distinct user gesture
+    env.advance(200);
+
+    // Simulate physical tap on header: pointerdown fires on header, bubbles to document
+    diagHeader.dispatchEvent({ type: "pointerdown", pointerId: 1, cancelable: true });
+    const zAfterPointer = Number(diagModal.style.zIndex || 0);
+    assert.strictEqual(zAfterPointer, zBefore + 2, "Header pointerdown must increment z-index by exactly 2 (single clean elevation)");
+
+    // Browser delivers subsequent touchstart / mousedown for the same gesture (< 100ms)
+    diagHeader.dispatchEvent({ type: "touchstart", cancelable: true });
+    diagHeader.dispatchEvent({ type: "mousedown", cancelable: true });
+    const zAfterGesture = Number(diagModal.style.zIndex || 0);
+    assert.strictEqual(zAfterGesture, zAfterPointer, "Subsequent touch/mouse events from same gesture must not triple-increment z-index");
 });

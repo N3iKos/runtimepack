@@ -301,7 +301,9 @@
     const THEMES = {
         matte: { id: "matte", name: "Minimalist Matte" },
         clean: { id: "clean", name: "Liquid Glass" },
-        retro: { id: "retro", name: "Retro OSD" }
+        retro: { id: "retro", name: "Retro OSD" },
+        liquid_glass: { id: "liquid_glass", name: "Liquid Glass" },
+        retro_osd: { id: "retro_osd", name: "Retro OSD" }
     };
 
     // ------------------------------------------------------------------------
@@ -1006,20 +1008,71 @@
     let scaleSliderCtrl = null;
     let opacSliderCtrl = null;
 
+    function syncThemeUI(themeId) {
+        const norm = (themeId === "clean" ? "liquid_glass" : (themeId === "retro" ? "retro_osd" : themeId));
+        state.activeThemeId = norm;
+        let displayName = norm;
+        if (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.getAvailableThemes === "function") {
+            const list = window.RuntimePackTheme.getAvailableThemes();
+            const match = list.find(t => t.id === norm || t.id === themeId);
+            if (match) displayName = match.name;
+        } else if (THEMES[norm]) {
+            displayName = THEMES[norm].name;
+        } else if (THEMES[themeId]) {
+            displayName = THEMES[themeId].name;
+        }
+
+        const themeNameEl = document.getElementById("vpad-bar-theme-name");
+        if (themeNameEl) {
+            themeNameEl.textContent = "Theme: " + displayName;
+        }
+
+        const popover = document.getElementById("vpad-theme-popover");
+        if (popover) {
+            popover.querySelectorAll(".vpad-popover-item").forEach(el => {
+                const id = el.getAttribute("data-id");
+                const active = id === norm || id === themeId ||
+                    (norm === "liquid_glass" && id === "clean") ||
+                    (norm === "retro_osd" && id === "retro");
+                el.classList.toggle("active", active);
+            });
+        }
+
+        if (typeof window !== "undefined" && typeof window.applyCheatTheme === "function") {
+            window.applyCheatTheme(norm);
+        }
+        saveState();
+    }
+
+    if (typeof window !== "undefined") {
+        window.addEventListener("vpad:themechange", (e) => {
+            const id = (e.detail && e.detail.themeId) || (window.RuntimePackTheme && window.RuntimePackTheme.getCurrentTheme());
+            if (id) syncThemeUI(id);
+        });
+    }
+
     function applyTheme(themeId) {
+        if (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.applyTheme === "function") {
+            const ok = window.RuntimePackTheme.applyTheme(themeId);
+            if (ok) return;
+        }
+
         const valid = THEMES[themeId] ? themeId : "matte";
         state.activeThemeId = valid;
         if (typeof document !== "undefined" && document.body) {
-            document.body.classList.remove("vpad-theme-clean", "vpad-theme-matte", "vpad-theme-retro");
+            document.body.classList.remove("vpad-theme-clean", "vpad-theme-matte", "vpad-theme-retro", "vpad-theme-liquid_glass", "vpad-theme-retro_osd");
             document.body.classList.add("vpad-theme-" + valid);
-            // Backward compatibility for cheat_menu.js retro checks
-            document.body.classList.toggle("vpad-theme-retro", valid === "retro");
+            if (valid === "liquid_glass" || valid === "clean") {
+                document.body.classList.add("vpad-theme-clean");
+            }
+            document.body.classList.toggle("vpad-theme-retro", valid === "retro" || valid === "retro_osd");
 
             const themeNameEl = document.getElementById("vpad-bar-theme-name");
             if (themeNameEl) themeNameEl.textContent = "Theme: " + THEMES[valid].name;
 
             document.querySelectorAll("#vpad-theme-popover .vpad-popover-item").forEach(el => {
-                el.classList.toggle("active", el.getAttribute("data-id") === valid);
+                const id = el.getAttribute("data-id");
+                el.classList.toggle("active", id === valid || (valid === "liquid_glass" && id === "clean") || (valid === "retro_osd" && id === "retro"));
             });
         }
 
@@ -1491,21 +1544,32 @@
         // Cheat Menu
         if (cheatBtn) {
             bindTap(cheatBtn, () => {
-                if (window.CheatMenu) window.CheatMenu.toggle();
+                if (typeof window !== "undefined" && window.CheatMenu && typeof window.CheatMenu.toggle === "function") {
+                    window.CheatMenu.toggle();
+                }
                 const cheatOverlay = document.getElementById("fnh-cheat-overlay");
                 if (cheatOverlay && cheatOverlay.style.display !== "none") {
-                    bringPanelToFront(cheatOverlay);
+                    if (typeof window !== "undefined" && typeof window.bringPanelToFront === "function") {
+                        window.bringPanelToFront(cheatOverlay);
+                    } else {
+                        bringPanelToFront(cheatOverlay);
+                    }
                 }
             });
         }
 
-        // Diagnostic Suite
         if (diagBtn) {
             bindTap(diagBtn, () => {
-                if (window.DiagnosticSuite) window.DiagnosticSuite.toggle();
+                if (typeof window !== "undefined" && window.DiagnosticSuite && typeof window.DiagnosticSuite.toggle === "function") {
+                    window.DiagnosticSuite.toggle();
+                }
                 const diagModal = document.getElementById("rp-diag-modal");
                 if (diagModal && diagModal.style.display !== "none") {
-                    bringPanelToFront(diagModal);
+                    if (typeof window !== "undefined" && typeof window.bringPanelToFront === "function") {
+                        window.bringPanelToFront(diagModal);
+                    } else {
+                        bringPanelToFront(diagModal);
+                    }
                 }
             });
         }
@@ -1549,13 +1613,45 @@
             });
         });
 
-        // Theme Popover Dropdown
+        function updateThemePopoverUI() {
+            if (!themePopover) return;
+            const themes = (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.getAvailableThemes === "function")
+                ? window.RuntimePackTheme.getAvailableThemes()
+                : [
+                    { id: "matte", name: "Minimalist Matte (Default)" },
+                    { id: "clean", name: "Liquid Glass" },
+                    { id: "retro", name: "Retro OSD" }
+                ];
+            themePopover.innerHTML = "";
+            const currentId = (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.getCurrentTheme === "function")
+                ? window.RuntimePackTheme.getCurrentTheme()
+                : state.activeThemeId;
+            themes.forEach((thm, idx) => {
+                const item = document.createElement("div");
+                item.className = "vpad-popover-item";
+                item.setAttribute("data-id", thm.id);
+                item.textContent = (idx + 1) + ". " + thm.name;
+                const active = thm.id === currentId || (currentId === "liquid_glass" && thm.id === "clean") || (currentId === "retro_osd" && thm.id === "retro");
+                if (active) item.classList.add("active");
+                bindTap(item, () => {
+                    if (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.applyTheme === "function") {
+                        window.RuntimePackTheme.applyTheme(thm.id);
+                    } else {
+                        applyTheme(thm.id);
+                    }
+                    themePopover.classList.remove("show");
+                });
+                themePopover.appendChild(item);
+            });
+        }
+
         bindTap(themeBtn, () => {
             presetPopover.classList.remove("show");
             const isShown = themePopover.classList.contains("show");
             if (isShown) {
                 themePopover.classList.remove("show");
             } else {
+                updateThemePopoverUI();
                 const rect = themeBtn.getBoundingClientRect();
                 themePopover.style.left = Math.max(10, rect.left) + "px";
                 themePopover.style.top = (rect.bottom + 6) + "px";
@@ -1566,15 +1662,21 @@
             }
         });
 
-        themePopover.querySelectorAll(".vpad-popover-item").forEach(item => {
-            bindTap(item, () => {
-                const tid = item.getAttribute("data-id");
-                if (tid) {
-                    applyTheme(tid);
-                }
-                themePopover.classList.remove("show");
-            });
-        });
+        updateThemePopoverUI();
+        const initialThemeId = (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.getCurrentTheme === "function")
+            ? window.RuntimePackTheme.getCurrentTheme()
+            : state.activeThemeId;
+        const initialThemeNameEl = document.getElementById("vpad-bar-theme-name");
+        if (initialThemeNameEl) {
+            let label = initialThemeId;
+            if (typeof window !== "undefined" && window.RuntimePackTheme && typeof window.RuntimePackTheme.getAvailableThemes === "function") {
+                const tObj = window.RuntimePackTheme.getAvailableThemes().find(t => t.id === initialThemeId);
+                if (tObj) label = tObj.name;
+            } else if (THEMES[initialThemeId]) {
+                label = THEMES[initialThemeId].name;
+            }
+            initialThemeNameEl.textContent = "Theme: " + label;
+        }
 
         // Close popovers when tapping outside
         function handleClosePopovers(e) {
@@ -2103,6 +2205,8 @@
     // Universal Panel Bring-To-Front (Z-Index Elevation on Touch/Click)
     // ------------------------------------------------------------------------
     let topPanelZIndex = 100010;
+    let lastBroughtElement = null;
+    let lastBroughtTime = 0;
 
     function bringPanelToFront(panelOrId) {
         if (!panelOrId) return null;
@@ -2114,6 +2218,10 @@
         if (!el || !el.style) return null;
         const isPopover = (el.classList && el.classList.contains("vpad-popover")) ||
                           (el.id === "vpad-preset-popover" || el.id === "vpad-theme-popover");
+        const now = (typeof Date !== "undefined" && Date.now) ? Date.now() : 0;
+        if (!isPopover && el === lastBroughtElement && (now - lastBroughtTime < 100)) {
+            return el;
+        }
         const inc = isPopover ? 10 : 2;
         const globalScope = typeof window !== "undefined" ? window : (typeof global !== "undefined" ? global : null);
         const currentTop = (globalScope && typeof globalScope.__topPanelZIndex === "number")
@@ -2124,6 +2232,8 @@
         if (globalScope) {
             globalScope.__topPanelZIndex = topPanelZIndex;
         }
+        lastBroughtElement = el;
+        lastBroughtTime = now;
         return el;
     }
 
@@ -2137,9 +2247,18 @@
     }
 
     if (typeof document !== "undefined") {
+        let lastHandledElevationTime = 0;
+        let lastHandledPanel = null;
+
         const handlePanelElevation = (e) => {
             const panel = e.target && e.target.closest && e.target.closest("#rp-diag-modal, #fnh-cheat-overlay, #vpad-editor-bar, #vpad-prop-panel, #vpad-key-modal");
             if (panel) {
+                const now = (typeof Date !== "undefined" && Date.now) ? Date.now() : 0;
+                if (panel === lastHandledPanel && (now - lastHandledElevationTime < 100)) {
+                    return;
+                }
+                lastHandledPanel = panel;
+                lastHandledElevationTime = now;
                 bringPanelToFront(panel);
             }
         };
