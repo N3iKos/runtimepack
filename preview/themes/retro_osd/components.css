@@ -1,0 +1,177 @@
+/* Retro OSD CRT Terminal Component Styles */
+
+#vpad-root,
+#vpad-topbar,
+#vpad-editor-bar,
+#vpad-prop-panel,
+#rp-diag-modal,
+#fnh-cheat-overlay,
+.vpad-modal-box {
+  font-family: var(--theme-font-family, Consolas, "Roboto Mono", monospace);
+}
+
+/* Toolbar & Trigger - Circular */
+#vpad-main-trigger-btn {
+  border-radius: var(--theme-radius-button, 50%);
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 1.8px solid var(--theme-accent, #ff7700);
+  color: var(--theme-accent, #ff7700);
+  box-shadow: var(--theme-box-shadow, 0 0 14px rgba(255, 119, 0, 0.35));
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-top-btn {
+  border-radius: var(--theme-radius-button, 50%);
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 1.5px solid var(--theme-accent, #ff7700);
+  color: var(--theme-accent-amber, #ffaa44);
+  box-shadow: 0 0 6px rgba(255, 119, 0, 0.2);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-top-btn.active,
+#vpad-main-trigger-btn.active {
+  background: var(--theme-accent, #ff7700);
+  border-color: #ffa244;
+  color: var(--theme-accent-contrast, #000000);
+  box-shadow: 0 0 8px rgba(255, 119, 0, 0.45);
+}
+
+.vpad-top-btn.active svg,
+#vpad-main-trigger-btn.active svg {
+  stroke: var(--theme-accent-contrast, #000000);
+}
+
+/* Action Buttons - Circular */
+.vpad-btn {
+  border-radius: var(--theme-radius-button, 50%);
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 2px solid var(--theme-accent, #ff7700);
+  color: var(--theme-accent-amber, #ffaa44);
+  font-family: var(--theme-font-family, Consolas, monospace);
+  box-shadow: 0 0 10px rgba(255, 119, 0, 0.25);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-btn:active,
+.vpad-btn.active {
+  background: var(--theme-accent, #ff7700);
+  color: var(--theme-accent-contrast, #000000);
+  box-shadow: 0 0 20px rgba(255, 119, 0, 0.85);
+}
+
+.vpad-btn-green,
+.vpad-btn-red,
+.vpad-btn-yellow {
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 2px solid var(--theme-accent, #ff7700);
+  color: var(--theme-accent-amber, #ffaa44);
+}
+
+.vpad-btn-green:active,
+.vpad-btn-red:active,
+.vpad-btn-yellow:active {
+  background: var(--theme-accent, #ff7700);
+  color: var(--theme-accent-contrast, #000000);
+  box-shadow: 0 0 20px rgba(255, 119, 0, 0.85);
+}
+
+.vpad-btn-util {
+  border-radius: 4px;
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 1.5px solid var(--theme-accent, #ff7700);
+  color: var(--theme-accent-amber, #ffaa44);
+  font-family: var(--theme-font-family, Consolas, monospace);
+}
+
+/* D-Pad & Joystick - Amber / Circular */
+.vpad-dpad-container {
+  border-radius: var(--theme-radius-button, 50%);
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 2px solid var(--theme-accent, #ff7700);
+  box-shadow: 0 0 14px rgba(255, 119, 0, 0.25);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-dpad-arrow {
+  color: var(--theme-text-muted, #885522);
+  background: #0a0a0c;
+  border: 1px solid #442200;
+}
+
+.vpad-dpad-arrow.active {
+  background: var(--theme-accent, #ff7700);
+  border-color: #ffa244;
+  color: var(--theme-accent-contrast, #000000);
+  box-shadow: 0 0 16px rgba(255, 119, 0, 0.85);
+}
+
+.vpad-dpad-center {
+  background: #181410;
+  border-radius: var(--theme-radius-button, 50%);
+}
+
+.vpad-joystick-container {
+  border-radius: var(--theme-radius-button, 50%);
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: 2px solid var(--theme-accent, #ff7700);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-joystick-inner-ring {
+  border-radius: var(--theme-radius-button, 50%);
+  border: 1px dashed rgba(255, 119, 0, 0.4);
+}
+
+.vpad-joystick-stick {
+  border-radius: var(--theme-radius-button, 50%);
+  background: #181410;
+  border: 2px solid var(--theme-accent, #ff7700);
+}
+
+.vpad-joystick-container.active .vpad-joystick-stick {
+  border-color: #ffa244;
+  box-shadow: 0 0 16px rgba(255, 119, 0, 0.7);
+}
+
+/* Sharp CRT Panels (2px) */
+#vpad-editor-bar,
+#fnh-cheat-overlay,
+#rp-diag-modal,
+#vpad-prop-panel,
+#vpad-key-modal,
+.vpad-modal-box {
+  background: var(--theme-bg-panel, #0a0a0c);
+  border: var(--theme-border-panel, 2px solid #ff7700);
+  border-radius: var(--theme-radius-panel, 2px);
+  box-shadow: 0 0 20px rgba(255, 119, 0, 0.3);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+  color: var(--theme-text-primary, #ffaa44);
+}
+
+#vpad-bar-done {
+  background: var(--theme-accent, #ff7700);
+  border: 1px solid #ffa244;
+  border-radius: 2px;
+  color: var(--theme-accent-contrast, #000000);
+  font-weight: bold;
+}
+
+#vpad-bar-done:active {
+  background: #e66a00;
+  color: #000000;
+}
+
+/* Inputs & Badges */
+input, select, textarea, .vpad-badge {
+  font-family: var(--theme-font-family, Consolas, monospace);
+  background: #0a0a0c;
+  color: var(--theme-text-primary, #ffaa44);
+  border: 1px solid var(--theme-accent, #ff7700);
+}

@@ -1,0 +1,23 @@
+{
+  "defaultThemeId": "matte",
+  "themes": [
+    {
+      "id": "matte",
+      "name": "Minimalist Matte",
+      "version": "1.0.0",
+      "dir": "themes/matte"
+    },
+    {
+      "id": "liquid_glass",
+      "name": "Liquid Glass",
+      "version": "1.0.0",
+      "dir": "themes/liquid_glass"
+    },
+    {
+      "id": "retro_osd",
+      "name": "Retro OSD",
+      "version": "1.0.0",
+      "dir": "themes/retro_osd"
+    }
+  ]
+}

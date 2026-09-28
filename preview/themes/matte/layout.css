@@ -1,0 +1,18 @@
+/* Minimalist Matte Layout Rules */
+
+#vpad-topbar {
+  gap: 8px;
+}
+
+.vpad-modal-box,
+#vpad-prop-panel,
+#rp-diag-modal,
+#fnh-cheat-overlay {
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+#vpad-editor-bar {
+  padding: 8px 14px;
+  gap: 10px;
+}
