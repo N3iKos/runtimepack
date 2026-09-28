@@ -626,7 +626,7 @@ test("Matte theme: active button and editor bar deep blue accent styling", () =>
     assert(doneBtnActiveMatch[1].includes("border-color: #3b82f6 !important;"), "matte done btn active must use border-color #3b82f6");
 });
 
-test("Liquid Glass theme: panels styled with squircle 22px, blur(28px), and specular rim", () => {
+test("Liquid Glass theme: panels styled with squircle 24px, blur(30px), and specular rim", () => {
     const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
     const css = fs.readFileSync(cssPath, "utf-8");
 
@@ -643,9 +643,9 @@ test("Liquid Glass theme: panels styled with squircle 22px, blur(28px), and spec
     assert(panelMatch, "must match liquid glass panels rule block");
     const panelBody = panelMatch[1];
 
-    assert(panelBody.includes("border-radius: 22px !important;"), "panels must have 22px squircle border-radius");
-    assert(panelBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "panels must have blur(28px) saturate(190%)");
-    assert(panelBody.includes("-webkit-backdrop-filter: blur(28px) saturate(190%) !important;"), "panels must have -webkit-backdrop-filter blur(28px)");
+    assert(panelBody.includes("border-radius: var(--theme-radius-panel, 24px) !important;"), "panels must have 24px squircle border-radius");
+    assert(panelBody.includes("backdrop-filter: blur(30px) saturate(180%) !important;"), "panels must have blur(30px) saturate(180%)");
+    assert(panelBody.includes("-webkit-backdrop-filter: blur(30px) saturate(180%) !important;"), "panels must have -webkit-backdrop-filter blur(30px)");
     assert(panelBody.includes("linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%) !important;"), "panels must have frosted translucent gradient");
     assert(panelBody.includes("border: 1px solid rgba(255, 255, 255, 0.28) !important;"), "panels must have 1px specular rim");
     assert(panelBody.includes("box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45) !important;"), "panels must have clean shadow with specular inset");
@@ -656,32 +656,63 @@ test("Liquid Glass theme: panels styled with squircle 22px, blur(28px), and spec
     assert(doneBtnMatch, "must match liquid glass #vpad-bar-done rule");
     const doneBtnBody = doneBtnMatch[1];
     assert(doneBtnBody.includes("background: #007aff !important;"), "done button must use Apple system blue #007aff");
-    assert(doneBtnBody.includes("border: 1px solid #38bdf8 !important;"), "done button must use #38bdf8 border");
-    assert(doneBtnBody.includes("border-radius: 14px !important;"), "done button must have 14px border-radius");
+    assert(doneBtnBody.includes("border: 1px solid rgba(255, 255, 255, 0.35) !important;"), "done button must use clean border");
+    assert(doneBtnBody.includes("border-radius: var(--theme-radius-pill, 9999px) !important;"), "done button must have pill border-radius");
     assert(doneBtnBody.includes("color: #ffffff !important;"), "done button must have white text");
-    assert(doneBtnBody.includes("box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;"), "done button must have subtle shadow");
+    assert(doneBtnBody.includes("box-shadow: 0 4px 16px rgba(0, 122, 255, 0.35)"), "done button must have subtle shadow");
 
     // Verify controls in Liquid Glass
     const btnRegex = /body\.vpad-theme-clean\s+\.vpad-btn,\s*body:not\(\[class\*="vpad-theme-"\]\)\s+\.vpad-btn\s*\{([\s\S]*?)\}/;
     const btnMatch = css.match(btnRegex);
     assert(btnMatch, "must match liquid glass .vpad-btn rule");
     const btnBody = btnMatch[1];
-    assert(btnBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "buttons must have blur(28px) saturate(190%)");
+    assert(btnBody.includes("border-radius: var(--theme-radius-button, 9999px) !important;"), "buttons must have pill border-radius");
+    assert(btnBody.includes("backdrop-filter: blur(30px) saturate(180%) !important;"), "buttons must have blur(30px) saturate(180%)");
     assert(btnBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "buttons must have 1px solid rim");
 
     const dpadRegex = /body\.vpad-theme-clean\s+\.vpad-dpad-container[\s\S]*?\{([\s\S]*?)\}/;
     const dpadMatch = css.match(dpadRegex);
     assert(dpadMatch, "must match liquid glass dpad rule");
     const dpadBody = dpadMatch[1];
-    assert(dpadBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "dpad must have blur(28px) saturate(190%)");
+    assert(dpadBody.includes("backdrop-filter: blur(30px) saturate(180%) !important;"), "dpad must have blur(30px) saturate(180%)");
     assert(dpadBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "dpad must have 1px solid rim");
 
     const joyRegex = /body\.vpad-theme-clean\s+\.vpad-joystick-container[\s\S]*?\{([\s\S]*?)\}/;
     const joyMatch = css.match(joyRegex);
     assert(joyMatch, "must match liquid glass joystick rule");
     const joyBody = joyMatch[1];
-    assert(joyBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "joystick must have blur(28px) saturate(190%)");
+    assert(joyBody.includes("backdrop-filter: blur(30px) saturate(180%) !important;"), "joystick must have blur(30px) saturate(180%)");
     assert(joyBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "joystick must have 1px solid rim");
+});
+
+test("Matte theme: active dpad and joystick use #2563eb and zero #38bdf8", () => {
+    const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
+    const css = fs.readFileSync(cssPath, "utf-8");
+
+    // Check dpad arrow active in Matte
+    const dpadArrowRegex = /body\.vpad-theme-matte\s+\.vpad-dpad-arrow\.active\s*\{([\s\S]*?)\}/;
+    const dpadArrowMatch = css.match(dpadArrowRegex);
+    assert(dpadArrowMatch, "must match body.vpad-theme-matte .vpad-dpad-arrow.active");
+    const dpadArrowBody = dpadArrowMatch[1];
+    assert(dpadArrowBody.includes("border-color: #2563eb !important;"), "matte active dpad arrow must have border-color #2563eb");
+    assert(dpadArrowBody.includes("color: #2563eb !important;"), "matte active dpad arrow must have color #2563eb");
+    assert(dpadArrowBody.includes("box-shadow: 0 0 12px rgba(37, 99, 235, 0.5) !important;"), "matte active dpad arrow must have box-shadow rgba(37, 99, 235, 0.5)");
+    assert(!dpadArrowBody.includes("#38bdf8"), "matte active dpad arrow must have zero #38bdf8");
+
+    // Check joystick stick active in Matte
+    const joyStickRegex = /body\.vpad-theme-matte\s+\.vpad-joystick-container\.active\s+\.vpad-joystick-stick\s*\{([\s\S]*?)\}/;
+    const joyStickMatch = css.match(joyStickRegex);
+    assert(joyStickMatch, "must match body.vpad-theme-matte .vpad-joystick-container.active .vpad-joystick-stick");
+    const joyStickBody = joyStickMatch[1];
+    assert(joyStickBody.includes("border-color: #2563eb !important;"), "matte active joystick stick must have border-color #2563eb");
+    assert(joyStickBody.includes("box-shadow: 0 0 12px rgba(37, 99, 235, 0.5) !important;"), "matte active joystick stick must have box-shadow rgba(37, 99, 235, 0.5)");
+    assert(!joyStickBody.includes("#38bdf8"), "matte active joystick stick must have zero #38bdf8");
+
+    // Ensure entire Matte section in vpad.css has zero #38bdf8
+    const matteSectionRegex = /\/\* =+\s*THEME 2: MINIMALIST MATTE[\s\S]*?(?=\/\* =+\s*THEME 3: RETRO OSD)/;
+    const matteSectionMatch = css.match(matteSectionRegex);
+    assert(matteSectionMatch, "must match matte theme section");
+    assert(!matteSectionMatch[0].includes("#38bdf8"), "entire matte theme section must contain zero #38bdf8");
 });
 
 test("dynamic panel stacking: opening panel B over panel A, and tapping panel A brings it to front", () => {
