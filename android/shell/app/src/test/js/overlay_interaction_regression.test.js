@@ -570,28 +570,57 @@ test("Ghost click: tapping collapse button does not trigger done button", () => 
     assert(editorBar.classList.contains("show"), "editor bar must still be open after ghost click on done button");
 });
 
-test("Matte theme: active button press scales without color clash or flickering to gray", () => {
+test("Matte theme: active button and editor bar deep blue accent styling", () => {
     const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
     const css = fs.readFileSync(cssPath, "utf-8");
 
     // Verify matte active button styles
     assert(css.includes("body.vpad-theme-matte .vpad-top-btn.active"), "matte must have active top btn styling");
-    assert(css.includes("background: #1e3a8a !important;"), "matte active top btn must use deep blue #1e3a8a");
-    assert(css.includes("border-color: #3b82f6 !important;"), "matte active top btn must use blue border #3b82f6");
+    assert(css.includes("body.vpad-theme-matte #vpad-main-trigger-btn.active"), "matte must have active trigger btn styling");
 
-    // Verify matte active pressed state keeps theme color and does NOT set background: #27272a
-    const matteActiveRegex = /body\.vpad-theme-matte\s+\.vpad-top-btn\.active:active[\s\S]*?\{([\s\S]*?)\}/;
-    const match = css.match(matteActiveRegex);
-    assert(match, "must have explicit rule for body.vpad-theme-matte .vpad-top-btn.active:active");
-    const ruleBody = match[1];
-    assert(ruleBody.includes("#1e3a8a"), "active pressed state must keep blue #1e3a8a background");
-    assert(ruleBody.includes("#3b82f6"), "active pressed state must keep #3b82f6 border");
-    assert(!ruleBody.includes("#27272a"), "active pressed state must NOT have gray #27272a");
+    const matteActiveBtnRegex = /body\.vpad-theme-matte\s+\.vpad-top-btn\.active,\s*body\.vpad-theme-matte\s+#vpad-main-trigger-btn\.active\s*\{([\s\S]*?)\}/;
+    const activeBtnMatch = css.match(matteActiveBtnRegex);
+    assert(activeBtnMatch, "must match body.vpad-theme-matte active top/trigger button rule");
+    assert(activeBtnMatch[1].includes("background: #1e3a8a !important;"), "matte active btn must use deep blue #1e3a8a");
+    assert(activeBtnMatch[1].includes("border-color: #2563eb !important;"), "matte active btn must use blue border #2563eb");
+    assert(activeBtnMatch[1].includes("color: #dbeafe !important;"), "matte active btn must use light blue text #dbeafe");
 
-    // Verify general matte top-btn:active does NOT set gray background/border
-    const matteTopBtnActive = /body\.vpad-theme-matte\s+\.vpad-top-btn:active[\s\S]*?\{([\s\S]*?)\}/;
-    const matchTopBtn = css.match(matteTopBtnActive);
-    if (matchTopBtn) {
-        assert(!matchTopBtn[1].includes("#27272a"), "matte .vpad-top-btn:active must not override background to gray");
-    }
+    // Verify matte active svg stroke
+    const matteSvgRegex = /body\.vpad-theme-matte\s+\.vpad-top-btn\.active svg,\s*body\.vpad-theme-matte\s+#vpad-main-trigger-btn\.active svg\s*\{([\s\S]*?)\}/;
+    const svgMatch = css.match(matteSvgRegex);
+    assert(svgMatch, "must match matte active svg rule");
+    assert(svgMatch[1].includes("stroke: #dbeafe !important;"), "matte active svg must use stroke #dbeafe");
+
+    // Verify matte active pressed state
+    const matteActivePressedRegex = /body\.vpad-theme-matte\s+\.vpad-top-btn\.active:active[\s\S]*?\{([\s\S]*?)\}/;
+    const pressedMatch = css.match(matteActivePressedRegex);
+    assert(pressedMatch, "must have explicit rule for body.vpad-theme-matte .vpad-top-btn.active:active");
+    const pressedBody = pressedMatch[1];
+    assert(pressedBody.includes("background: #172554 !important;"), "active pressed state must use deep navy #172554");
+    assert(pressedBody.includes("border-color: #3b82f6 !important;"), "active pressed state must use bright blue border #3b82f6");
+    assert(pressedBody.includes("color: #ffffff !important;"), "active pressed state must use white text");
+    assert(pressedBody.includes("scale(0.88)"), "active pressed state must scale");
+
+    // Verify matte editor bar
+    const editorBarRegex = /body\.vpad-theme-matte\s+#vpad-editor-bar\s*\{([\s\S]*?)\}/;
+    const editorBarMatch = css.match(editorBarRegex);
+    assert(editorBarMatch, "must have rule for body.vpad-theme-matte #vpad-editor-bar");
+    assert(editorBarMatch[1].includes("background: #141416 !important;"), "matte editor bar must use charcoal #141416");
+    assert(editorBarMatch[1].includes("border: 1.5px solid #2563eb !important;"), "matte editor bar must use border #2563eb");
+    assert(editorBarMatch[1].includes("box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85) !important;"), "matte editor bar must have elevated shadow");
+
+    // Verify matte done button
+    const doneBtnRegex = /body\.vpad-theme-matte\s+#vpad-bar-done\s*\{([\s\S]*?)\}/;
+    const doneBtnMatch = css.match(doneBtnRegex);
+    assert(doneBtnMatch, "must have rule for body.vpad-theme-matte #vpad-bar-done");
+    assert(doneBtnMatch[1].includes("background: #1e3a8a !important;"), "matte done btn must use background #1e3a8a");
+    assert(doneBtnMatch[1].includes("border-color: #2563eb !important;"), "matte done btn must use border-color #2563eb");
+    assert(doneBtnMatch[1].includes("color: #dbeafe !important;"), "matte done btn must use text color #dbeafe");
+
+    // Verify matte done button active state
+    const doneBtnActiveRegex = /body\.vpad-theme-matte\s+#vpad-bar-done:active\s*\{([\s\S]*?)\}/;
+    const doneBtnActiveMatch = css.match(doneBtnActiveRegex);
+    assert(doneBtnActiveMatch, "must have rule for body.vpad-theme-matte #vpad-bar-done:active");
+    assert(doneBtnActiveMatch[1].includes("background: #172554 !important;"), "matte done btn active must use background #172554");
+    assert(doneBtnActiveMatch[1].includes("border-color: #3b82f6 !important;"), "matte done btn active must use border-color #3b82f6");
 });
