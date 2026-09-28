@@ -95,6 +95,15 @@ impl DiagnosticCode {
     pub const SIG_KEYSTORE_NOT_FOUND: &'static str = "SIG-101";
     pub const LIC_REDISTRIBUTION_BLOCKED: &'static str = "LIC-101";
 
+    pub const THM_SCHEMA_INVALID: &'static str = "THM-001";
+    pub const THM_API_INCOMPATIBLE: &'static str = "THM-002";
+    pub const THM_ASSET_MISSING: &'static str = "THM-003";
+    pub const THM_ASSET_TRAVERSAL: &'static str = "THM-004";
+    pub const THM_UNSAFE_CSS: &'static str = "THM-005";
+    pub const THM_DUPLICATE_ID: &'static str = "THM-006";
+    pub const THM_DEFAULT_NOT_PACKAGED: &'static str = "THM-007";
+    pub const THM_PACKAGE_NOT_FOUND: &'static str = "THM-008";
+
     pub fn new(code: impl Into<String>) -> Self {
         Self(code.into())
     }
@@ -103,6 +112,15 @@ impl DiagnosticCode {
         self.0.split('-').next().unwrap_or("")
     }
 }
+
+pub const THM_SCHEMA_INVALID: &str = DiagnosticCode::THM_SCHEMA_INVALID;
+pub const THM_API_INCOMPATIBLE: &str = DiagnosticCode::THM_API_INCOMPATIBLE;
+pub const THM_ASSET_MISSING: &str = DiagnosticCode::THM_ASSET_MISSING;
+pub const THM_ASSET_TRAVERSAL: &str = DiagnosticCode::THM_ASSET_TRAVERSAL;
+pub const THM_UNSAFE_CSS: &str = DiagnosticCode::THM_UNSAFE_CSS;
+pub const THM_DUPLICATE_ID: &str = DiagnosticCode::THM_DUPLICATE_ID;
+pub const THM_DEFAULT_NOT_PACKAGED: &str = DiagnosticCode::THM_DEFAULT_NOT_PACKAGED;
+pub const THM_PACKAGE_NOT_FOUND: &str = DiagnosticCode::THM_PACKAGE_NOT_FOUND;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditDiagnosticSpec {

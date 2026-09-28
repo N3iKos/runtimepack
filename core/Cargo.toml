@@ -15,3 +15,8 @@ walkdir = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
 image = { workspace = true }
+
+[[test]]
+name = "theme_package_test"
+path = "../tests/integration/theme_package_test.rs"
+
