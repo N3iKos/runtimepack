@@ -674,6 +674,30 @@ assert.strictEqual(document.body.classList.contains("vpad-theme-retro"), false);
 
 console.log("✔ Theme toggle correctly toggles .vpad-theme-retro class");
 
+// ============================================================================
+// TEST 8: NEUTRALIZED CSS & ZERO INJECTED HARDCODED STYLES
+// ============================================================================
+console.log("\n--- Test 8: Neutralized CSS & Zero Injected Hardcoded Styles ---");
+
+const fs = require("fs");
+const cheatCode = fs.readFileSync(path.resolve(__dirname, "../../main/assets/overlay/cheat_menu.js"), "utf-8");
+
+// 1. Verify injectStyles did not inject #fnh-cheat-styles
+const styleEl = document.getElementById("fnh-cheat-styles");
+assert.strictEqual(styleEl, null, "injectStyles must be neutralized and NOT inject #fnh-cheat-styles");
+
+// 2. Verify cheat_menu.js contains zero presentation hex colors
+const hexRegex = /#[0-9a-fA-F]{3,8}\b/g;
+const hexMatches = cheatCode.match(hexRegex);
+assert.strictEqual(hexMatches, null, `cheat_menu.js must have zero presentation hex colors, found: ${hexMatches}`);
+
+// 3. Verify mode toggle button uses semantic classes and no inline background
+const modeToggleBtn = document.getElementById("btn-cheat-mode-toggle");
+assert(modeToggleBtn, "Mode toggle button must exist");
+assert.strictEqual(modeToggleBtn.style.background, undefined, "Mode toggle button must not have inline style.background");
+
+console.log("✔ Neutralized styles and zero hardcoded hex verified in Cheat Menu");
+
 console.log("\n==================================================");
-console.log("All 7 Cheat Menu test suites passed successfully! (100%)");
+console.log("All 8 Cheat Menu test suites passed successfully! (100%)");
 console.log("==================================================");

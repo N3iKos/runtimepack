@@ -188,419 +188,9 @@
         }
     }
 
-    // CSS Styling
+    // CSS Styling (Neutralized: base structural rules and theme variables are now in vpad.css)
     function injectStyles() {
-        if (typeof document === "undefined") return;
-        if (document.getElementById("fnh-cheat-styles")) return;
-        const style = document.createElement("style");
-        style.id = "fnh-cheat-styles";
-        style.textContent = `
-            /* Overlay Container */
-            #fnh-cheat-overlay {
-                position: fixed;
-                top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                width: 92vw;
-                max-width: 520px;
-                max-height: 86vh;
-                background: #141416;
-                border: 1px solid #27272a;
-                box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
-                border-radius: 10px;
-                color: #f4f4f5;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: none;
-                flex-direction: column;
-                z-index: 100010;
-                overflow: hidden;
-                user-select: none;
-                -webkit-user-select: none;
-                pointer-events: auto !important;
-                touch-action: none !important;
-            }
-
-            /* Header */
-            #fnh-cheat-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 10px 14px;
-                background: #18181b;
-                border-bottom: 1px solid #27272a;
-                cursor: grab;
-                flex-shrink: 0;
-                pointer-events: auto !important;
-                touch-action: none !important;
-            }
-            .fnh-cheat-title {
-                font-size: 13px;
-                font-weight: 700;
-                letter-spacing: 0.5px;
-                color: #f4f4f5;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .fnh-cheat-title svg {
-                width: 15px; height: 15px;
-                stroke: #f59e0b;
-                fill: none;
-                stroke-width: 2;
-                stroke-linecap: round;
-                stroke-linejoin: round;
-            }
-            .fnh-cheat-close {
-                width: 26px; height: 26px;
-                display: flex; align-items: center; justify-content: center;
-                border-radius: 6px;
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                color: #a1a1aa;
-                cursor: pointer;
-                font-size: 14px;
-            }
-            .fnh-cheat-close:active {
-                background: rgba(239, 68, 68, 0.4);
-                color: #fff;
-            }
-
-            /* Tab Bar */
-            #fnh-cheat-tabs {
-                display: flex;
-                background: #09090b;
-                border-bottom: 1px solid #27272a;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                touch-action: pan-x;
-                scrollbar-width: none;
-                flex-shrink: 0;
-            }
-            #fnh-cheat-tabs::-webkit-scrollbar { display: none; }
-            .fnh-cheat-tab {
-                flex: 1;
-                flex-shrink: 0;
-                min-width: 78px;
-                padding: 10px 4px;
-                text-align: center;
-                font-size: 11px;
-                font-weight: 600;
-                color: #71717a;
-                cursor: pointer;
-                border-bottom: 2px solid transparent;
-                transition: all 0.15s ease;
-                white-space: nowrap;
-                display: flex; align-items: center; justify-content: center; gap: 5px;
-            }
-            .fnh-cheat-tab svg {
-                width: 14px; height: 14px;
-                stroke: currentColor;
-                fill: none;
-                stroke-width: 2;
-                stroke-linecap: round;
-                stroke-linejoin: round;
-            }
-            .fnh-cheat-tab.active {
-                color: #f4f4f5;
-                border-bottom-color: #0088cc;
-                background: rgba(0, 136, 204, 0.08);
-            }
-
-            /* Body */
-            #fnh-cheat-body {
-                flex: 1;
-                overflow-y: auto;
-                touch-action: pan-y;
-                -webkit-overflow-scrolling: touch;
-                padding: 10px 12px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                min-height: 260px;
-            }
-
-            /* Tab Panes */
-            .fnh-tab-pane {
-                width: 100%;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }
-
-            /* Common Row */
-            .fnh-cheat-row {
-                background: #18181b;
-                border: 1px solid #27272a;
-                border-radius: 6px;
-                padding: 8px 10px;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 10px;
-            }
-            .fnh-cheat-left {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 12px;
-                font-weight: 600;
-                color: #e4e4e7;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                flex: 1;
-            }
-
-            /* Form Elements */
-            .fnh-input, .fnh-select, .fnh-textarea {
-                background: #18181b;
-                border: 1px solid #27272a;
-                color: #f4f4f5;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 12px;
-                box-sizing: border-box;
-            }
-            .fnh-input:focus, .fnh-select:focus, .fnh-textarea:focus {
-                border-color: #0088cc;
-                outline: none;
-            }
-
-            /* Buttons */
-            .fnh-cheat-btn {
-                padding: 6px 14px;
-                border-radius: 5px;
-                font-size: 11px;
-                font-weight: 600;
-                border: 1px solid #3f3f46;
-                background: #27272a;
-                color: #f4f4f5;
-                cursor: pointer;
-                transition: background 0.1s, transform 0.05s;
-                white-space: nowrap;
-                text-align: center;
-            }
-            .fnh-cheat-btn:active {
-                transform: scale(0.95);
-            }
-            .fnh-btn-action {
-                background: #1e3a8a;
-                border-color: #2563eb;
-                color: #dbeafe;
-            }
-            .fnh-btn-action:active {
-                background: #1d4ed8;
-            }
-            .fnh-btn-toggle-off {
-                background: #27272a;
-                color: #71717a;
-                border-color: #3f3f46;
-                min-width: 60px;
-            }
-            .fnh-btn-toggle-on {
-                background: #15803d;
-                color: #dcfce7;
-                border-color: #22c55e;
-                min-width: 60px;
-            }
-
-            /* Cards Container */
-            .fnh-cards-container {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-                max-height: 52vh;
-                overflow-y: auto;
-                padding-right: 2px;
-            }
-
-            /* Console Terminal */
-            .fnh-console-pre {
-                background: #09090b;
-                border: 1px solid #27272a;
-                border-radius: 6px;
-                padding: 8px 10px;
-                color: #a1a1aa;
-                font-family: Consolas, "Roboto Mono", "Courier New", monospace;
-                font-size: 11px;
-                max-height: 120px;
-                overflow-y: auto;
-                white-space: pre-wrap;
-                word-break: break-all;
-                margin: 0;
-            }
-
-            /* Toast Notification */
-            #fnh-cheat-toast {
-                position: fixed;
-                bottom: 24px; left: 50%;
-                transform: translateX(-50%) translateY(20px);
-                background: #18181b;
-                border: 1px solid #3f3f46;
-                color: #f4f4f5;
-                padding: 8px 16px;
-                border-radius: 20px;
-                font-size: 11px;
-                font-weight: 600;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.8);
-                pointer-events: none;
-                opacity: 0;
-                transition: all 0.2s ease-out;
-                z-index: 100020;
-                text-align: center;
-            }
-            #fnh-cheat-toast.show {
-                transform: translateX(-50%) translateY(0);
-                opacity: 1;
-            }
-
-            /* Mode Toggle & Profile Section */
-            #btn-cheat-mode-toggle {
-                padding: 3px 8px;
-                font-size: 10px;
-                font-weight: 700;
-                background: #2563eb;
-                color: #ffffff;
-                border: 1px solid #3b82f6;
-                border-radius: 4px;
-                cursor: pointer;
-            }
-            .fnh-cat-nav {
-                display: flex;
-                gap: 6px;
-                overflow-x: auto;
-                padding-bottom: 6px;
-                border-bottom: 1px solid #27272a;
-                margin-bottom: 8px;
-                -webkit-overflow-scrolling: touch;
-                touch-action: pan-x;
-            }
-            .fnh-cat-btn {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                padding: 6px 12px;
-                border-radius: 16px;
-                font-size: 11px;
-                font-weight: 700;
-                background: #1f1f23;
-                border: 1px solid #3f3f46;
-                color: #a1a1aa;
-                cursor: pointer;
-                white-space: nowrap;
-                transition: all 0.15s ease;
-                flex-shrink: 0;
-            }
-            .fnh-cat-btn svg {
-                width: 13px;
-                height: 13px;
-                stroke: currentColor;
-                fill: none;
-                stroke-width: 2;
-                stroke-linecap: round;
-                stroke-linejoin: round;
-            }
-            .fnh-cat-btn.active {
-                background: #2563eb;
-                border-color: #3b82f6;
-                color: #ffffff;
-            }
-            .fnh-profile-sec {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-            }
-
-            /* ================================================================
-               THEME 2: RETRO OSD (ORANGE TERMINAL) OVERRIDES
-               ================================================================ */
-            body.vpad-theme-retro #fnh-cheat-overlay {
-                background: #0a0a0c !important;
-                border: 1.5px solid #ff7700 !important;
-                border-radius: 2px !important;
-                box-shadow: 0 0 20px rgba(255, 119, 0, 0.25) !important;
-                font-family: Consolas, "Roboto Mono", "Courier New", monospace !important;
-            }
-            body.vpad-theme-retro #fnh-cheat-header {
-                background: #141418 !important;
-                border-bottom: 1px solid #ff7700 !important;
-            }
-            body.vpad-theme-retro .fnh-cheat-title {
-                color: #ff7700 !important;
-            }
-            body.vpad-theme-retro .fnh-cheat-title svg {
-                stroke: #ff7700 !important;
-            }
-            body.vpad-theme-retro .fnh-cheat-tab.active {
-                color: #ff7700 !important;
-                border-bottom-color: #ff7700 !important;
-                background: rgba(255, 119, 0, 0.12) !important;
-            }
-            body.vpad-theme-retro .fnh-cheat-row {
-                background: #0e0e12 !important;
-                border-color: #333 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .fnh-cheat-btn {
-                border-radius: 2px !important;
-                background: #16161c !important;
-                border-color: #444 !important;
-                font-family: Consolas, monospace !important;
-            }
-            body.vpad-theme-retro #btn-cheat-mode-toggle {
-                background: #ff7700 !important;
-                color: #000000 !important;
-                border-color: #ffa244 !important;
-            }
-            body.vpad-theme-retro .fnh-cat-nav {
-                border-bottom-color: #333 !important;
-            }
-            body.vpad-theme-retro .fnh-cat-btn {
-                background: #141418 !important;
-                border-color: #444 !important;
-                color: #888 !important;
-                border-radius: 2px !important;
-                font-family: Consolas, monospace !important;
-            }
-            body.vpad-theme-retro .fnh-cat-btn.active {
-                background: rgba(255, 119, 0, 0.25) !important;
-                border-color: #ff7700 !important;
-                color: #ffaa44 !important;
-            }
-            body.vpad-theme-retro .fnh-btn-action {
-                background: rgba(255, 119, 0, 0.2) !important;
-                border-color: #ff7700 !important;
-                color: #ffaa44 !important;
-            }
-            body.vpad-theme-retro .fnh-btn-toggle-on {
-                background: #ff7700 !important;
-                color: #000 !important;
-                border-color: #ffa244 !important;
-                font-weight: bold !important;
-            }
-            body.vpad-theme-retro .fnh-input,
-            body.vpad-theme-retro .fnh-select,
-            body.vpad-theme-retro .fnh-textarea,
-            body.vpad-theme-retro .fnh-var-input {
-                background: #0e0e12 !important;
-                border-color: #ff7700 !important;
-                color: #ffaa44 !important;
-                font-family: Consolas, monospace !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro .fnh-console-pre {
-                background: #09090b !important;
-                border-color: #ff7700 !important;
-                color: #ffaa44 !important;
-                border-radius: 2px !important;
-            }
-            body.vpad-theme-retro #fnh-cheat-toast {
-                background: #0a0a0c !important;
-                border-color: #ff7700 !important;
-                color: #ffaa44 !important;
-                border-radius: 2px !important;
-            }
-        `;
-        document.head.appendChild(style);
+        // No-op: styles are centrally declared in vpad.css with CSS variables
     }
 
     let toastTimer = null;
@@ -689,7 +279,7 @@
         }
 
         if (matchCount === 0) {
-            html = `<div style="text-align:center; padding:20px; color:#71717a; font-size:12px;">No variables found.</div>`;
+            html = `<div class="fnh-empty-msg">No variables found.</div>`;
         }
 
         container.innerHTML = html;
@@ -782,7 +372,7 @@
         }
 
         if (matchCount === 0) {
-            html = `<div style="text-align:center; padding:20px; color:#71717a; font-size:12px;">No switches found.</div>`;
+            html = `<div class="fnh-empty-msg">No switches found.</div>`;
         }
 
         container.innerHTML = html;
@@ -994,8 +584,8 @@
         const profile = globalObj.GAME_CHEATS;
         if (!profile || !profile.sections || !profile.sections.length) {
             container.innerHTML = `
-                <div style="text-align:center; padding:30px 15px; color:#71717a;">
-                    <div style="font-size:13px; font-weight:700; color:#e4e4e7; margin-bottom:6px;">Belum Ada Cheat Siap Pakai</div>
+                <div class="fnh-profile-empty">
+                    <div class="fnh-profile-empty-title">Belum Ada Cheat Siap Pakai</div>
                     <div style="font-size:11px; line-height:1.5;">
                         Konfigurasi cheat siap pakai dapat diatur melalui <code>overlay/cheat_profile.js</code>.
                     </div>
@@ -1111,8 +701,10 @@
         if (mode === "menu") {
             if (btn) {
                 btn.textContent = "Cheat Engine";
-                btn.style.background = "#4f46e5";
-                btn.style.borderColor = "#6366f1";
+                if (btn.classList) {
+                    btn.classList.add("fnh-mode-engine");
+                    btn.classList.remove("fnh-mode-menu");
+                }
             }
             if (titleSpan) {
                 titleSpan.textContent = (globalObj.GAME_CHEATS && globalObj.GAME_CHEATS.title) ? globalObj.GAME_CHEATS.title.toUpperCase() : "CHEAT MENU";
@@ -1131,8 +723,10 @@
         } else {
             if (btn) {
                 btn.textContent = "Cheat Menu";
-                btn.style.background = "#2563eb";
-                btn.style.borderColor = "#3b82f6";
+                if (btn.classList) {
+                    btn.classList.add("fnh-mode-menu");
+                    btn.classList.remove("fnh-mode-engine");
+                }
             }
             if (titleSpan) titleSpan.textContent = "CHEAT ENGINE";
             if (tabs) tabs.style.display = "flex";
@@ -1394,7 +988,7 @@
                     </div>
                     <pre id="fnh-console-output" class="fnh-console-pre">Ready.</pre>
                     <div class="fnh-cheat-row" style="flex-direction:column; align-items:stretch; gap:6px;">
-                        <div style="font-size:11px; font-weight:700; color:#a1a1aa; letter-spacing:0.5px;">SAVED SNIPPETS</div>
+                        <div class="fnh-snippet-heading">SAVED SNIPPETS</div>
                         <div style="display:flex; gap:6px;">
                             <input type="text" id="fnh-snippet-name" placeholder="Snippet Name..." class="fnh-input" style="flex:1;">
                             <button id="fnh-btn-save-snippet" class="fnh-cheat-btn">💾 Save Snippet</button>
@@ -1404,7 +998,7 @@
                                 <option value="">-- Select Saved Snippet --</option>
                             </select>
                             <button id="fnh-btn-load-snippet" class="fnh-cheat-btn">Load</button>
-                            <button id="fnh-btn-delete-snippet" class="fnh-cheat-btn" style="background:#7f1d1d; border-color:#991b1b; color:#fecaca;">Delete</button>
+                            <button id="fnh-btn-delete-snippet" class="fnh-cheat-btn fnh-btn-danger">Delete</button>
                         </div>
                     </div>
                 </div>

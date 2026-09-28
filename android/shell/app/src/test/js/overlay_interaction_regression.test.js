@@ -813,3 +813,60 @@ test("popovers stack at least topPanelZIndex + 10 above the editor bar", () => {
     const themeZ = Number(themePopover.style.zIndex || 0);
     assert(themeZ >= editorZ + 10, "Theme popover must stack at least editorBar.zIndex + 10");
 });
+
+test("Theme-Neutral Core Architecture: CSS variables, neutralized components, zero hardcoded hex", () => {
+    const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
+    const css = fs.readFileSync(cssPath, "utf-8");
+
+    // 1. Verify CSS variables in :root
+    assert(css.includes("--theme-accent:"), "vpad.css must declare --theme-accent");
+    assert(css.includes("--theme-accent-contrast:"), "vpad.css must declare --theme-accent-contrast");
+    assert(css.includes("--theme-bg-panel:"), "vpad.css must declare --theme-bg-panel");
+    assert(css.includes("--theme-border-panel:"), "vpad.css must declare --theme-border-panel");
+    assert(css.includes("--theme-radius-panel:"), "vpad.css must declare --theme-radius-panel");
+
+    // 2. Verify structural rules referencing CSS variables in vpad.css
+    assert(css.includes("var(--theme-accent"), "vpad.css must use var(--theme-accent)");
+    assert(css.includes("var(--theme-bg-panel"), "vpad.css must use var(--theme-bg-panel)");
+    assert(css.includes("var(--theme-border-panel"), "vpad.css must use var(--theme-border-panel)");
+    assert(css.includes("var(--theme-radius-panel"), "vpad.css must use var(--theme-radius-panel)");
+
+    // 3. Verify semantic classes in vpad.css
+    assert(css.includes(".diag-badge-scanning"), "vpad.css must define .diag-badge-scanning");
+    assert(css.includes(".diag-badge-ready"), "vpad.css must define .diag-badge-ready");
+    assert(css.includes(".diag-badge-success"), "vpad.css must define .diag-badge-success");
+    assert(css.includes(".diag-badge-error"), "vpad.css must define .diag-badge-error");
+    assert(css.includes(".diag-fps-high"), "vpad.css must define .diag-fps-high");
+    assert(css.includes(".diag-fps-mid"), "vpad.css must define .diag-fps-mid");
+    assert(css.includes(".diag-fps-low"), "vpad.css must define .diag-fps-low");
+    assert(css.includes(".vpad-text-accent"), "vpad.css must define .vpad-text-accent");
+    assert(css.includes("#btn-cheat-mode-toggle"), "vpad.css must style #btn-cheat-mode-toggle");
+
+    // 4. Verify zero hardcoded presentation hex colors in JS files
+    const hexPattern = /#[0-9a-fA-F]{3,8}\b/g;
+
+    const diagCodeClean = diagnosticCode.replace(/&#[0-9]{3,4};/g, "");
+    const diagHex = diagCodeClean.match(hexPattern);
+    assert.strictEqual(diagHex, null, `diagnostic_suite.js must have 0 hex colors, found: ${diagHex}`);
+
+    const cheatHex = cheatCode.match(hexPattern);
+    assert.strictEqual(cheatHex, null, `cheat_menu.js must have 0 hex colors, found: ${cheatHex}`);
+
+    const vpadHex = vpadCode.match(hexPattern);
+    assert.strictEqual(vpadHex, null, `vpad.js must have 0 hex colors, found: ${vpadHex}`);
+
+    // 5. Verify DOM initializes without injecting style tags
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(vpadCode, "vpad.js");
+    env.run(cheatCode, "cheat_menu.js");
+    env.run(diagnosticCode, "diagnostic_suite.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+
+    env.window.CheatMenu.initDOM();
+    env.window.DiagnosticSuite.init();
+
+    assert.strictEqual(env.document.getElementById("fnh-cheat-styles"), null, "must not inject #fnh-cheat-styles");
+    assert.strictEqual(env.document.getElementById("rp-diag-styles"), null, "must not inject #rp-diag-styles");
+    assert(env.document.getElementById("fnh-cheat-overlay"), "Cheat overlay DOM must exist");
+    assert(env.document.getElementById("rp-diag-modal"), "Diagnostic modal DOM must exist");
+});

@@ -43,12 +43,22 @@ function createDOMContext() {
             },
             set innerHTML(val) {
                 _innerHTML = String(val);
-                const idMatches = _innerHTML.matchAll(/id="([^"]+)"/g);
-                for (const match of idMatches) {
-                    const childId = match[1];
-                    if (!elementsById[childId]) {
-                        const childEl = createMockElement(childId);
-                        registerEl(childEl);
+                const tagRegex = /<([a-zA-Z0-9-]+)([^>]*)>/g;
+                let match;
+                while ((match = tagRegex.exec(_innerHTML)) !== null) {
+                    const attrStr = match[2];
+                    const idMatch = attrStr.match(/id="([^"]+)"/);
+                    if (idMatch) {
+                        const childId = idMatch[1];
+                        let childEl = elementsById[childId];
+                        if (!childEl) {
+                            childEl = createMockElement(childId, match[1]);
+                            registerEl(childEl);
+                        }
+                        const classMatch = attrStr.match(/class="([^"]+)"/);
+                        if (classMatch) {
+                            classMatch[1].split(/\s+/).filter(Boolean).forEach(c => childEl.classList.add(c));
+                        }
                     }
                 }
             },
@@ -657,7 +667,7 @@ function createDOMContext() {
     assert.strictEqual(cntMissing.textContent, "1", "FAIL line must increment missingCount");
     assert.strictEqual(cntScanned.textContent, "1", "FAIL line must increment scannedCount");
     assert.strictEqual(badge.textContent, "ISSUES (1)", "Badge must show ISSUES (1)");
-    assert.strictEqual(badge.style.background, "#dc2626", "Badge background must be red #dc2626");
+    assert.strictEqual(badge.classList.contains("diag-badge-error"), true, "Badge must have semantic class diag-badge-error");
 
     // Feed DONE line with authoritative counts
     mockProgress = "DONE: Stress test completed: 150 maps, 543 exact assets, 0 case mismatches, 189 missing.\n";
@@ -668,7 +678,7 @@ function createDOMContext() {
     assert.strictEqual(cntMissing.textContent, "189", "missingCount should be 189");
 
     assert.strictEqual(badge.textContent, "FAILED", "Badge must be FAILED, not COMPLETED");
-    assert.strictEqual(badge.style.background, "#dc2626", "Badge background must be red #dc2626");
+    assert.strictEqual(badge.classList.contains("diag-badge-error"), true, "Badge must have semantic class diag-badge-error");
     assert(stStatus.textContent.toLowerCase().includes("missing"), `Status text must mention missing assets, got: ${stStatus.textContent}`);
     assert(stStatus.textContent.includes("189"), `Status text must include 189 missing count, got: ${stStatus.textContent}`);
 
@@ -678,6 +688,32 @@ function createDOMContext() {
     assert.strictEqual(doneLogs[0].level, "WARN", "DONE log must have level WARN, NOT SUCCESS");
     const successLogs = logs.filter(l => l.level === "SUCCESS");
     assert.strictEqual(successLogs.length, 0, "There must be zero SUCCESS logs when missing assets exist");
+}
+
+// Test 14: Neutralized CSS & Zero Injected Hardcoded Styles
+{
+    console.log("Test 14: Neutralized CSS & Zero Injected Hardcoded Styles");
+    const { sandbox } = createDOMContext();
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    // Verify no #rp-diag-styles was injected
+    const styleEl = sandbox.document.getElementById("rp-diag-styles");
+    assert.strictEqual(styleEl, null, "injectStyles must be neutralized and NOT inject #rp-diag-styles");
+
+    // Verify initial badge has semantic class diag-badge-ready and no inline color
+    const badge = sandbox.document.getElementById("diag-step-badge");
+    assert(badge, "Badge element must exist");
+    assert(badge.classList.contains("diag-badge-ready"), "Badge must have initial semantic class diag-badge-ready");
+    assert.strictEqual(badge.style.background, undefined, "Badge must not have inline style.background");
+
+    // Verify diagnostic_suite.js contains no presentation hex colors
+    const hexRegex = /#[0-9a-fA-F]{3,8}\b/g;
+    // Strip entity escaping if any (e.g. &#039;)
+    const cleanedCode = diagCode.replace(/&#[0-9]{3,4};/g, "");
+    const hexMatches = cleanedCode.match(hexRegex);
+    assert.strictEqual(hexMatches, null, `diagnostic_suite.js must have zero presentation hex colors, found: ${hexMatches}`);
 }
 
 console.log("All Diagnostic Suite JS unit tests passed successfully!");

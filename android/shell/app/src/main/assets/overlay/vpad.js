@@ -848,7 +848,7 @@
                     <div class="vpad-prop-row" id="vpad-prop-binding-row">
                         <div class="vpad-prop-label">
                             <span>Label & Key:</span>
-                            <span id="vpad-prop-key-name" style="color:#38bdf8; font-weight:bold;">A (Z)</span>
+                            <span id="vpad-prop-key-name" class="vpad-text-accent" style="font-weight:bold;">A (Z)</span>
                         </div>
                         <button id="vpad-prop-btn-changekey" class="vpad-prop-btn" style="width:100%;">Change Key / Binding</button>
                     </div>
@@ -862,7 +862,7 @@
                     <div class="vpad-prop-row" id="vpad-prop-joystick-mode-row" style="display:none;">
                         <div class="vpad-prop-label">
                             <span>Joystick:</span>
-                            <span id="vpad-prop-joystick-mode-label" style="color:#38bdf8; font-weight:bold;">Semi-Floating</span>
+                            <span id="vpad-prop-joystick-mode-label" class="vpad-text-accent" style="font-weight:bold;">Semi-Floating</span>
                         </div>
                         <button id="vpad-prop-btn-joystick-mode" class="vpad-prop-btn" style="width:100%;">Switch to Fixed</button>
                     </div>
@@ -886,7 +886,7 @@
                     <div class="vpad-modal-body">
                         <!-- Control Type Selector -->
                         <div id="vpad-modal-type-container" style="margin-top:4px;">
-                            <span style="font-size:11px; color:#bbb;">Control Type:</span>
+                            <span class="vpad-label-muted">Control Type:</span>
                             <div class="vpad-segmented-group" id="vpad-modal-type-group">
                                 <button type="button" class="vpad-segmented-btn active" data-value="button">Button</button>
                                 <button type="button" class="vpad-segmented-btn" data-value="joystick">Joystick</button>
@@ -897,12 +897,12 @@
                         <!-- Button Specific Fields -->
                         <div id="vpad-modal-button-fields">
                             <div style="margin-top:8px;">
-                                <span style="font-size:11px; color:#bbb;">Label (max 12 characters):</span>
+                                <span class="vpad-label-muted">Label (max 12 characters):</span>
                                 <input type="text" id="vpad-modal-input-label" class="vpad-input-field" maxlength="12">
                             </div>
 
                             <div style="margin-top:8px;">
-                                <span style="font-size:11px; color:#bbb;">Select Keyboard Key (scroll to browse):</span>
+                                <span class="vpad-label-muted">Select Keyboard Key (scroll to browse):</span>
                                 <div class="vpad-modal-scroll-area" id="vpad-modal-scroll-area">
                                     <div class="vpad-picker-grid" id="vpad-modal-key-grid"></div>
                                 </div>
@@ -1848,7 +1848,11 @@
                 const isFloating = ctrl.floating !== false;
                 if (joystickModeLabel) {
                     joystickModeLabel.textContent = isFloating ? "Semi-Floating" : "Fixed";
-                    joystickModeLabel.style.color = isFloating ? "#38bdf8" : "#fbbf24";
+                    if (joystickModeLabel.classList) {
+                        joystickModeLabel.classList.toggle("vpad-text-accent", isFloating);
+                        joystickModeLabel.classList.toggle("vpad-text-amber", !isFloating);
+                    }
+                    joystickModeLabel.style.color = "";
                 }
                 if (btnJoystickMode) {
                     btnJoystickMode.textContent = isFloating ? "Switch to Fixed" : "Switch to Semi-Floating";

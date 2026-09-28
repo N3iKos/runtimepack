@@ -203,16 +203,33 @@
     function updatePerfStats() {
         if (!doc) return;
         var fpsEl = doc.getElementById("diag-fps-val");
-        var color = fps >= 50 ? "#34d399" : (fps >= 30 ? "#fbbf24" : "#f87171");
         if (fpsEl) {
             fpsEl.textContent = fps + " FPS";
-            fpsEl.style.color = color;
+            if (fpsEl.classList) {
+                fpsEl.classList.remove("diag-fps-high", "diag-fps-mid", "diag-fps-low");
+                if (fps >= 50) {
+                    fpsEl.classList.add("diag-fps-high");
+                } else if (fps >= 30) {
+                    fpsEl.classList.add("diag-fps-mid");
+                } else {
+                    fpsEl.classList.add("diag-fps-low");
+                }
+            }
         }
 
         var floatingFpsEl = doc.getElementById("rp-floating-fps");
         if (floatingFpsEl && showFloatingFps) {
             floatingFpsEl.textContent = fps + " FPS";
-            floatingFpsEl.style.color = color;
+            if (floatingFpsEl.classList) {
+                floatingFpsEl.classList.remove("diag-fps-high", "diag-fps-mid", "diag-fps-low");
+                if (fps >= 50) {
+                    floatingFpsEl.classList.add("diag-fps-high");
+                } else if (fps >= 30) {
+                    floatingFpsEl.classList.add("diag-fps-mid");
+                } else {
+                    floatingFpsEl.classList.add("diag-fps-low");
+                }
+            }
         }
 
         var memEl = doc.getElementById("diag-mem-val");
@@ -266,304 +283,18 @@
     }
 
     function injectStyles() {
-        if (!doc || doc.getElementById("rp-diag-styles")) return;
-        var style = doc.createElement("style");
-        style.id = "rp-diag-styles";
-        style.textContent = "" +
-            "#diag-fps-toggle-btn.active { background: #0284c7 !important; color: #fff !important; border-color: #38bdf8 !important; }" +
-            "#rp-diag-modal {" +
-            "   position: fixed;" +
-            "   top: 50%;" +
-            "   left: 50%;" +
-            "   transform: translate(-50%, -50%);" +
-            "   width: 94%;" +
-            "   max-width: 520px;" +
-            "   max-height: 88vh;" +
-            "   background: #0f1117;" +
-            "   border: 1.5px solid #0284c7;" +
-            "   border-radius: 12px;" +
-            "   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 20px rgba(2, 132, 199, 0.2);" +
-            "   color: #f1f5f9;" +
-            "   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;" +
-            "   display: none;" +
-            "   flex-direction: column;" +
-            "   z-index: 100003;" +
-            "   box-sizing: border-box;" +
-            "   pointer-events: auto !important;" +
-            "   touch-action: none !important;" +
-            "   overflow: hidden;" +
-            "}" +
-            "#rp-diag-header {" +
-            "   pointer-events: auto !important;" +
-            "   touch-action: none !important;" +
-            "}" +
-            ".diag-header {" +
-            "   display: flex;" +
-            "   align-items: center;" +
-            "   justify-content: space-between;" +
-            "   padding: 10px 14px;" +
-            "   background: #171b26;" +
-            "   border-bottom: 1px solid rgba(255, 255, 255, 0.1);" +
-            "   cursor: move;" +
-            "   user-select: none;" +
-            "   touch-action: none;" +
-            "   flex-shrink: 0;" +
-            "}" +
-            ".diag-title-row {" +
-            "   display: flex;" +
-            "   align-items: center;" +
-            "   gap: 8px;" +
-            "}" +
-            ".diag-title {" +
-            "   font-size: 13px;" +
-            "   font-weight: 700;" +
-            "   color: #38bdf8;" +
-            "   letter-spacing: 0.5px;" +
-            "   display: flex;" +
-            "   align-items: center;" +
-            "   gap: 6px;" +
-            "}" +
-            ".diag-badge {" +
-            "   font-size: 9px;" +
-            "   font-weight: 800;" +
-            "   padding: 2px 6px;" +
-            "   background: #0284c7;" +
-            "   color: #ffffff;" +
-            "   border-radius: 4px;" +
-            "   letter-spacing: 0.5px;" +
-            "}" +
-            ".diag-close-btn {" +
-            "   background: transparent;" +
-            "   border: none;" +
-            "   color: #94a3b8;" +
-            "   font-size: 16px;" +
-            "   font-weight: bold;" +
-            "   cursor: pointer;" +
-            "   padding: 4px 8px;" +
-            "   border-radius: 4px;" +
-            "}" +
-            ".diag-close-btn:active { color: #f87171; background: rgba(248, 113, 113, 0.15); }" +
-            ".diag-stats-bar {" +
-            "   display: flex;" +
-            "   align-items: center;" +
-            "   justify-content: space-between;" +
-            "   flex-wrap: wrap;" +
-            "   gap: 8px;" +
-            "   padding: 8px 14px;" +
-            "   background: #131720;" +
-            "   border-bottom: 1px solid rgba(255, 255, 255, 0.06);" +
-            "   font-size: 11px;" +
-            "   color: #94a3b8;" +
-            "   flex-shrink: 0;" +
-            "}" +
-            ".diag-stat-pill {" +
-            "   display: inline-flex;" +
-            "   align-items: center;" +
-            "   gap: 6px;" +
-            "   padding: 4px 10px;" +
-            "   border-radius: 6px;" +
-            "   white-space: nowrap;" +
-            "}" +
-            ".diag-fps-toggle {" +
-            "   cursor: pointer;" +
-            "   padding: 4px 10px;" +
-            "   border-radius: 6px;" +
-            "   font-size: 11px;" +
-            "   font-weight: 700;" +
-            "   white-space: nowrap;" +
-            "   border: 1px solid rgba(56, 189, 248, 0.4);" +
-            "   background: rgba(14, 165, 233, 0.15);" +
-            "   color: #38bdf8;" +
-            "   transition: all 0.15s ease;" +
-            "}" +
-            ".diag-stat-pill strong { font-weight: 700; color: #f8fafc; }" +
-            ".diag-tabs {" +
-            "   display: flex;" +
-            "   gap: 6px;" +
-            "   padding: 8px 12px;" +
-            "   background: #11141d;" +
-            "   border-bottom: 1px solid rgba(255, 255, 255, 0.08);" +
-            "   overflow-x: auto;" +
-            "   -webkit-overflow-scrolling: touch;" +
-            "   touch-action: pan-x;" +
-            "   flex-shrink: 0;" +
-            "}" +
-            ".diag-tab-btn {" +
-            "   display: inline-flex;" +
-            "   align-items: center;" +
-            "   gap: 5px;" +
-            "   padding: 6px 12px;" +
-            "   border-radius: 18px;" +
-            "   font-size: 11px;" +
-            "   font-weight: 700;" +
-            "   background: #1e2433;" +
-            "   border: 1px solid #334155;" +
-            "   color: #94a3b8;" +
-            "   cursor: pointer;" +
-            "   white-space: nowrap;" +
-            "   flex-shrink: 0;" +
-            "   transition: all 0.15s ease;" +
-            "}" +
-            ".diag-tab-btn.active {" +
-            "   background: #0284c7;" +
-            "   border-color: #38bdf8;" +
-            "   color: #ffffff;" +
-            "}" +
-            ".diag-body-container {" +
-            "   flex: 1;" +
-            "   min-height: 0;" +
-            "   overflow-y: auto;" +
-            "   -webkit-overflow-scrolling: touch;" +
-            "}" +
-            ".diag-tab-pane {" +
-            "   display: none;" +
-            "   flex-direction: column;" +
-            "   gap: 10px;" +
-            "   padding: 12px;" +
-            "}" +
-            ".diag-tab-pane.active { display: flex; }" +
-            ".diag-card {" +
-            "   background: #161b26;" +
-            "   border: 1px solid #232b3c;" +
-            "   border-radius: 8px;" +
-            "   padding: 10px 12px;" +
-            "}" +
-            ".diag-card-title {" +
-            "   font-size: 12px;" +
-            "   font-weight: 700;" +
-            "   color: #e2e8f0;" +
-            "   margin-bottom: 4px;" +
-            "   display: flex; align-items: center; justify-content: space-between;" +
-            "}" +
-            ".diag-card-desc {" +
-            "   font-size: 10px;" +
-            "   color: #94a3b8;" +
-            "   line-height: 1.35;" +
-            "   margin-bottom: 8px;" +
-            "}" +
-            ".diag-btn {" +
-            "   display: inline-flex;" +
-            "   align-items: center;" +
-            "   justify-content: center;" +
-            "   gap: 6px;" +
-            "   padding: 8px 14px;" +
-            "   font-size: 11px;" +
-            "   font-weight: 700;" +
-            "   border-radius: 6px;" +
-            "   border: none;" +
-            "   cursor: pointer;" +
-            "   transition: all 0.15s ease;" +
-            "}" +
-            ".diag-btn-primary {" +
-            "   background: #0284c7;" +
-            "   color: #ffffff;" +
-            "   width: 100%;" +
-            "}" +
-            ".diag-btn-primary:active { background: #0369a1; transform: scale(0.98); }" +
-            ".diag-btn-success {" +
-            "   background: #16a34a;" +
-            "   color: #ffffff;" +
-            "   width: 100%;" +
-            "}" +
-            ".diag-btn-success:active { background: #15803d; }" +
-            ".diag-btn-action {" +
-            "   background: rgba(56, 189, 248, 0.15);" +
-            "   border: 1px solid #0284c7;" +
-            "   color: #38bdf8;" +
-            "}" +
-            ".diag-btn-action:active { background: rgba(56, 189, 248, 0.3); }" +
-            ".diag-pbar-box {" +
-            "   width: 100%;" +
-            "   height: 8px;" +
-            "   background: #090d16;" +
-            "   border-radius: 4px;" +
-            "   overflow: hidden;" +
-            "   margin: 8px 0 4px 0;" +
-            "   border: 1px solid #1e293b;" +
-            "}" +
-            ".diag-pbar-fill {" +
-            "   width: 0%;" +
-            "   height: 100%;" +
-            "   background: linear-gradient(90deg, #0284c7, #38bdf8);" +
-            "   transition: width 0.2s ease;" +
-            "}" +
-            ".diag-status-line {" +
-            "   font-size: 10px;" +
-            "   color: #38bdf8;" +
-            "   font-weight: 600;" +
-            "   min-height: 14px;" +
-            "}" +
-            ".diag-input-group {" +
-            "   display: flex;" +
-            "   gap: 6px;" +
-            "   align-items: center;" +
-            "   flex-wrap: wrap;" +
-            "}" +
-            ".diag-input-group label {" +
-            "   font-size: 11px;" +
-            "   color: #94a3b8;" +
-            "   display: flex; align-items: center; gap: 4px;" +
-            "}" +
-            ".diag-input-group input {" +
-            "   width: 52px;" +
-            "   padding: 5px 6px;" +
-            "   background: #090d16;" +
-            "   border: 1px solid #334155;" +
-            "   border-radius: 4px;" +
-            "   color: #f8fafc;" +
-            "   font-size: 11px;" +
-            "   box-sizing: border-box;" +
-            "}" +
-            ".diag-console-section {" +
-            "   padding: 0 12px 12px 12px;" +
-            "   display: flex;" +
-            "   flex-direction: column;" +
-            "   gap: 4px;" +
-            "}" +
-            ".diag-console-header {" +
-            "   display: flex;" +
-            "   justify-content: space-between;" +
-            "   align-items: center;" +
-            "   padding: 4px 0;" +
-            "   font-size: 11px;" +
-            "   font-weight: 700;" +
-            "   color: #cbd5e1;" +
-            "}" +
-            ".diag-log-box {" +
-            "   background: #050609;" +
-            "   border: 1px solid #1e293b;" +
-            "   border-radius: 6px;" +
-            "   height: 135px;" +
-            "   overflow-y: auto;" +
-            "   padding: 6px 8px;" +
-            "   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;" +
-            "   font-size: 10px;" +
-            "   line-height: 1.45;" +
-            "   -webkit-overflow-scrolling: touch;" +
-            "}" +
-            ".diag-log-line { margin-bottom: 2px; word-break: break-all; }" +
-            ".diag-log-time { color: #475569; font-weight: 500; margin-right: 4px; }" +
-            ".diag-log-tag { font-weight: bold; margin-right: 5px; }" +
-            ".diag-tag-info { color: #38bdf8; }" +
-            ".diag-tag-progress { color: #c084fc; }" +
-            ".diag-tag-scan { color: #60a5fa; }" +
-            ".diag-tag-audit { color: #2dd4bf; }" +
-            ".diag-tag-success { color: #4ade80; }" +
-            ".diag-tag-warn { color: #fbbf24; }" +
-            ".diag-tag-error { color: #f87171; }" +
-            ".diag-btn-sm {" +
-            "   padding: 3px 8px;" +
-            "   font-size: 10px;" +
-            "   background: #1e2433;" +
-            "   border: 1px solid #334155;" +
-            "   color: #94a3b8;" +
-            "   border-radius: 4px;" +
-            "   cursor: pointer;" +
-            "   display: inline-flex; align-items: center; gap: 4px;" +
-            "}" +
-            ".diag-btn-sm:active { background: #334155; color: #f8fafc; }";
+        // No-op: base structural styles and theme variables are now centrally managed in vpad.css
+    }
 
-        doc.head.appendChild(style);
+    function setBadgeState(badgeEl, text, stateClass) {
+        if (!badgeEl) return;
+        badgeEl.textContent = text;
+        if (badgeEl.classList) {
+            badgeEl.classList.remove("diag-badge-scanning", "diag-badge-ready", "diag-badge-success", "diag-badge-error", "diag-badge-warn");
+            if (stateClass) {
+                badgeEl.classList.add(stateClass);
+            }
+        }
     }
 
     function switchTab(tabId) {
@@ -636,7 +367,7 @@
             "        <div class=\"diag-card\">" +
             "            <div class=\"diag-card-title\">" +
             "                <span>Automated Asset & Map Auditor</span>" +
-            "                <span id=\"diag-step-badge\" class=\"diag-badge\" style=\"background:#1e293b; color:#94a3b8;\">READY</span>" +
+            "                <span id=\"diag-step-badge\" class=\"diag-badge diag-badge-ready\">READY</span>" +
             "            </div>" +
             "            <div class=\"diag-card-desc\">Scans maps, event picture references, audio tracks, and verifies project assets with deterministic probes and checkpoints.</div>" +
             "            <div style=\"display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;\">" +
@@ -644,7 +375,7 @@
             "                <button id=\"diag-btn-probe-exhaustive\" class=\"diag-btn diag-btn-action\" style=\"flex:1; min-width:130px;\">" + SVG_ICONS.play + " Run Exhaustive Probe</button>" +
             "                <button id=\"diag-btn-stress\" class=\"diag-btn diag-btn-primary\" style=\"flex:1; min-width:130px;\">" + SVG_ICONS.play + " Run Full Stress Test</button>" +
             "            </div>" +
-            "            <div id=\"diag-probe-counters\" class=\"diag-counters-row\" style=\"display:flex; gap:10px; margin:8px 0; font-size:12px; color:#cbd5e1;\">" +
+            "            <div id=\"diag-probe-counters\" class=\"diag-counters-row\">" +
             "                <span>Scanned: <strong id=\"diag-cnt-scanned\">0</strong></span> | " +
             "                <span>Valid: <strong id=\"diag-cnt-valid\">0</strong></span> | " +
             "                <span>Missing: <strong id=\"diag-cnt-missing\">0</strong></span> | " +
@@ -1036,9 +767,7 @@
 
             if (stStatus) stStatus.textContent = initMsg;
             if (badge) {
-                badge.textContent = "SCANNING";
-                badge.style.background = "#0284c7";
-                badge.style.color = "#ffffff";
+                setBadgeState(badge, "SCANNING", "diag-badge-scanning");
             }
             if (pbar) pbar.style.width = "10%";
 
@@ -1159,17 +888,13 @@
                                     : "Audit Complete with " + failureCount + " failure(s).";
                             }
                             if (badge) {
-                                badge.textContent = "FAILED";
-                                badge.style.background = "#dc2626";
-                                badge.style.color = "#ffffff";
+                                setBadgeState(badge, "FAILED", "diag-badge-error");
                             }
                         } else {
                             addLogEntry("SUCCESS", doneMsg);
                             if (stStatus) stStatus.textContent = "Audit Completed Successfully.";
                             if (badge) {
-                                badge.textContent = "COMPLETED";
-                                badge.style.background = "#16a34a";
-                                badge.style.color = "#ffffff";
+                                setBadgeState(badge, "COMPLETED", "diag-badge-success");
                             }
                         }
                         if (pbar) pbar.style.width = "100%";
@@ -1200,9 +925,7 @@
                             stStatus.textContent = "Scanning... (" + failureCount + " failure" + (failureCount > 1 ? "s" : "") + " detected)";
                         }
                         if (badge) {
-                            badge.textContent = "ISSUES (" + failureCount + ")";
-                            badge.style.background = "#dc2626";
-                            badge.style.color = "#ffffff";
+                            setBadgeState(badge, "ISSUES (" + failureCount + ")", "diag-badge-error");
                         }
                         updateCountersUI();
                         return;
@@ -1312,9 +1035,7 @@
                                     stStatus.textContent = "Scanning... (" + failureCount + " failure" + (failureCount > 1 ? "s" : "") + " detected)";
                                 }
                                 if (badge) {
-                                    badge.textContent = "ISSUES (" + failureCount + ")";
-                                    badge.style.background = "#dc2626";
-                                    badge.style.color = "#ffffff";
+                                    setBadgeState(badge, "ISSUES (" + failureCount + ")", "diag-badge-error");
                                 }
                             } else if (line.indexOf("DONE:") === 0) {
                                 var doneText = line.replace(/^DONE:\s*/, "");
@@ -1356,9 +1077,7 @@
 
                                 if (failureCount > 0 || missingCount > 0) {
                                     if (badge) {
-                                        badge.textContent = "FAILED";
-                                        badge.style.background = "#dc2626";
-                                        badge.style.color = "#ffffff";
+                                        setBadgeState(badge, "FAILED", "diag-badge-error");
                                     }
                                     if (stStatus) {
                                         stStatus.textContent = missingCount > 0
@@ -1371,9 +1090,7 @@
                                     addLogEntry("WARN", warnPrefix + doneText);
                                 } else {
                                     if (badge) {
-                                        badge.textContent = "COMPLETED";
-                                        badge.style.background = "#16a34a";
-                                        badge.style.color = "#ffffff";
+                                        setBadgeState(badge, "COMPLETED", "diag-badge-success");
                                     }
                                     if (stStatus) {
                                         stStatus.textContent = "Audit Completed Successfully.";
@@ -1395,9 +1112,7 @@
                     auditPollInterval = null;
                     if (pbar) pbar.style.width = "100%";
                     if (badge && badge.textContent !== "COMPLETED" && badge.textContent !== "FAILED") {
-                        badge.textContent = failureCount > 0 ? "FAILED" : "TIMEOUT";
-                        badge.style.background = failureCount > 0 ? "#dc2626" : "#eab308";
-                        badge.style.color = failureCount > 0 ? "#ffffff" : "#000000";
+                        setBadgeState(badge, failureCount > 0 ? "FAILED" : "TIMEOUT", failureCount > 0 ? "diag-badge-error" : "diag-badge-warn");
                     }
                     if (stStatus && stStatus.textContent !== "Audit Completed Successfully.") {
                         stStatus.textContent = failureCount > 0
