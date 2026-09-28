@@ -30,12 +30,15 @@
 </head>
 <body>
     <script>
-        window.openLinktree = function() {
-            var url = "https://linktr.ee/Veldra.Works";
-            if (window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
-                window.RuntimePackVPad.openUrl(url);
+        function openCommunityLink() {
+            if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openCommunityLink === "function") {
+                window.RuntimePackVPad.openCommunityLink();
+            } else if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openUrl === "function") {
+                window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works");
             }
-        };
+        }
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
     </script>
     <script src="theme_loader.js"></script>
     <script src="cheat_engine.js"></script>

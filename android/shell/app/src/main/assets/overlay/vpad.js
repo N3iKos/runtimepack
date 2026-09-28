@@ -504,28 +504,39 @@
         }
     }
 
-    function openLinktree() {
-        const url = "https://linktr.ee/Veldra.Works";
-        try {
-            if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
-                window.RuntimePackVPad.openUrl(url);
-            } else if (typeof window !== "undefined" && window.cordova && window.cordova.InAppBrowser) {
-                window.cordova.InAppBrowser.open(url, "_system");
-            } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
-                navigator.app.loadUrl(url, { openExternal: true });
-            } else if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_system");
-            } else if (typeof require === "function") {
-                const nw = require("nw.gui");
-                if (nw && nw.Shell) nw.Shell.openExternal(url);
-            } else if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_blank");
-            }
-        } catch (e) {
-            if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_blank");
+    function openCommunityLink() {
+        if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openCommunityLink === "function") {
+            window.RuntimePackVPad.openCommunityLink();
+        } else if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openUrl === "function") {
+            window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works");
+        } else {
+            const url = "https://linktr.ee/Veldra.Works";
+            try {
+                if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
+                    window.RuntimePackVPad.openUrl(url);
+                } else if (typeof window !== "undefined" && window.cordova && window.cordova.InAppBrowser) {
+                    window.cordova.InAppBrowser.open(url, "_system");
+                } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
+                    navigator.app.loadUrl(url, { openExternal: true });
+                } else if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_system");
+                } else if (typeof require === "function") {
+                    const nw = require("nw.gui");
+                    if (nw && nw.Shell) nw.Shell.openExternal(url);
+                } else if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_blank");
+                }
+            } catch (e) {
+                if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_blank");
+                }
             }
         }
+    }
+    const openLinktree = openCommunityLink;
+    if (typeof window !== "undefined") {
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
     }
 
     let collapseGuardTimestamp = 0;
@@ -1838,10 +1849,11 @@
             exitEditMode();
         });
 
-        // Community Linktree
-        window.openLinktree = openLinktree;
+        // Community Link
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
         if (linkBtn) {
-            bindTap(linkBtn, window.openLinktree);
+            bindTap(linkBtn, window.openCommunityLink);
         }
 
         // Cheat Menu
@@ -3262,7 +3274,8 @@
     if (typeof window !== "undefined") {
         window.pressKey = pressKey;
         window.releaseKey = releaseKey;
-        window.openLinktree = openLinktree;
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
         window.vpadSwitchPreset = switchPreset;
         window.shouldIgnoreTouchForFeedback = shouldIgnoreTouchForFeedback;
         window.getTrailCanvas = getTrailCanvas;
@@ -3286,6 +3299,7 @@
             pressKey,
             releaseKey,
             openLinktree,
+            openCommunityLink,
             setupDirectManipulation,
             setupDpadTouch,
             shouldIgnoreTouchForFeedback,

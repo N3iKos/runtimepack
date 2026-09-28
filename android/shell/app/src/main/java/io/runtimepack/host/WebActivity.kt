@@ -602,110 +602,119 @@ open class WebActivity : Activity() {
             }
         }
 
-        wv.addJavascriptInterface(object : Any() {
-            @JavascriptInterface
-            fun onKeyDown(jsKeyCode: Int) {
-                this@WebActivity.dispatchKeyToGame(jsKeyCode, "keydown")
-            }
-
-            @JavascriptInterface
-            fun onKeyUp(jsKeyCode: Int) {
-                this@WebActivity.dispatchKeyToGame(jsKeyCode, "keyup")
-            }
-
-            @JavascriptInterface
-            fun openUrl(url: String) {
-                this@WebActivity.openUrl(url)
-            }
-
-            @JavascriptInterface
-            fun postCheatCmd(jsonCmd: String): Boolean {
-                return this@WebActivity.postCheatCmd(jsonCmd)
-            }
-
-            @JavascriptInterface
-            fun getCheatState(): String {
-                return this@WebActivity.getCheatState()
-            }
-
-            @JavascriptInterface
-            fun getEvalResult(): String {
-                return this@WebActivity.getEvalResult()
-            }
-
-            @JavascriptInterface
-            fun setOverlayTextFocused(focused: Boolean) {
-                this@WebActivity.overlayTextFocused = focused
-            }
-
-            @JavascriptInterface
-            fun setGamepadHidden(hidden: Boolean) {
-                this@WebActivity.isGamepadHidden = hidden
-                if (hidden) {
-                    runOnUiThread { gameWebView?.requestFocus() }
-                }
-            }
-
-            @JavascriptInterface
-            fun updateControlHitboxes(json: String) {
-                this@WebActivity.activeControlHitboxes = parseControlHitboxes(json)
-            }
-
-            @JavascriptInterface
-            fun setOverlayModalOpen(open: Boolean) {
-                this@WebActivity.isOverlayModalOpen = open
-                if (open) {
-                    isTouchCapturedByGame = false
-                }
-                if (!open) {
-                    runOnUiThread { gameWebView?.requestFocus() }
-                }
-            }
-
-            @JavascriptInterface
-            fun getAuditProgress(): String {
-                return this@WebActivity.getAuditProgress()
-            }
-
-            @JavascriptInterface
-            fun getAuditEvents(afterSeq: Long): String {
-                return this@WebActivity.getAuditEvents(afterSeq)
-            }
-
-            @JavascriptInterface
-            fun getAuditReport(): String {
-                return this@WebActivity.getAuditReport()
-            }
-
-            @JavascriptInterface
-            fun postAuditEvent(eventJson: String): Boolean {
-                return this@WebActivity.postAuditEvent(eventJson)
-            }
-
-            @JavascriptInterface
-            fun cancelAudit(): Boolean {
-                return this@WebActivity.cancelAudit()
-            }
-
-            @JavascriptInterface
-            fun startAudit(requestJson: String): String {
-                return this@WebActivity.startAudit(requestJson)
-            }
-
-            @JavascriptInterface
-            fun getCombinedSummary(): String {
-                return this@WebActivity.getCombinedSummary()
-            }
-
-            @JavascriptInterface
-            fun shareBugReport(jsonContent: String) {
-                this@WebActivity.shareBugReport(jsonContent)
-            }
-        }, "RuntimePackVPad")
+        wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
 
         wv.loadUrl("file:///android_asset/overlay/index.html")
         overlayWebView = wv
     }
+
+    inner class VPadBridge {
+        @JavascriptInterface
+        fun onKeyDown(jsKeyCode: Int) {
+            this@WebActivity.dispatchKeyToGame(jsKeyCode, "keydown")
+        }
+
+        @JavascriptInterface
+        fun onKeyUp(jsKeyCode: Int) {
+            this@WebActivity.dispatchKeyToGame(jsKeyCode, "keyup")
+        }
+
+        @JavascriptInterface
+        fun openUrl(url: String) {
+            this@WebActivity.openUrl(url)
+        }
+
+        @JavascriptInterface
+        fun openCommunityLink() {
+            this@WebActivity.openCommunityLink()
+        }
+
+        @JavascriptInterface
+        fun postCheatCmd(jsonCmd: String): Boolean {
+            return this@WebActivity.postCheatCmd(jsonCmd)
+        }
+
+        @JavascriptInterface
+        fun getCheatState(): String {
+            return this@WebActivity.getCheatState()
+        }
+
+        @JavascriptInterface
+        fun getEvalResult(): String {
+            return this@WebActivity.getEvalResult()
+        }
+
+        @JavascriptInterface
+        fun setOverlayTextFocused(focused: Boolean) {
+            this@WebActivity.overlayTextFocused = focused
+        }
+
+        @JavascriptInterface
+        fun setGamepadHidden(hidden: Boolean) {
+            this@WebActivity.isGamepadHidden = hidden
+            if (hidden) {
+                runOnUiThread { gameWebView?.requestFocus() }
+            }
+        }
+
+        @JavascriptInterface
+        fun updateControlHitboxes(json: String) {
+            this@WebActivity.activeControlHitboxes = parseControlHitboxes(json)
+        }
+
+        @JavascriptInterface
+        fun setOverlayModalOpen(open: Boolean) {
+            this@WebActivity.isOverlayModalOpen = open
+            if (open) {
+                isTouchCapturedByGame = false
+            }
+            if (!open) {
+                runOnUiThread { gameWebView?.requestFocus() }
+            }
+        }
+
+        @JavascriptInterface
+        fun getAuditProgress(): String {
+            return this@WebActivity.getAuditProgress()
+        }
+
+        @JavascriptInterface
+        fun getAuditEvents(afterSeq: Long): String {
+            return this@WebActivity.getAuditEvents(afterSeq)
+        }
+
+        @JavascriptInterface
+        fun getAuditReport(): String {
+            return this@WebActivity.getAuditReport()
+        }
+
+        @JavascriptInterface
+        fun postAuditEvent(eventJson: String): Boolean {
+            return this@WebActivity.postAuditEvent(eventJson)
+        }
+
+        @JavascriptInterface
+        fun cancelAudit(): Boolean {
+            return this@WebActivity.cancelAudit()
+        }
+
+        @JavascriptInterface
+        fun startAudit(requestJson: String): String {
+            return this@WebActivity.startAudit(requestJson)
+        }
+
+        @JavascriptInterface
+        fun getCombinedSummary(): String {
+            return this@WebActivity.getCombinedSummary()
+        }
+
+        @JavascriptInterface
+        fun shareBugReport(jsonContent: String) {
+            this@WebActivity.shareBugReport(jsonContent)
+        }
+    }
+
+    fun createVPadBridge(): VPadBridge = VPadBridge()
 
     fun loadWebShims() {
         if (webShimsScript.isNotEmpty()) return
@@ -859,6 +868,11 @@ open class WebActivity : Activity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open URL $url: ${e.message}", e)
         }
+    }
+
+    @JavascriptInterface
+    open fun openCommunityLink() {
+        openUrl("https://linktr.ee/Veldra.Works")
     }
 
     open fun postCheatCmd(jsonCmd: String): Boolean {

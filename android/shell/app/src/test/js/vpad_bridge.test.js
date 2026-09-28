@@ -13,6 +13,7 @@ console.log("Running Virtual Gamepad Native Bridge & Community Link Tests...");
 const keyDownCalls = [];
 const keyUpCalls = [];
 const openUrlCalls = [];
+const openCommunityLinkCalls = [];
 const textFocusCalls = [];
 
 const mockRuntimePackVPad = {
@@ -24,6 +25,9 @@ const mockRuntimePackVPad = {
     },
     openUrl: (url) => {
         openUrlCalls.push(url);
+    },
+    openCommunityLink: () => {
+        openCommunityLinkCalls.push(true);
     },
     setOverlayTextFocused: (focused) => {
         textFocusCalls.push(focused);
@@ -74,6 +78,7 @@ const {
     pressKey,
     releaseKey,
     openLinktree,
+    openCommunityLink,
     setupDirectManipulation,
     setupDpadTouch,
     shouldIgnoreTouchForFeedback,
@@ -122,21 +127,54 @@ assert.strictEqual(keyUpCalls.length, 1, "Expected window.releaseKey to invoke R
 assert.strictEqual(keyUpCalls[0], 90, "Expected keyCode 90");
 console.log("✔ window.releaseKey(90) calls window.RuntimePackVPad.onKeyUp(90)");
 
-// Test 3: openLinktree() -> window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works")
+// Test 3: openCommunityLink() and openLinktree() -> window.RuntimePackVPad.openCommunityLink()
+openCommunityLinkCalls.length = 0;
 openUrlCalls.length = 0;
-openLinktree();
-assert.strictEqual(openUrlCalls.length, 1, "Expected RuntimePackVPad.openUrl to be called exactly once");
-assert.strictEqual(openUrlCalls[0], "https://linktr.ee/Veldra.Works", "Expected openUrl to target https://linktr.ee/Veldra.Works");
-console.log("✔ openLinktree() calls window.RuntimePackVPad.openUrl(\"https://linktr.ee/Veldra.Works\")");
+openCommunityLink();
+assert.strictEqual(openCommunityLinkCalls.length, 1, "Expected RuntimePackVPad.openCommunityLink to be called exactly once");
+assert.strictEqual(openUrlCalls.length, 0, "openUrl should not be called when openCommunityLink is available");
+console.log("✔ openCommunityLink() calls window.RuntimePackVPad.openCommunityLink()");
 
-// Test 3b: window.openLinktree()
+// Test 3b: window.openCommunityLink()
+openCommunityLinkCalls.length = 0;
+window.openCommunityLink();
+assert.strictEqual(openCommunityLinkCalls.length, 1, "Expected window.openCommunityLink to call RuntimePackVPad.openCommunityLink");
+console.log("✔ window.openCommunityLink() calls window.RuntimePackVPad.openCommunityLink()");
+
+// Test 3c: window.openLinktree() backward compatibility alias
+openCommunityLinkCalls.length = 0;
+window.openLinktree();
+assert.strictEqual(openCommunityLinkCalls.length, 1, "Expected window.openLinktree to call RuntimePackVPad.openCommunityLink");
+console.log("✔ window.openLinktree() calls window.RuntimePackVPad.openCommunityLink()");
+
+// Test 3d: openLinktree() export backward compatibility
+openCommunityLinkCalls.length = 0;
+openLinktree();
+assert.strictEqual(openCommunityLinkCalls.length, 1, "Expected openLinktree() export to call RuntimePackVPad.openCommunityLink");
+console.log("✔ openLinktree() export calls window.RuntimePackVPad.openCommunityLink()");
+
+// Test 3e: Graceful fallback to openUrl when openCommunityLink is absent on RuntimePackVPad
+const savedOpenCommunityLink = mockRuntimePackVPad.openCommunityLink;
+delete mockRuntimePackVPad.openCommunityLink;
+openUrlCalls.length = 0;
+openCommunityLink();
+assert.strictEqual(openUrlCalls.length, 1, "Expected fallback to openUrl when openCommunityLink is absent");
+assert.strictEqual(openUrlCalls[0], "https://linktr.ee/Veldra.Works", "Expected fallback URL to target https://linktr.ee/Veldra.Works");
+
+openUrlCalls.length = 0;
+window.openCommunityLink();
+assert.strictEqual(openUrlCalls.length, 1, "Expected window.openCommunityLink fallback to openUrl");
+assert.strictEqual(openUrlCalls[0], "https://linktr.ee/Veldra.Works");
+
 openUrlCalls.length = 0;
 window.openLinktree();
-assert.strictEqual(openUrlCalls.length, 1, "Expected window.openLinktree to call RuntimePackVPad.openUrl");
-assert.strictEqual(openUrlCalls[0], "https://linktr.ee/Veldra.Works", "Expected URL to be https://linktr.ee/Veldra.Works");
-console.log("✔ window.openLinktree() calls window.RuntimePackVPad.openUrl(\"https://linktr.ee/Veldra.Works\")");
+assert.strictEqual(openUrlCalls.length, 1, "Expected window.openLinktree fallback to openUrl");
+assert.strictEqual(openUrlCalls[0], "https://linktr.ee/Veldra.Works");
 
-// Test 4: Verify index.html openLinktree() implementation
+mockRuntimePackVPad.openCommunityLink = savedOpenCommunityLink;
+console.log("✔ Graceful fallback to window.RuntimePackVPad.openUrl(\"https://linktr.ee/Veldra.Works\") when openCommunityLink is missing");
+
+// Test 4: Verify index.html openCommunityLink() and openLinktree() implementation
 const indexHtmlPath = path.resolve(__dirname, "../../main/assets/overlay/index.html");
 const indexHtmlContent = fs.readFileSync(indexHtmlPath, "utf-8");
 
@@ -144,6 +182,10 @@ const indexHtmlContent = fs.readFileSync(indexHtmlPath, "utf-8");
 assert(
     indexHtmlContent.includes("https://linktr.ee/Veldra.Works"),
     "index.html must contain linktr.ee/Veldra.Works URL"
+);
+assert(
+    indexHtmlContent.includes("openCommunityLink"),
+    "index.html must define openCommunityLink"
 );
 assert(
     !indexHtmlContent.includes("https://github.com/anomalyco/antigravity"),
@@ -154,14 +196,17 @@ assert(
 const scriptMatches = indexHtmlContent.match(/<script>([\s\S]*?)<\/script>/);
 assert(scriptMatches && scriptMatches[1], "index.html must contain an inline <script> block");
 
-const htmlOpenUrlCalls = [];
+const htmlNativeCalls = { openCommunityLink: 0, openUrl: [] };
 const htmlSandbox = {
     window: {
         RuntimePackVPad: {
             onKeyDown: () => {},
             onKeyUp: () => {},
+            openCommunityLink: () => {
+                htmlNativeCalls.openCommunityLink++;
+            },
             openUrl: (url) => {
-                htmlOpenUrlCalls.push(url);
+                htmlNativeCalls.openUrl.push(url);
             }
         },
         addEventListener: () => {}
@@ -170,17 +215,38 @@ const htmlSandbox = {
 vm.createContext(htmlSandbox);
 vm.runInContext(scriptMatches[1], htmlSandbox);
 
-assert(typeof htmlSandbox.window.openLinktree === "function", "index.html must define window.openLinktree");
+assert(typeof htmlSandbox.window.openCommunityLink === "function", "index.html must define window.openCommunityLink");
+assert(typeof htmlSandbox.window.openLinktree === "function", "index.html must define window.openLinktree alias");
+
+// 4a. Call openCommunityLink on index.html with native openCommunityLink present
+htmlNativeCalls.openCommunityLink = 0;
+htmlSandbox.window.openCommunityLink();
+assert.strictEqual(htmlNativeCalls.openCommunityLink, 1, "index.html window.openCommunityLink should invoke native openCommunityLink");
+
+// 4b. Call openLinktree alias on index.html with native openCommunityLink present
+htmlNativeCalls.openCommunityLink = 0;
 htmlSandbox.window.openLinktree();
-assert.strictEqual(htmlOpenUrlCalls.length, 1, "index.html window.openLinktree should call openUrl once");
-assert.strictEqual(htmlOpenUrlCalls[0], "https://linktr.ee/Veldra.Works", "index.html window.openLinktree must call openUrl with https://linktr.ee/Veldra.Works");
-console.log("✔ index.html openLinktree() calls window.RuntimePackVPad.openUrl(\"https://linktr.ee/Veldra.Works\")");
+assert.strictEqual(htmlNativeCalls.openCommunityLink, 1, "index.html window.openLinktree alias should invoke native openCommunityLink");
+
+// 4c. Fallback in index.html when native openCommunityLink is absent
+delete htmlSandbox.window.RuntimePackVPad.openCommunityLink;
+htmlNativeCalls.openUrl.length = 0;
+htmlSandbox.window.openCommunityLink();
+assert.strictEqual(htmlNativeCalls.openUrl.length, 1, "index.html should fallback to openUrl when openCommunityLink is absent");
+assert.strictEqual(htmlNativeCalls.openUrl[0], "https://linktr.ee/Veldra.Works", "index.html fallback must target https://linktr.ee/Veldra.Works");
+
+htmlNativeCalls.openUrl.length = 0;
+htmlSandbox.window.openLinktree();
+assert.strictEqual(htmlNativeCalls.openUrl.length, 1, "index.html openLinktree alias should fallback to openUrl");
+assert.strictEqual(htmlNativeCalls.openUrl[0], "https://linktr.ee/Veldra.Works");
+console.log("✔ index.html openCommunityLink() and openLinktree() call native openCommunityLink() with openUrl fallback");
 
 // Test 5: Graceful degradation when window.RuntimePackVPad is absent
 global.window.RuntimePackVPad = null;
 assert.doesNotThrow(() => {
     pressKey(90);
     releaseKey(90);
+    openCommunityLink();
     openLinktree();
 }, "Bridge methods must not throw when window.RuntimePackVPad is null or undefined");
 console.log("✔ Graceful degradation when window.RuntimePackVPad is absent");

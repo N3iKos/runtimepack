@@ -506,98 +506,7 @@ open class RgssActivity : SDLActivity() {
             settings.allowContentAccess = true
 
             // VPad Bridge
-            wv.addJavascriptInterface(object : Any() {
-                @JavascriptInterface
-                fun onKeyDown(jsKeyCode: Int) {
-                    this@RgssActivity.onKeyDown(jsKeyCode)
-                }
-
-                @JavascriptInterface
-                fun onKeyUp(jsKeyCode: Int) {
-                    this@RgssActivity.onKeyUp(jsKeyCode)
-                }
-
-                @JavascriptInterface
-                fun openUrl(url: String) {
-                    this@RgssActivity.openUrl(url)
-                }
-
-                @JavascriptInterface
-                fun postCheatCmd(jsonCmd: String): Boolean {
-                    return this@RgssActivity.postCheatCmd(jsonCmd)
-                }
-
-                @JavascriptInterface
-                fun getCheatState(): String {
-                    return this@RgssActivity.getCheatState()
-                }
-
-                @JavascriptInterface
-                fun getEvalResult(): String {
-                    return this@RgssActivity.getEvalResult()
-                }
-
-                @JavascriptInterface
-                fun setOverlayTextFocused(focused: Boolean) {
-                    this@RgssActivity.overlayTextFocused = focused
-                }
-
-                @JavascriptInterface
-                fun setGamepadHidden(hidden: Boolean) {
-                    this@RgssActivity.isGamepadHidden = hidden
-                    if (hidden) {
-                        runOnUiThread { mSurface?.requestFocus() }
-                    }
-                }
-
-                @JavascriptInterface
-                fun setOverlayModalOpen(open: Boolean) {
-                    this@RgssActivity.isOverlayModalOpen = open
-                    if (!open) {
-                        runOnUiThread { mSurface?.requestFocus() }
-                    }
-                }
-
-                @JavascriptInterface
-                fun getAuditProgress(): String {
-                    return this@RgssActivity.getAuditProgress()
-                }
-
-                @JavascriptInterface
-                fun getAuditEvents(afterSeq: Long): String {
-                    return this@RgssActivity.getAuditEvents(afterSeq)
-                }
-
-                @JavascriptInterface
-                fun getAuditReport(): String {
-                    return this@RgssActivity.getAuditReport()
-                }
-
-                @JavascriptInterface
-                fun postAuditEvent(eventJson: String): Boolean {
-                    return this@RgssActivity.postAuditEvent(eventJson)
-                }
-
-                @JavascriptInterface
-                fun cancelAudit(): Boolean {
-                    return this@RgssActivity.cancelAudit()
-                }
-
-                @JavascriptInterface
-                fun startAudit(requestJson: String): String {
-                    return this@RgssActivity.startAudit(requestJson)
-                }
-
-                @JavascriptInterface
-                fun getCombinedSummary(): String {
-                    return this@RgssActivity.getCombinedSummary()
-                }
-
-                @JavascriptInterface
-                fun shareBugReport(jsonContent: String) {
-                    this@RgssActivity.shareBugReport(jsonContent)
-                }
-            }, "RuntimePackVPad")
+            wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
 
             wv.webViewClient = object : android.webkit.WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -900,6 +809,111 @@ open class RgssActivity : SDLActivity() {
             Log.w(TAG, "Failed to open URL: $url", e)
         }
     }
+
+    @JavascriptInterface
+    open fun openCommunityLink() {
+        openUrl("https://linktr.ee/Veldra.Works")
+    }
+
+    inner class VPadBridge {
+        @JavascriptInterface
+        fun onKeyDown(jsKeyCode: Int) {
+            this@RgssActivity.onKeyDown(jsKeyCode)
+        }
+
+        @JavascriptInterface
+        fun onKeyUp(jsKeyCode: Int) {
+            this@RgssActivity.onKeyUp(jsKeyCode)
+        }
+
+        @JavascriptInterface
+        fun openUrl(url: String) {
+            this@RgssActivity.openUrl(url)
+        }
+
+        @JavascriptInterface
+        fun openCommunityLink() {
+            this@RgssActivity.openCommunityLink()
+        }
+
+        @JavascriptInterface
+        fun postCheatCmd(jsonCmd: String): Boolean {
+            return this@RgssActivity.postCheatCmd(jsonCmd)
+        }
+
+        @JavascriptInterface
+        fun getCheatState(): String {
+            return this@RgssActivity.getCheatState()
+        }
+
+        @JavascriptInterface
+        fun getEvalResult(): String {
+            return this@RgssActivity.getEvalResult()
+        }
+
+        @JavascriptInterface
+        fun setOverlayTextFocused(focused: Boolean) {
+            this@RgssActivity.overlayTextFocused = focused
+        }
+
+        @JavascriptInterface
+        fun setGamepadHidden(hidden: Boolean) {
+            this@RgssActivity.isGamepadHidden = hidden
+            if (hidden) {
+                runOnUiThread { mSurface?.requestFocus() }
+            }
+        }
+
+        @JavascriptInterface
+        fun setOverlayModalOpen(open: Boolean) {
+            this@RgssActivity.isOverlayModalOpen = open
+            if (!open) {
+                runOnUiThread { mSurface?.requestFocus() }
+            }
+        }
+
+        @JavascriptInterface
+        fun getAuditProgress(): String {
+            return this@RgssActivity.getAuditProgress()
+        }
+
+        @JavascriptInterface
+        fun getAuditEvents(afterSeq: Long): String {
+            return this@RgssActivity.getAuditEvents(afterSeq)
+        }
+
+        @JavascriptInterface
+        fun getAuditReport(): String {
+            return this@RgssActivity.getAuditReport()
+        }
+
+        @JavascriptInterface
+        fun postAuditEvent(eventJson: String): Boolean {
+            return this@RgssActivity.postAuditEvent(eventJson)
+        }
+
+        @JavascriptInterface
+        fun cancelAudit(): Boolean {
+            return this@RgssActivity.cancelAudit()
+        }
+
+        @JavascriptInterface
+        fun startAudit(requestJson: String): String {
+            return this@RgssActivity.startAudit(requestJson)
+        }
+
+        @JavascriptInterface
+        fun getCombinedSummary(): String {
+            return this@RgssActivity.getCombinedSummary()
+        }
+
+        @JavascriptInterface
+        fun shareBugReport(jsonContent: String) {
+            this@RgssActivity.shareBugReport(jsonContent)
+        }
+    }
+
+    fun createVPadBridge(): VPadBridge = VPadBridge()
 
     private fun mapJsToAndroidKey(jsKey: Int): Int {
         val (androidKeys, _) = mapJsKey(jsKey)

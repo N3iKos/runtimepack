@@ -1,9 +1,11 @@
 package io.runtimepack.host
 
 import android.view.KeyEvent
+import android.webkit.JavascriptInterface
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -721,5 +723,67 @@ class KeyMappingTest {
             isGamepadHidden = false, isOverlayModalOpen = false, wasCapturedByGame = toolbarDownCaptured
         )
         assertFalse("Toolbar gesture MOVE maintains overlay capture even when moving into canvas", toolbarMoveCaptured)
+    }
+
+    private class TestWebActivity : WebActivity() {
+        var lastOpenedUrl: String? = null
+        override fun openUrl(url: String) {
+            lastOpenedUrl = url
+        }
+    }
+
+    private class TestRgssActivity : RgssActivity() {
+        var lastOpenedUrl: String? = null
+        override fun openUrl(url: String) {
+            lastOpenedUrl = url
+        }
+    }
+
+    @Test
+    fun testWebActivityOpenCommunityLinkBridge() {
+        val activity = TestWebActivity()
+        val bridge = activity.createVPadBridge()
+
+        // 1. Verify openCommunityLink method exists on WebActivity
+        val activityMethod = activity.javaClass.getMethod("openCommunityLink")
+        assertNotNull(activityMethod)
+        assertTrue(activityMethod.isAnnotationPresent(JavascriptInterface::class.java))
+
+        // 2. Call directly on activity
+        activity.openCommunityLink()
+        assertEquals("https://linktr.ee/Veldra.Works", activity.lastOpenedUrl)
+
+        // 3. Reset and call via JavascriptInterface bridge
+        activity.lastOpenedUrl = null
+        val bridgeMethod = bridge.javaClass.getMethod("openCommunityLink")
+        assertNotNull(bridgeMethod)
+        assertTrue(bridgeMethod.isAnnotationPresent(JavascriptInterface::class.java))
+
+        bridge.openCommunityLink()
+        assertEquals("https://linktr.ee/Veldra.Works", activity.lastOpenedUrl)
+    }
+
+    @Test
+    fun testRgssActivityOpenCommunityLinkBridge() {
+        val activity = TestRgssActivity()
+        val bridge = activity.createVPadBridge()
+
+        // 1. Verify openCommunityLink method exists on RgssActivity
+        val activityMethod = activity.javaClass.getMethod("openCommunityLink")
+        assertNotNull(activityMethod)
+        assertTrue(activityMethod.isAnnotationPresent(JavascriptInterface::class.java))
+
+        // 2. Call directly on activity
+        activity.openCommunityLink()
+        assertEquals("https://linktr.ee/Veldra.Works", activity.lastOpenedUrl)
+
+        // 3. Reset and call via JavascriptInterface bridge
+        activity.lastOpenedUrl = null
+        val bridgeMethod = bridge.javaClass.getMethod("openCommunityLink")
+        assertNotNull(bridgeMethod)
+        assertTrue(bridgeMethod.isAnnotationPresent(JavascriptInterface::class.java))
+
+        bridge.openCommunityLink()
+        assertEquals("https://linktr.ee/Veldra.Works", activity.lastOpenedUrl)
     }
 }

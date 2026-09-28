@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
+import android.webkit.JavascriptInterface
 import org.libsdl.app.SDLActivity
 import org.renpy.android.PythonSDLActivity
 import java.io.File
@@ -124,6 +125,11 @@ open class RenpyActivity : PythonSDLActivity() {
         if (isContentMounted(gameRoot(filesDir))) {
             resumeNativeThread()
         }
+    }
+
+    @JavascriptInterface
+    open fun openCommunityLink() {
+        openUrl("https://linktr.ee/Veldra.Works")
     }
 
     fun preparePython() {
