@@ -1087,12 +1087,16 @@
 
     function shouldIgnoreTouchForFeedback(target) {
         if (!target) return false;
+        // If target is the full-screen empty controls container or overlay background, DO NOT ignore!
+        if (target.id === "vpad-controls" || target.id === "vpad-root" || target.id === "vpad-touch-ripple-layer" || target.id === "vpad-trail-canvas" || target.tagName === "BODY" || target.tagName === "HTML") {
+            return false;
+        }
         if (typeof target.closest === "function") {
             return !!(
                 target.closest(".vpad-control-item") ||
-                target.closest("#vpad-controls") ||
                 target.closest(".vpad-btn") ||
                 target.closest(".vpad-top-btn") ||
+                target.closest("#vpad-main-trigger-btn") ||
                 target.closest(".vpad-dpad-container") ||
                 target.closest(".vpad-joystick-container") ||
                 target.closest("#vpad-topbar") ||
@@ -1107,11 +1111,12 @@
         }
         let cur = target;
         while (cur) {
+            if (cur.id === "vpad-controls" || cur.id === "vpad-root" || cur.id === "vpad-touch-ripple-layer" || cur.id === "vpad-trail-canvas") return false;
             if (typeof cur.matches === "function" && (
                 cur.matches(".vpad-control-item") ||
-                cur.matches("#vpad-controls") ||
                 cur.matches(".vpad-btn") ||
                 cur.matches(".vpad-top-btn") ||
+                cur.matches("#vpad-main-trigger-btn") ||
                 cur.matches(".vpad-dpad-container") ||
                 cur.matches(".vpad-joystick-container") ||
                 cur.matches("#vpad-topbar") ||
@@ -2067,6 +2072,8 @@
 
         resizeTrailCanvas();
         renderControls();
+        setTimeout(reportControlHitboxes, 250);
+        setTimeout(reportControlHitboxes, 1000);
     }
 
     function enterEditMode() {
@@ -2452,12 +2459,18 @@
             typeof window.RuntimePackVPad.updateControlHitboxes !== "function") return;
         try {
             const rects = [];
+            const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
             const controlsEl = document.getElementById("vpad-controls");
             if (controlsEl && !controlsEl.classList.contains("vpad-hidden")) {
                 controlsEl.querySelectorAll(".vpad-control-item").forEach(el => {
                     const r = el.getBoundingClientRect();
                     if (r.width <= 0 || r.height <= 0) return;
-                    rects.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+                    rects.push({
+                        left: r.left * dpr,
+                        top: r.top * dpr,
+                        right: r.right * dpr,
+                        bottom: r.bottom * dpr
+                    });
                 });
             }
             window.RuntimePackVPad.updateControlHitboxes(JSON.stringify(rects));

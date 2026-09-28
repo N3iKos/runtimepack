@@ -35,8 +35,22 @@ open class WebActivity : Activity() {
         private val HITBOX_OBJECT_RE = Regex("\\{[^{}]*\\}")
 
         data class ControlHitbox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
-            fun containsWithMargin(x: Float, y: Float, margin: Float): Boolean {
-                return x >= left - margin && x <= right + margin && y >= top - margin && y <= bottom + margin
+            fun containsWithMargin(x: Float, y: Float, margin: Float, density: Float = 1.0f): Boolean {
+                // 1. Direct physical coordinate match (if hitboxes were reported scaled by dpr)
+                if (x in (left - margin)..(right + margin) && y in (top - margin)..(bottom + margin)) {
+                    return true
+                }
+                // 2. CSS-to-physical scaled match fallback (if hitboxes were reported in raw CSS pixels)
+                if (density > 1.05f) {
+                    val dLeft = left * density - margin
+                    val dRight = right * density + margin
+                    val dTop = top * density - margin
+                    val dBottom = bottom * density + margin
+                    if (x in dLeft..dRight && y in dTop..dBottom) {
+                        return true
+                    }
+                }
+                return false
             }
         }
 
@@ -127,7 +141,7 @@ open class WebActivity : Activity() {
             //    everything else falls through to the game canvas.
             if (controlHitboxes.isNotEmpty()) {
                 val margin = 12f * density
-                return controlHitboxes.any { it.containsWithMargin(x, y, margin) }
+                return controlHitboxes.any { it.containsWithMargin(x, y, margin, density) }
             }
 
             // 1. D-Pad / Joystick zone (bottom-left) — legacy fallback before JS reports hitboxes.
@@ -797,9 +811,15 @@ open class WebActivity : Activity() {
         )
 
         if (isTouchCapturedByGame) {
+            val copy = MotionEvent.obtain(event)
             try {
                 gameWebView?.dispatchTouchEvent(event)
-            } catch (ignored: Exception) {
+            } finally {
+                try {
+                    overlayWebView?.dispatchTouchEvent(copy)
+                } finally {
+                    copy.recycle()
+                }
             }
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                 isTouchCapturedByGame = false

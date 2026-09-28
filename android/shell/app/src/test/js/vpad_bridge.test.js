@@ -417,7 +417,7 @@ const makeMockTarget = (matchedSelector) => ({
 
 assert.strictEqual(typeof shouldIgnoreTouchForFeedback, "function", "shouldIgnoreTouchForFeedback must be a function");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-control-item")), true, "must ignore .vpad-control-item");
-assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-controls")), true, "must ignore #vpad-controls");
+assert.strictEqual(shouldIgnoreTouchForFeedback({ id: "vpad-controls" }), false, "must NOT ignore #vpad-controls empty canvas layer");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-btn")), true, "must ignore .vpad-btn");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-top-btn")), true, "must ignore .vpad-top-btn");
 assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-dpad-container")), true, "must ignore .vpad-dpad-container");
