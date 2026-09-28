@@ -84,7 +84,14 @@ const {
     addTrailPoint,
     trailStrokes,
     activeFeedbackPointers,
-    setupTrailListeners
+    setupTrailListeners,
+    showTouchToast,
+    cycleFeedbackMode,
+    getFeedbackMode,
+    setFeedbackMode,
+    updateRippleBtnUI,
+    spawnTouchRipple,
+    SVG_ICONS
 } = require(vpadPath);
 
 // Test 1: pressKey(90) -> window.RuntimePackVPad.onKeyDown(90)
@@ -591,6 +598,196 @@ global.window.dispatchEvent("pointerup", { pointerId: 2 });
 clearTrailCanvas();
 assert.strictEqual(trailStrokes.size, 0, "clearTrailCanvas must wipe all active trail strokes");
 console.log("✔ Tap-only non-tail behavior, movement threshold, and stroke session isolation verified");
+
+// Test 14: 3-Mode Feedback Cycling Toggle, Icons, Toast Presentation, and Behavior Enforcement
+console.log("Running 3-Mode Feedback Toggle & Pill Toast Tests...");
+
+// 1. Verify CSS and Source template requirements
+assert(vpadCss.includes("#vpad-touch-toast"), "vpad.css must define #vpad-touch-toast");
+assert(vpadCss.includes("#vpad-touch-toast.show"), "vpad.css must define #vpad-touch-toast.show");
+assert(vpadSource.includes("gestureSweep"), "vpad.js must define gestureSweep icon");
+assert(vpadSource.includes("rippleOnly"), "vpad.js must define rippleOnly icon");
+assert(vpadSource.includes("rippleOff"), "vpad.js must define rippleOff icon");
+assert(vpadSource.includes("feedbackMode"), "vpad.js must manage feedbackMode in state");
+assert(vpadSource.includes("showTouchToast"), "vpad.js must define showTouchToast");
+
+// Verify SVG icons
+assert(SVG_ICONS.gestureSweep && SVG_ICONS.gestureSweep.includes("<svg"), "gestureSweep icon must be valid SVG");
+assert(SVG_ICONS.gestureSweep.includes("<circle") && SVG_ICONS.gestureSweep.includes("<path"), "gestureSweep must contain touch circle and swipe arcs");
+assert(SVG_ICONS.rippleOnly && SVG_ICONS.rippleOnly.includes("<circle"), "rippleOnly must be valid SVG with circles");
+assert(SVG_ICONS.rippleOff && SVG_ICONS.rippleOff.includes("<line"), "rippleOff must be valid SVG with diagonal slash");
+
+// Setup DOM mocks for button, toast, and ripple layer
+const mockClasses = (initial = []) => {
+    const set = new Set(initial);
+    return {
+        _set: set,
+        add(c) { set.add(c); },
+        remove(c) { set.delete(c); },
+        contains(c) { return set.has(c); }
+    };
+};
+
+const mockRippleBtn = {
+    id: "vpad-btn-ripple",
+    className: "vpad-top-btn active",
+    classList: mockClasses(["vpad-top-btn", "active"]),
+    title: "",
+    innerHTML: ""
+};
+
+const mockToast = {
+    id: "vpad-touch-toast",
+    className: "vpad-pill-toast",
+    classList: mockClasses(["vpad-pill-toast"]),
+    textContent: ""
+};
+
+const spawnedRipples = [];
+const mockRippleLayer = {
+    id: "vpad-touch-ripple-layer",
+    appendChild(child) {
+        spawnedRipples.push(child);
+    },
+    removeChild(child) {
+        const idx = spawnedRipples.indexOf(child);
+        if (idx >= 0) spawnedRipples.splice(idx, 1);
+    }
+};
+
+global.document.createElement = (tag) => {
+    return {
+        tagName: tag.toUpperCase(),
+        className: "",
+        style: {},
+        classList: mockClasses(),
+        parentNode: mockRippleLayer
+    };
+};
+
+global.document.getElementById = (id) => {
+    if (id === "vpad-btn-ripple") return mockRippleBtn;
+    if (id === "vpad-touch-toast") return mockToast;
+    if (id === "vpad-touch-ripple-layer") return mockRippleLayer;
+    if (id === "vpad-trail-canvas") return mockCanvas;
+    if (origGetElementById) return origGetElementById(id);
+    return null;
+};
+
+// 2. Initial state verification: mode "all"
+setFeedbackMode("all");
+assert.strictEqual(getFeedbackMode(), "all", "Default feedback mode must be 'all'");
+assert.strictEqual(mockRippleBtn.classList.contains("active"), true, "Mode 'all' must have class .active");
+assert.strictEqual(mockRippleBtn.innerHTML, SVG_ICONS.gestureSweep, "Mode 'all' must render gestureSweep SVG");
+assert.strictEqual(mockRippleBtn.title, "Touch Feedback: Ripple + Trail (All ON)");
+
+// 3. Cycle 1: "all" -> "ripple_only"
+const nextMode1 = cycleFeedbackMode();
+assert.strictEqual(nextMode1, "ripple_only", "First cycle must transition to 'ripple_only'");
+assert.strictEqual(getFeedbackMode(), "ripple_only");
+assert.strictEqual(mockRippleBtn.classList.contains("active"), true, "Mode 'ripple_only' must retain class .active");
+assert.strictEqual(mockRippleBtn.innerHTML, SVG_ICONS.rippleOnly, "Mode 'ripple_only' must render rippleOnly concentric circles SVG");
+assert.strictEqual(mockRippleBtn.title, "Touch Feedback: Ripple Only (Trail OFF)");
+assert.strictEqual(mockToast.textContent, "Touch Feedback: Ripple Only (Trail OFF)");
+assert.strictEqual(mockToast.classList.contains("show"), true, "Toast must have .show class on cycle");
+
+// 4. Cycle 2: "ripple_only" -> "off"
+const nextMode2 = cycleFeedbackMode();
+assert.strictEqual(nextMode2, "off", "Second cycle must transition to 'off'");
+assert.strictEqual(getFeedbackMode(), "off");
+assert.strictEqual(mockRippleBtn.classList.contains("active"), false, "Mode 'off' must remove class .active");
+assert.strictEqual(mockRippleBtn.innerHTML, SVG_ICONS.rippleOff, "Mode 'off' must render rippleOff circle with slash SVG");
+assert.strictEqual(mockRippleBtn.title, "Touch Feedback: OFF");
+assert.strictEqual(mockToast.textContent, "Touch Feedback: OFF");
+assert.strictEqual(mockToast.classList.contains("show"), true, "Toast must have .show class on cycle");
+
+// 5. Cycle 3: "off" -> "all"
+const nextMode3 = cycleFeedbackMode();
+assert.strictEqual(nextMode3, "all", "Third cycle must transition back to 'all'");
+assert.strictEqual(getFeedbackMode(), "all");
+assert.strictEqual(mockRippleBtn.classList.contains("active"), true, "Mode 'all' must have class .active");
+assert.strictEqual(mockRippleBtn.innerHTML, SVG_ICONS.gestureSweep, "Mode 'all' must render gestureSweep SVG");
+assert.strictEqual(mockRippleBtn.title, "Touch Feedback: Ripple + Trail (All ON)");
+assert.strictEqual(mockToast.textContent, "Touch Feedback: Ripple + Trail (All ON)");
+assert.strictEqual(mockToast.classList.contains("show"), true, "Toast must have .show class on cycle");
+
+// 6. Toast duration and timer resetting (1000ms)
+let scheduledTimeoutDelay = null;
+let scheduledTimeoutCb = null;
+const origSetTimeout = global.setTimeout;
+const origClearTimeout = global.clearTimeout;
+let clearTimeoutCalls = 0;
+
+global.clearTimeout = (t) => {
+    clearTimeoutCalls++;
+    origClearTimeout(t);
+};
+
+global.setTimeout = (cb, ms) => {
+    scheduledTimeoutDelay = ms;
+    scheduledTimeoutCb = cb;
+    return origSetTimeout(cb, ms);
+};
+
+showTouchToast("Testing Toast Duration");
+assert.strictEqual(mockToast.textContent, "Testing Toast Duration");
+assert.strictEqual(mockToast.classList.contains("show"), true);
+assert.strictEqual(scheduledTimeoutDelay, 1000, "Toast timer must be scheduled for exactly 1000ms");
+
+// Repeated call clears previous timer
+const prevClearCalls = clearTimeoutCalls;
+showTouchToast("Testing Toast Duration 2");
+assert(clearTimeoutCalls > prevClearCalls, "Repeated toast call must clear previous timer");
+assert.strictEqual(mockToast.textContent, "Testing Toast Duration 2");
+
+// Trigger timeout callback directly to verify class .show removal
+scheduledTimeoutCb();
+assert.strictEqual(mockToast.classList.contains("show"), false, "Toast must remove class .show after timeout");
+
+// Restore timers
+global.setTimeout = origSetTimeout;
+global.clearTimeout = origClearTimeout;
+
+// 7. Behavior enforcement:
+// Mode "all": both ripple on tap and trail on swipe >= 10px
+setFeedbackMode("all");
+spawnedRipples.length = 0;
+clearTrailCanvas();
+
+global.window.dispatchEvent("pointerdown", { pointerId: 50, clientX: 100, clientY: 100, target: {} });
+assert.strictEqual(spawnedRipples.length, 1, "Mode 'all' must spawn ripple on tap");
+global.window.dispatchEvent("pointermove", { pointerId: 50, clientX: 130, clientY: 130, target: {} });
+assert.strictEqual(trailStrokes.size, 1, "Mode 'all' must create trail points on swipe >= 10px");
+global.window.dispatchEvent("pointerup", { pointerId: 50 });
+clearTrailCanvas();
+
+// Mode "ripple_only": ripple on tap, trail disabled
+setFeedbackMode("ripple_only");
+spawnedRipples.length = 0;
+clearTrailCanvas();
+
+global.window.dispatchEvent("pointerdown", { pointerId: 60, clientX: 200, clientY: 200, target: {} });
+assert.strictEqual(spawnedRipples.length, 1, "Mode 'ripple_only' must spawn ripple on tap");
+global.window.dispatchEvent("pointermove", { pointerId: 60, clientX: 240, clientY: 240, target: {} });
+assert.strictEqual(trailStrokes.size, 0, "Mode 'ripple_only' must NOT create any trail points");
+global.window.dispatchEvent("pointerup", { pointerId: 60 });
+clearTrailCanvas();
+
+// Mode "off": neither ripple nor trail triggers
+setFeedbackMode("off");
+spawnedRipples.length = 0;
+clearTrailCanvas();
+
+global.window.dispatchEvent("pointerdown", { pointerId: 70, clientX: 300, clientY: 300, target: {} });
+assert.strictEqual(spawnedRipples.length, 0, "Mode 'off' must NOT spawn ripple on tap");
+global.window.dispatchEvent("pointermove", { pointerId: 70, clientX: 350, clientY: 350, target: {} });
+assert.strictEqual(trailStrokes.size, 0, "Mode 'off' must NOT create trail points");
+global.window.dispatchEvent("pointerup", { pointerId: 70 });
+clearTrailCanvas();
+
+// Reset mode to 'all' for clean exit
+setFeedbackMode("all");
+console.log("✔ 3-mode cycling, icon updates, toast presentation, and mode behavior enforcement verified");
 
 // Restore original document.getElementById
 global.document.getElementById = origGetElementById;

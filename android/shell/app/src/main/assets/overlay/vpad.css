@@ -246,6 +246,36 @@ html, body {
 }
 
 /* ============================================================================
+   1-Second Bottom Pill Toast (Touch Feedback Indicator)
+   ============================================================================ */
+#vpad-touch-toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--theme-bg-panel, rgba(15, 23, 42, 0.9));
+    border: var(--theme-border-panel, 1.5px solid rgba(255, 255, 255, 0.3));
+    border-radius: 9999px;
+    padding: 6px 18px;
+    color: var(--theme-text-primary, #ffffff);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    backdrop-filter: var(--theme-backdrop-filter, blur(16px));
+    -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(16px));
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100050;
+    transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#vpad-touch-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ============================================================================
    Controls Layer & Bidirectional Hide/Show Transition
    ============================================================================ */
 #vpad-controls {

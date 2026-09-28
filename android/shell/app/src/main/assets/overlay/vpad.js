@@ -314,6 +314,7 @@
     let state = {
         activePresetId: "preset1",
         activeThemeId: "matte",
+        feedbackMode: "all",
         touchRipple: true,
         hidden: false,
         panelPosition: { x: null, y: null },
@@ -342,7 +343,14 @@
                 if (parsed && parsed.profiles) {
                     state.activePresetId = (parsed.activePresetId && PRESET_TEMPLATES[parsed.activePresetId]) ? parsed.activePresetId : "preset1";
                     state.activeThemeId = (parsed.activeThemeId && THEMES[parsed.activeThemeId]) ? parsed.activeThemeId : "matte";
-                    state.touchRipple = (typeof parsed.touchRipple === "boolean") ? parsed.touchRipple : true;
+                    if (parsed.feedbackMode === "all" || parsed.feedbackMode === "ripple_only" || parsed.feedbackMode === "off") {
+                        state.feedbackMode = parsed.feedbackMode;
+                    } else if (typeof parsed.touchRipple === "boolean") {
+                        state.feedbackMode = parsed.touchRipple ? "all" : "off";
+                    } else {
+                        state.feedbackMode = "all";
+                    }
+                    state.touchRipple = (state.feedbackMode !== "off");
                     state.hidden = Boolean(parsed.hidden);
                     if (parsed.panelPosition && typeof parsed.panelPosition.x === "number") {
                         state.panelPosition = parsed.panelPosition;
@@ -729,6 +737,9 @@
         cheat: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
         link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
         gear: `<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        gestureSweep: `<svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M11 15c3.5-1.5 6.5-4.5 8.5-9.5"/><path d="M14 18c2.5-1 5-3 6.5-6.5"/></svg>`,
+        rippleOnly: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5"/></svg>`,
+        rippleOff: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
         ripple: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5"/></svg>`,
         diag: `<svg viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
     };
@@ -772,8 +783,8 @@
                     <div id="vpad-btn-diag" class="vpad-top-btn diag-interactive" title="Diagnostic Suite">
                         ${SVG_ICONS.diag}
                     </div>
-                    <div id="vpad-btn-ripple" class="vpad-top-btn" title="Touchscreen Ripple (On/Off)">
-                        ${SVG_ICONS.ripple}
+                    <div id="vpad-btn-ripple" class="vpad-top-btn active" title="Touch Feedback: Ripple + Trail (All ON)">
+                        ${SVG_ICONS.gestureSweep}
                     </div>
                 </div>
             </div>
@@ -813,6 +824,9 @@
             <div id="vpad-touch-ripple-layer">
                 <canvas id="vpad-trail-canvas"></canvas>
             </div>
+
+            <!-- 1-Second Bottom Pill Toast -->
+            <div id="vpad-touch-toast" class="vpad-pill-toast"></div>
 
             <!-- Gamepad Controls Layer -->
             <div id="vpad-controls"></div>
@@ -925,7 +939,7 @@
         document.body.appendChild(root);
 
         // Hoist floating editor panels directly into body so their stacking context is independent of gameplay buttons
-        ["vpad-editor-bar", "vpad-preset-popover", "vpad-theme-popover", "vpad-prop-panel", "vpad-key-modal"].forEach(id => {
+        ["vpad-editor-bar", "vpad-preset-popover", "vpad-theme-popover", "vpad-prop-panel", "vpad-key-modal", "vpad-touch-toast"].forEach(id => {
             const el = document.getElementById(id);
             if (el) document.body.appendChild(el);
         });
@@ -1313,6 +1327,7 @@
     }
 
     function addTrailPoint(strokeId, x, y) {
+        if (state.feedbackMode !== "all") return;
         const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
         let points = trailStrokes.get(strokeId);
         if (!points) {
@@ -1349,12 +1364,109 @@
         trailAnimationFrameId = null;
     }
 
+    // ------------------------------------------------------------------------
+    // Touch Feedback 3-State Toggle & Pill Toast Helper
+    // ------------------------------------------------------------------------
+    let touchToastTimer = null;
+    function showTouchToast(message) {
+        if (typeof document === "undefined") return null;
+        let toast = (typeof document.getElementById === "function") ?
+            document.getElementById("vpad-touch-toast") : null;
+        if (!toast && typeof document.createElement === "function") {
+            toast = document.createElement("div");
+            toast.id = "vpad-touch-toast";
+            toast.className = "vpad-pill-toast";
+            if (document.body && typeof document.body.appendChild === "function") {
+                document.body.appendChild(toast);
+            }
+        }
+        if (!toast) return null;
+        toast.textContent = message;
+        if (toast.classList && typeof toast.classList.add === "function") {
+            toast.classList.add("show");
+        }
+        if (touchToastTimer) {
+            clearTimeout(touchToastTimer);
+            touchToastTimer = null;
+        }
+        touchToastTimer = setTimeout(() => {
+            if (toast.classList && typeof toast.classList.remove === "function") {
+                toast.classList.remove("show");
+            }
+            touchToastTimer = null;
+        }, 1000);
+        return toast;
+    }
+
+    function getFeedbackMode() {
+        return state.feedbackMode || "all";
+    }
+
+    function updateRippleBtnUI() {
+        const btn = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-btn-ripple") : null;
+        if (!btn) return;
+        const mode = state.feedbackMode || "all";
+        if (mode === "all") {
+            btn.innerHTML = SVG_ICONS.gestureSweep;
+            if (btn.classList) btn.classList.add("active");
+            btn.title = "Touch Feedback: Ripple + Trail (All ON)";
+        } else if (mode === "ripple_only") {
+            btn.innerHTML = SVG_ICONS.rippleOnly;
+            if (btn.classList) btn.classList.add("active");
+            btn.title = "Touch Feedback: Ripple Only (Trail OFF)";
+        } else {
+            btn.innerHTML = SVG_ICONS.rippleOff;
+            if (btn.classList) btn.classList.remove("active");
+            btn.title = "Touch Feedback: OFF";
+        }
+    }
+
+    function setFeedbackMode(mode) {
+        if (mode === "all" || mode === "ripple_only" || mode === "off") {
+            state.feedbackMode = mode;
+        } else {
+            state.feedbackMode = "all";
+        }
+        state.touchRipple = (state.feedbackMode !== "off");
+        if (state.feedbackMode !== "all" && typeof clearTrailCanvas === "function") {
+            clearTrailCanvas();
+        }
+        saveState();
+        updateRippleBtnUI();
+        return state.feedbackMode;
+    }
+
+    function cycleFeedbackMode() {
+        if (state.feedbackMode === "all") {
+            state.feedbackMode = "ripple_only";
+        } else if (state.feedbackMode === "ripple_only") {
+            state.feedbackMode = "off";
+        } else {
+            state.feedbackMode = "all";
+        }
+        state.touchRipple = (state.feedbackMode !== "off");
+        if (state.feedbackMode !== "all" && typeof clearTrailCanvas === "function") {
+            clearTrailCanvas();
+        }
+        saveState();
+        updateRippleBtnUI();
+
+        const message = state.feedbackMode === "all"
+            ? "Touch Feedback: Ripple + Trail (All ON)"
+            : state.feedbackMode === "ripple_only"
+                ? "Touch Feedback: Ripple Only (Trail OFF)"
+                : "Touch Feedback: OFF";
+        showTouchToast(message);
+        return state.feedbackMode;
+    }
+
     let lastRippleTime = 0;
     let lastRippleX = -9999;
     let lastRippleY = -9999;
 
     function spawnTouchRipple(clientX, clientY) {
-        if (!state.touchRipple) return;
+        if (state.feedbackMode === "off") return;
         const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
         if (now - lastRippleTime < 60 && Math.hypot(clientX - lastRippleX, clientY - lastRippleY) < 15) {
             return;
@@ -1371,7 +1483,9 @@
         ripple.style.top = clientY + "px";
         layer.appendChild(ripple);
         setTimeout(() => {
-            if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
+            if (ripple.parentNode && typeof ripple.parentNode.removeChild === "function") {
+                ripple.parentNode.removeChild(ripple);
+            }
         }, 380);
     }
 
@@ -1381,11 +1495,12 @@
         trailListenersAttached = true;
 
         window.addEventListener("pointerdown", (e) => {
-            if (isEditMode || !state.touchRipple) return;
+            if (isEditMode || state.feedbackMode === "off") return;
             if (shouldIgnoreTouchForFeedback(e.target)) return;
             const cx = typeof e.clientX === "number" ? e.clientX : 0;
             const cy = typeof e.clientY === "number" ? e.clientY : 0;
             spawnTouchRipple(cx, cy);
+            if (state.feedbackMode !== "all") return;
             const pid = e.pointerId !== undefined ? e.pointerId : 1;
             activeFeedbackPointers.set(pid, {
                 startX: cx,
@@ -1401,7 +1516,7 @@
         }, { passive: true, capture: true });
 
         window.addEventListener("pointermove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
+            if (isEditMode || state.feedbackMode !== "all") return;
             const pid = e.pointerId !== undefined ? e.pointerId : 1;
             let tracked = activeFeedbackPointers.get(pid);
             if (!tracked || !tracked.active) return;
@@ -1432,15 +1547,16 @@
 
         // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
         window.addEventListener("touchstart", (e) => {
-            if (isEditMode || !state.touchRipple) return;
+            if (isEditMode || state.feedbackMode === "off") return;
             if (!e.touches) return;
             for (let i = 0; i < e.touches.length; i++) {
                 const t = e.touches[i];
                 if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                spawnTouchRipple(t.clientX, t.clientY);
+                if (state.feedbackMode !== "all") continue;
                 const pid = t.identifier !== undefined ? t.identifier : 1;
                 let tracked = activeFeedbackPointers.get(pid);
                 if (!tracked || !tracked.active) {
-                    spawnTouchRipple(t.clientX, t.clientY);
                     activeFeedbackPointers.set(pid, {
                         startX: t.clientX,
                         startY: t.clientY,
@@ -1454,7 +1570,7 @@
         }, { passive: true, capture: true });
 
         window.addEventListener("touchmove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
+            if (isEditMode || state.feedbackMode !== "all") return;
             if (!e.touches) return;
             for (let i = 0; i < e.touches.length; i++) {
                 const t = e.touches[i];
@@ -1701,26 +1817,10 @@
             updateVisibilityBtnUI();
         }
 
-        // Ripple Button: Touchscreen Visual Ripple On/Off Toggle
-        function updateRippleBtnUI() {
-            if (!rippleBtn) return;
-            if (state.touchRipple) {
-                rippleBtn.classList.add("active");
-                rippleBtn.title = "Touchscreen Ripple: ON (Tap to Disable)";
-            } else {
-                rippleBtn.classList.remove("active");
-                rippleBtn.title = "Touchscreen Ripple: OFF (Tap to Enable)";
-            }
-        }
-
+        // Feedback Toggle Button: 3-State Feedback Cycling Toggle (all -> ripple_only -> off -> all)
         if (rippleBtn) {
             bindTap(rippleBtn, () => {
-                state.touchRipple = !state.touchRipple;
-                if (!state.touchRipple && typeof clearTrailCanvas === "function") {
-                    clearTrailCanvas();
-                }
-                saveState();
-                updateRippleBtnUI();
+                cycleFeedbackMode();
             });
             updateRippleBtnUI();
         }
@@ -3173,6 +3273,12 @@
         window.trailStrokes = trailStrokes;
         window.activeFeedbackPointers = activeFeedbackPointers;
         window.setupTrailListeners = setupTrailListeners;
+        window.spawnTouchRipple = spawnTouchRipple;
+        window.showTouchToast = showTouchToast;
+        window.cycleFeedbackMode = cycleFeedbackMode;
+        window.getFeedbackMode = getFeedbackMode;
+        window.setFeedbackMode = setFeedbackMode;
+        window.updateRippleBtnUI = updateRippleBtnUI;
     }
 
     if (typeof module !== "undefined" && module.exports) {
@@ -3190,7 +3296,14 @@
             addTrailPoint,
             trailStrokes,
             activeFeedbackPointers,
-            setupTrailListeners
+            setupTrailListeners,
+            spawnTouchRipple,
+            showTouchToast,
+            cycleFeedbackMode,
+            getFeedbackMode,
+            setFeedbackMode,
+            updateRippleBtnUI,
+            SVG_ICONS
         };
     }
 
