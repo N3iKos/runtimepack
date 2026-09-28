@@ -128,6 +128,54 @@ pub struct SigningConfig {
     pub key_alias: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ThemeConfig {
+    #[serde(default)]
+    pub selected_themes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_theme: Option<String>,
+}
+
+impl ThemeConfig {
+    pub fn new(selected_themes: Vec<String>, default_theme: Option<String>) -> Self {
+        Self {
+            selected_themes,
+            default_theme,
+        }
+    }
+
+    pub fn resolved_default(&self) -> Option<String> {
+        self.default_theme.clone().or_else(|| {
+            if self.selected_themes.iter().any(|t| t == "matte") {
+                Some("matte".to_string())
+            } else {
+                self.selected_themes.first().cloned()
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeManifestEntry {
+    pub default_theme: String,
+    pub selected_themes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemesManifest {
+    #[serde(rename = "defaultThemeId")]
+    pub default_theme_id: String,
+    pub themes: Vec<ThemeManifestItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeManifestItem {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub dir: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     pub schema: u32,
@@ -142,6 +190,8 @@ pub struct ProjectConfig {
     pub compatibility: CompatibilityConfig,
     #[serde(default)]
     pub signing: SigningConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 impl ProjectConfig {
@@ -175,6 +225,8 @@ pub struct BuildManifest {
     pub audit: Option<AuditManifestEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rtp_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub themes: Option<ThemeManifestEntry>,
     pub app: AppConfig,
     pub engine: EngineManifestEntry,
     pub runtime: RuntimeManifestEntry,
@@ -245,5 +297,7 @@ pub struct ProvenanceManifestEntry {
     pub audit: Option<AuditManifestEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rtp_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub themes: Option<ThemeManifestEntry>,
     pub toolchain: ToolchainProvenance,
 }

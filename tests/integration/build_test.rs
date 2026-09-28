@@ -553,6 +553,10 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         !top_required.contains(&"rtp_source"),
         "rtp_source must not be required in top-level build manifest schema"
     );
+    assert!(
+        !top_required.contains(&"themes"),
+        "themes must not be required in top-level build manifest schema"
+    );
 
     let prov_required = schema_json["properties"]["provenance"]["required"]
         .as_array()
@@ -568,6 +572,10 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         !prov_required.contains(&"rtp_source"),
         "rtp_source must not be required in provenance schema"
     );
+    assert!(
+        !prov_required.contains(&"themes"),
+        "themes must not be required in provenance schema"
+    );
 
     assert!(schema_json["definitions"]["audit"].is_object());
 
@@ -580,6 +588,7 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "No Audit Game".to_string(),
             package: "com.example.noaudit".to_string(),
@@ -618,6 +627,7 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -639,12 +649,20 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         "rtp_source must be omitted when None"
     );
     assert!(
+        parsed_no_audit.get("themes").is_none(),
+        "themes must be omitted when None"
+    );
+    assert!(
         parsed_no_audit["provenance"].get("audit").is_none(),
         "provenance.audit must be omitted when None"
     );
     assert!(
         parsed_no_audit["provenance"].get("rtp_source").is_none(),
         "provenance.rtp_source must be omitted when None"
+    );
+    assert!(
+        parsed_no_audit["provenance"].get("themes").is_none(),
+        "provenance.themes must be omitted when None"
     );
 
     let deserialized_no_audit: BuildManifest = serde_json::from_str(&serialized_no_audit).unwrap();
@@ -1462,6 +1480,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         flavor: None,
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Test VFS".to_string(),
             package: "com.example.testvfs".to_string(),
@@ -1497,9 +1516,10 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
             source_hash: "dummy_src".to_string(),
             config_hash: "".to_string(),
             apk_hash: None,
-            flavor: None,
+            flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1558,6 +1578,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         flavor: None,
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Test Web Game".to_string(),
             package: "com.example.testwebgame".to_string(),
@@ -1596,6 +1617,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
             flavor: None,
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1632,6 +1654,7 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Audit Script Test Game".to_string(),
             package: "com.example.auditscripttest".to_string(),
@@ -1670,6 +1693,7 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1715,6 +1739,7 @@ fn test_emit_project_packages_cjk_fonts() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Font Test Game".to_string(),
             package: "com.example.fonttest".to_string(),
@@ -1753,6 +1778,7 @@ fn test_emit_project_packages_cjk_fonts() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1790,6 +1816,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         flavor: None,
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Neutral Game".to_string(),
             package: "com.example.neutral".to_string(),
@@ -1828,6 +1855,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
             flavor: None,
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -1885,6 +1913,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
             flavor: None,
             audit: None,
             rtp_source: None,
+            themes: None,
             app: AppConfig {
                 name: "Custom Game".to_string(),
                 package: "com.example.custom".to_string(),
@@ -1923,6 +1952,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
                 flavor: None,
                 audit: None,
                 rtp_source: None,
+                themes: None,
                 toolchain: ToolchainProvenance {
                     agp_version: None,
                     gradle_version: None,
@@ -1992,6 +2022,7 @@ fn test_emit_project_packages_asset_dependency_graph() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Graph Test Game".to_string(),
             package: "com.example.graphtest".to_string(),
@@ -2030,6 +2061,7 @@ fn test_emit_project_packages_asset_dependency_graph() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -2156,6 +2188,7 @@ fn test_build_flavor_beta_injects_watermark() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Beta Flavor Game".to_string(),
             package: "com.example.betaflavor".to_string(),
@@ -2194,6 +2227,7 @@ fn test_build_flavor_beta_injects_watermark() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -2269,6 +2303,7 @@ fn test_build_flavor_release_omits_watermark() {
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Release Flavor Game".to_string(),
             package: "com.example.releaseflavor".to_string(),
@@ -2304,9 +2339,10 @@ fn test_build_flavor_release_omits_watermark() {
             source_hash: "dummy_src".to_string(),
             config_hash: "".to_string(),
             apk_hash: None,
-            flavor: Some("release".to_string()),
+            flavor: None,
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -2413,6 +2449,7 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Fear & Hunger 2: Termina".to_string(),
             package: "com.example.termina".to_string(),
@@ -2451,6 +2488,7 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -2491,6 +2529,7 @@ fn renpy_build_manifest() -> BuildManifest {
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
+        themes: None,
         app: AppConfig {
             name: "Mizuki And Me".to_string(),
             package: "com.cherrykiss.mizukiandme".to_string(),
@@ -2529,6 +2568,7 @@ fn renpy_build_manifest() -> BuildManifest {
             flavor: Some("beta".to_string()),
             audit: None,
             rtp_source: None,
+            themes: None,
             toolchain: ToolchainProvenance {
                 agp_version: None,
                 gradle_version: None,
@@ -2663,6 +2703,552 @@ fn test_build_renpy_packs_launcher_as_main_py() {
         "source fixture must not be mutated with a main.py alias"
     );
     assert!(fixture.join("mizuki-and-me.py").exists());
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+fn create_test_theme_package(
+    parent_dir: &Path,
+    id: &str,
+    name: &str,
+    accent_color: &str,
+) -> PathBuf {
+    let theme_dir = parent_dir.join(id);
+    std::fs::create_dir_all(&theme_dir).unwrap();
+    let manifest = serde_json::json!({
+        "id": id,
+        "name": name,
+        "version": "1.0.0",
+        "themeApi": "1.0.0",
+        "stylesheets": {
+            "tokens": "tokens.css",
+            "components": "components.css",
+            "layout": "layout.css"
+        }
+    });
+    std::fs::write(
+        theme_dir.join("theme.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        theme_dir.join("tokens.css"),
+        format!(":root {{ --theme-accent: {}; }}", accent_color),
+    )
+    .unwrap();
+    std::fs::write(
+        theme_dir.join("components.css"),
+        ".vpad-btn { border-radius: 8px; }",
+    )
+    .unwrap();
+    std::fs::write(theme_dir.join("layout.css"), "/* test layout */").unwrap();
+    theme_dir
+}
+
+fn create_base_test_manifest() -> BuildManifest {
+    BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-28T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Theme Test Game".to_string(),
+            package: "com.example.themetest".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: Some("MV".to_string()),
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummy_hash".to_string(),
+            file_count: 1,
+            total_bytes: 1024,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    }
+}
+
+#[test]
+fn test_build_plan_embeds_selected_themes_and_manifest() {
+    let temp_dir = std::env::temp_dir().join(format!("theme_embed_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let catalog_dir = temp_dir.join("catalog");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    create_test_theme_package(&catalog_dir, "matte", "Minimalist Matte", "#2563eb");
+    create_test_theme_package(&catalog_dir, "liquid_glass", "Liquid Glass", "#007aff");
+
+    let project_dir = temp_dir.join("android-project");
+    let mut manifest = create_base_test_manifest();
+    manifest.themes = Some(runtimepack_core::build_plan::ThemeManifestEntry {
+        default_theme: "matte".to_string(),
+        selected_themes: vec!["matte".to_string(), "liquid_glass".to_string()],
+    });
+
+    AndroidProjectGenerator::emit_project_with_themes(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+        Some(&catalog_dir),
+    )
+    .expect("Emitting project with valid themes should succeed");
+
+    // Assert themes_manifest.json exists and contains correct content
+    let themes_manifest_path = project_dir.join("app/src/main/assets/overlay/themes_manifest.json");
+    assert!(
+        themes_manifest_path.exists(),
+        "themes_manifest.json must be generated in overlay assets"
+    );
+
+    let manifest_content = std::fs::read_to_string(&themes_manifest_path).unwrap();
+    let themes_manifest: runtimepack_core::build_plan::ThemesManifest =
+        serde_json::from_str(&manifest_content).expect("Must parse themes_manifest.json");
+
+    assert_eq!(themes_manifest.default_theme_id, "matte");
+    assert_eq!(themes_manifest.themes.len(), 2);
+    assert_eq!(themes_manifest.themes[0].id, "matte");
+    assert_eq!(themes_manifest.themes[0].name, "Minimalist Matte");
+    assert_eq!(themes_manifest.themes[0].dir, "themes/matte");
+    assert_eq!(themes_manifest.themes[1].id, "liquid_glass");
+    assert_eq!(themes_manifest.themes[1].name, "Liquid Glass");
+    assert_eq!(themes_manifest.themes[1].dir, "themes/liquid_glass");
+
+    // Assert theme directories and files are copied into assets
+    let matte_dir = project_dir.join("app/src/main/assets/overlay/themes/matte");
+    assert!(matte_dir.join("theme.json").exists());
+    assert!(matte_dir.join("tokens.css").exists());
+    assert!(matte_dir.join("components.css").exists());
+    assert!(matte_dir.join("layout.css").exists());
+
+    let liquid_glass_dir = project_dir.join("app/src/main/assets/overlay/themes/liquid_glass");
+    assert!(liquid_glass_dir.join("theme.json").exists());
+    assert!(liquid_glass_dir.join("tokens.css").exists());
+
+    // Assert build-manifest.json records theme selections
+    let build_manifest_path = project_dir.join("app/src/main/assets/build-manifest.json");
+    assert!(build_manifest_path.exists());
+    let build_manifest_text = std::fs::read_to_string(&build_manifest_path).unwrap();
+    let emitted_manifest: BuildManifest = serde_json::from_str(&build_manifest_text).unwrap();
+    assert_eq!(
+        emitted_manifest.themes,
+        Some(runtimepack_core::build_plan::ThemeManifestEntry {
+            default_theme: "matte".to_string(),
+            selected_themes: vec!["matte".to_string(), "liquid_glass".to_string()],
+        })
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_plan_rejects_missing_default_theme_from_selection() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("theme_missing_default_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let catalog_dir = temp_dir.join("catalog");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    create_test_theme_package(&catalog_dir, "matte", "Minimalist Matte", "#2563eb");
+    create_test_theme_package(&catalog_dir, "liquid_glass", "Liquid Glass", "#007aff");
+
+    let project_dir = temp_dir.join("android-project");
+    let mut manifest = create_base_test_manifest();
+    manifest.themes = Some(runtimepack_core::build_plan::ThemeManifestEntry {
+        default_theme: "retro_osd".to_string(), // Missing from selected_themes
+        selected_themes: vec!["matte".to_string(), "liquid_glass".to_string()],
+    });
+
+    let res = AndroidProjectGenerator::emit_project_with_themes(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+        Some(&catalog_dir),
+    );
+
+    assert!(res.is_err(), "Must reject when default theme is not packaged");
+    let err = res.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("THM-007"),
+        "Error must contain THM-007 code. Got: {}",
+        err_str
+    );
+    assert!(
+        err_str.contains("retro_osd"),
+        "Error must mention missing default theme. Got: {}",
+        err_str
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_plan_rejects_nonexistent_theme_package() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("theme_not_found_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let catalog_dir = temp_dir.join("catalog");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    create_test_theme_package(&catalog_dir, "matte", "Minimalist Matte", "#2563eb");
+
+    let project_dir = temp_dir.join("android-project");
+    let mut manifest = create_base_test_manifest();
+    manifest.themes = Some(runtimepack_core::build_plan::ThemeManifestEntry {
+        default_theme: "matte".to_string(),
+        selected_themes: vec!["matte".to_string(), "nonexistent_theme".to_string()],
+    });
+
+    let res = AndroidProjectGenerator::emit_project_with_themes(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+        Some(&catalog_dir),
+    );
+
+    assert!(res.is_err(), "Must reject when theme package is not found");
+    let err = res.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("THM-008"),
+        "Error must contain THM-008 code. Got: {}",
+        err_str
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_plan_rejects_invalid_theme_package_with_unsafe_css() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("theme_unsafe_css_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let catalog_dir = temp_dir.join("catalog");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    let bad_theme = catalog_dir.join("bad_theme");
+    std::fs::create_dir_all(&bad_theme).unwrap();
+
+    let manifest = serde_json::json!({
+        "id": "bad_theme",
+        "name": "Bad Theme",
+        "version": "1.0.0",
+        "themeApi": "1.0.0",
+        "stylesheets": {
+            "tokens": "tokens.css",
+            "components": "components.css",
+            "layout": "layout.css"
+        }
+    });
+    std::fs::write(
+        bad_theme.join("theme.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        bad_theme.join("tokens.css"),
+        "@import url('https://evil.com/hack.css');",
+    )
+    .unwrap();
+    std::fs::write(bad_theme.join("components.css"), ".btn { color: red; }").unwrap();
+    std::fs::write(bad_theme.join("layout.css"), "/* layout */").unwrap();
+
+    let project_dir = temp_dir.join("android-project");
+    let mut build_manifest = create_base_test_manifest();
+    build_manifest.themes = Some(runtimepack_core::build_plan::ThemeManifestEntry {
+        default_theme: "bad_theme".to_string(),
+        selected_themes: vec!["bad_theme".to_string()],
+    });
+
+    let res = AndroidProjectGenerator::emit_project_with_themes(
+        &project_dir,
+        &build_manifest,
+        None,
+        None,
+        Some("beta"),
+        Some(&catalog_dir),
+    );
+
+    assert!(res.is_err(), "Must reject when theme CSS is unsafe");
+    let err = res.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("THM-005"),
+        "Error must contain THM-005 code. Got: {}",
+        err_str
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_cli_theme_subcommands_list_and_validate() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("theme_cli_subcommands_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let catalog_dir = temp_dir.join("catalog");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    let valid_pkg = create_test_theme_package(&catalog_dir, "matte", "Minimalist Matte", "#2563eb");
+
+    let bad_pkg = catalog_dir.join("bad_css");
+    std::fs::create_dir_all(&bad_pkg).unwrap();
+    let bad_manifest = serde_json::json!({
+        "id": "bad_css",
+        "name": "Bad CSS Theme",
+        "version": "1.0.0",
+        "themeApi": "1.0.0",
+        "stylesheets": {
+            "tokens": "tokens.css",
+            "components": "components.css",
+            "layout": "layout.css"
+        }
+    });
+    std::fs::write(
+        bad_pkg.join("theme.json"),
+        serde_json::to_string_pretty(&bad_manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        bad_pkg.join("tokens.css"),
+        "@import url('http://evil.com/hack.css');",
+    )
+    .unwrap();
+    std::fs::write(bad_pkg.join("components.css"), ".btn { color: red; }").unwrap();
+    std::fs::write(bad_pkg.join("layout.css"), "/* layout */").unwrap();
+
+    // 1. Test runtimepack theme list
+    let list_output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("theme")
+        .arg("list")
+        .arg("--catalog")
+        .arg(&catalog_dir)
+        .output()
+        .expect("Must run runtimepack theme list");
+
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("[matte] Minimalist Matte"));
+    assert!(list_stdout.contains("[VALID]"));
+    assert!(list_stdout.contains("[bad_css]"));
+    assert!(list_stdout.contains("[INVALID]"));
+
+    // 2. Test runtimepack theme validate on valid package
+    let val_output_ok = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("theme")
+        .arg("validate")
+        .arg(&valid_pkg)
+        .output()
+        .expect("Must run runtimepack theme validate");
+
+    assert!(val_output_ok.status.success());
+    let val_stdout = String::from_utf8_lossy(&val_output_ok.stdout);
+    assert!(val_stdout.contains("[PASS] Theme package 'matte' is valid"));
+
+    // 3. Test runtimepack theme validate on invalid package
+    let val_output_err = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("theme")
+        .arg("validate")
+        .arg(&bad_pkg)
+        .output()
+        .expect("Must run runtimepack theme validate on bad package");
+
+    assert!(!val_output_err.status.success());
+    let val_stderr = String::from_utf8_lossy(&val_output_err.stderr);
+    assert!(val_stderr.contains("THM-005"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_cli_build_with_themes_flags() {
+    let fixture = test_temp_dir("themes-build-fixture");
+    let out_dir = test_temp_dir("themes-build-out");
+    let catalog_dir = test_temp_dir("themes-build-catalog");
+
+    // Minimal MV fixture
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Themes Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    // Catalog with 2 themes
+    create_test_theme_package(&catalog_dir, "matte", "Minimalist Matte", "#2563eb");
+    create_test_theme_package(&catalog_dir, "liquid_glass", "Liquid Glass", "#007aff");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--themes")
+        .arg("matte,liquid_glass")
+        .arg("--default-theme")
+        .arg("matte")
+        .arg("--theme-catalog")
+        .arg(&catalog_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run runtimepack build with --themes");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Build with themes must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Themes packaged: matte, liquid_glass (default: matte)"),
+        "STDOUT must report packaged themes:\n{stdout}"
+    );
+
+    // Verify themes_manifest.json in Android assets overlay
+    let themes_manifest_path =
+        out_dir.join("android-project/app/src/main/assets/overlay/themes_manifest.json");
+    assert!(
+        themes_manifest_path.exists(),
+        "themes_manifest.json must exist in generated project assets"
+    );
+
+    let manifest_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&themes_manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest_json["defaultThemeId"], "matte");
+    assert_eq!(manifest_json["themes"].as_array().unwrap().len(), 2);
+
+    // Verify theme directories in Android assets overlay
+    let matte_dir = out_dir.join("android-project/app/src/main/assets/overlay/themes/matte");
+    assert!(matte_dir.join("theme.json").exists());
+    assert!(matte_dir.join("tokens.css").exists());
+
+    let liquid_glass_dir =
+        out_dir.join("android-project/app/src/main/assets/overlay/themes/liquid_glass");
+    assert!(liquid_glass_dir.join("theme.json").exists());
+    assert!(liquid_glass_dir.join("tokens.css").exists());
+
+    // Verify build-manifest.json has themes recorded
+    let build_manifest_path = out_dir.join("build-manifest.json");
+    assert!(build_manifest_path.exists());
+    let build_manifest_text = std::fs::read_to_string(&build_manifest_path).unwrap();
+    let emitted_manifest: BuildManifest = serde_json::from_str(&build_manifest_text).unwrap();
+    assert_eq!(
+        emitted_manifest.themes,
+        Some(runtimepack_core::build_plan::ThemeManifestEntry {
+            default_theme: "matte".to_string(),
+            selected_themes: vec!["matte".to_string(), "liquid_glass".to_string()],
+        })
+    );
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let _ = std::fs::remove_dir_all(&catalog_dir);
+}
+
+#[test]
+fn test_cli_build_rejects_missing_default_theme() {
+    let fixture = test_temp_dir("themes-reject-fixture");
+    let out_dir = test_temp_dir("themes-reject-out");
+
+    // Minimal MV fixture
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Themes Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--themes")
+        .arg("matte,liquid_glass")
+        .arg("--default-theme")
+        .arg("retro_osd") // Missing from --themes
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run runtimepack build");
+
+    assert!(
+        !output.status.success(),
+        "Build must fail when default theme is not packaged"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("THM-007"),
+        "STDERR must contain THM-007 code. Got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("retro_osd"),
+        "STDERR must mention missing theme 'retro_osd'. Got:\n{stderr}"
+    );
 
     let _ = std::fs::remove_dir_all(&fixture);
     let _ = std::fs::remove_dir_all(&out_dir);

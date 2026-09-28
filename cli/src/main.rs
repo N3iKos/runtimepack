@@ -10,8 +10,10 @@ use runtimepack_core::asset_audit::{
 use runtimepack_core::build_plan::{
     evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
     AuditManifestEntry, AuditPolicyDecision, BuildManifest, ContentManifestEntry,
-    EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ToolchainProvenance,
+    EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ThemeManifestEntry,
+    ToolchainProvenance,
 };
+use runtimepack_core::theme::ThemePackage;
 use runtimepack_core::detection::DetectorRegistry;
 use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode};
 use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineId};
@@ -50,6 +52,11 @@ enum Commands {
     Runtime {
         #[command(subcommand)]
         sub: RuntimeCommands,
+    },
+    /// Manage and inspect overlay themes
+    Theme {
+        #[command(subcommand)]
+        sub: ThemeCommands,
     },
     /// Inspect a game distribution without executing game code
     Inspect {
@@ -115,6 +122,15 @@ pub struct BuildArgs {
     /// Static asset audit mode: standard or deep
     #[arg(long, default_value = "standard")]
     pub audit_mode: String,
+    /// Themes to package into overlay (comma-separated or repeated, e.g. --themes matte,liquid_glass)
+    #[arg(long, value_delimiter = ',')]
+    pub themes: Vec<String>,
+    /// Default active theme ID (defaults to 'matte' if available, or first in list)
+    #[arg(long)]
+    pub default_theme: Option<String>,
+    /// Path to theme catalog directory (defaults to runtimes/themes)
+    #[arg(long)]
+    pub theme_catalog: Option<PathBuf>,
     /// Accept a static audit FAIL outcome
     #[arg(long)]
     pub accept_audit_fail: bool,
@@ -136,6 +152,24 @@ pub struct BuildArgs {
 enum RuntimeCommands {
     /// List all registered runtime packages
     List,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum ThemeCommands {
+    /// List all discovered themes in catalog with validation status
+    List {
+        /// Optional path to theme catalog directory (defaults to runtimes/themes)
+        #[arg(long)]
+        catalog: Option<PathBuf>,
+    },
+    /// Validate a theme package directory
+    Validate {
+        /// Path to theme package directory
+        path: PathBuf,
+        /// Expected Theme API version (defaults to 1.0.0)
+        #[arg(long, default_value = "1.0.0")]
+        api_version: String,
+    },
 }
 
 fn create_default_detector_registry() -> DetectorRegistry {
@@ -1063,6 +1097,40 @@ fn cmd_build(args: BuildArgs) {
         overrides: audit_overrides,
     };
     let rtp_source_str = source_index.rtp_path().map(|p| p.to_string_lossy().to_string());
+
+    // Themes resolution
+    let theme_manifest_entry = if !args.themes.is_empty() || args.default_theme.is_some() {
+        let selected_themes = if args.themes.is_empty() {
+            vec![args.default_theme.clone().unwrap()]
+        } else {
+            args.themes.clone()
+        };
+        let default_theme = args.default_theme.clone().unwrap_or_else(|| {
+            if selected_themes.iter().any(|t| t == "matte") {
+                "matte".to_string()
+            } else {
+                selected_themes.first().cloned().unwrap_or_else(|| "matte".to_string())
+            }
+        });
+
+        if !selected_themes.contains(&default_theme) {
+            eprintln!(
+                "[{}] Default theme '{}' is not in packaged themes list: {:?}",
+                runtimepack_core::diagnostics::THM_DEFAULT_NOT_PACKAGED,
+                default_theme,
+                selected_themes
+            );
+            std::process::exit(1);
+        }
+
+        Some(ThemeManifestEntry {
+            default_theme,
+            selected_themes,
+        })
+    } else {
+        None
+    };
+
     let manifest = BuildManifest {
         schema_version: 1,
         runtimepack_version: "0.1.0".to_string(),
@@ -1071,6 +1139,7 @@ fn cmd_build(args: BuildArgs) {
         flavor: Some(normalized_flavor.clone()),
         audit: Some(audit_manifest.clone()),
         rtp_source: rtp_source_str.clone(),
+        themes: theme_manifest_entry.clone(),
         app: AppConfig {
             name: app_name.clone(),
             package: pkg_id.clone(),
@@ -1109,6 +1178,7 @@ fn cmd_build(args: BuildArgs) {
             flavor: Some(normalized_flavor.clone()),
             audit: Some(audit_manifest),
             rtp_source: rtp_source_str,
+            themes: theme_manifest_entry,
             toolchain: ToolchainProvenance {
                 agp_version: Some("8.3.0".to_string()),
                 gradle_version: Some("8.7".to_string()),
@@ -1119,17 +1189,26 @@ fn cmd_build(args: BuildArgs) {
         },
     };
 
+    if let Some(ref entry) = manifest.themes {
+        println!(
+            "Themes packaged: {} (default: {})",
+            entry.selected_themes.join(", "),
+            entry.default_theme
+        );
+    }
+
     // 8. Generate Android Project
     println!("\nGenerating standalone Android project structure...");
     let android_project_dir = output.join("android-project");
-    if let Err(e) = AndroidProjectGenerator::emit_project_with_source(
+    if let Err(e) = AndroidProjectGenerator::emit_project_with_themes(
         &android_project_dir,
         &manifest,
         Some(&pack_path),
         Some(path),
         Some(&normalized_flavor),
+        args.theme_catalog.as_deref(),
     ) {
-        eprintln!("[AND-101] Project generation error: {}", e);
+        eprintln!("{}", e);
         std::process::exit(1);
     }
     println!("Android project: {}", android_project_dir.display());
@@ -1304,6 +1383,118 @@ fn cmd_licenses() {
     }
 }
 
+fn cmd_theme_list(catalog_path: Option<PathBuf>) {
+    let catalog_dir = catalog_path
+        .or_else(|| {
+            std::env::var("RUNTIMEPACK_THEMES_PATH")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| AndroidProjectGenerator::find_template_file("runtimes/themes"))
+        .unwrap_or_else(|| PathBuf::from("runtimes/themes"));
+
+    println!("RuntimePack Themes — Catalog at {}\n", catalog_dir.display());
+
+    if !catalog_dir.exists() {
+        println!("Theme catalog directory does not exist: {}", catalog_dir.display());
+        return;
+    }
+
+    let entries = match fs::read_dir(&catalog_dir) {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("[THM-008] Failed to read catalog directory: {}", err);
+            std::process::exit(1);
+        }
+    };
+
+    let mut discovered = 0;
+    let mut dir_entries: Vec<_> = entries.flatten().collect();
+    dir_entries.sort_by_key(|e| e.path());
+
+    for entry in dir_entries {
+        let path = entry.path();
+        if path.is_dir() && path.join("theme.json").is_file() {
+            discovered += 1;
+            let dir_name = path.file_name().unwrap_or_default().to_string_lossy();
+            match ThemePackage::load_from_dir(&path) {
+                Ok(pkg) => {
+                    match pkg.validate("1.0.0") {
+                        Ok(()) => {
+                            println!(
+                                "  - [{}] {} v{} (API {}) [VALID]",
+                                pkg.manifest.id,
+                                pkg.manifest.name,
+                                pkg.manifest.version,
+                                pkg.manifest.theme_api
+                            );
+                            if let Some(ref desc) = pkg.manifest.description {
+                                println!("      Description: {}", desc);
+                            }
+                            println!("      Path: {}", path.display());
+                        }
+                        Err(val_err) => {
+                            println!(
+                                "  - [{}] {} v{} (API {}) [INVALID]",
+                                pkg.manifest.id,
+                                pkg.manifest.name,
+                                pkg.manifest.version,
+                                pkg.manifest.theme_api
+                            );
+                            println!("      Error: {}", val_err);
+                            println!("      Path: {}", path.display());
+                        }
+                    }
+                }
+                Err(load_err) => {
+                    println!("  - [{}] (Failed to load) [INVALID]", dir_name);
+                    println!("      Error: {}", load_err);
+                    println!("      Path: {}", path.display());
+                }
+            }
+        }
+    }
+
+    if discovered == 0 {
+        println!("No theme packages discovered in {}", catalog_dir.display());
+    } else {
+        println!("\nDiscovered {} theme package(s).", discovered);
+    }
+}
+
+fn cmd_theme_validate(path: &Path, api_version: &str) {
+    println!("Validating theme package at {}...\n", path.display());
+
+    let pkg = match ThemePackage::load_from_dir(path) {
+        Ok(p) => p,
+        Err(err) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
+    };
+
+    println!("  ID:          {}", pkg.manifest.id);
+    println!("  Name:        {}", pkg.manifest.name);
+    println!("  Version:     {}", pkg.manifest.version);
+    println!("  Theme API:   {}", pkg.manifest.theme_api);
+    if let Some(ref author) = pkg.manifest.author {
+        println!("  Author:      {}", author);
+    }
+
+    match pkg.validate(api_version) {
+        Ok(()) => {
+            println!(
+                "\n[PASS] Theme package '{}' is valid for Theme API {}.",
+                pkg.manifest.id, api_version
+            );
+        }
+        Err(err) => {
+            eprintln!("\n[FAIL] Validation failed: {}", err);
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn derive_apk_filename(app_name: &str, output: &Path) -> String {
     if let Some((_prefix, sub)) = app_name.rsplit_once(':') {
         let trimmed_sub = sub.trim().replace(' ', "");
@@ -1345,6 +1536,10 @@ fn main() {
         }) => cmd_runtime_list(),
         Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
         Some(Commands::Explain { path }) => cmd_explain(&path),
+        Some(Commands::Theme { sub }) => match sub {
+            ThemeCommands::List { catalog } => cmd_theme_list(catalog),
+            ThemeCommands::Validate { path, api_version } => cmd_theme_validate(&path, &api_version),
+        },
         Some(Commands::Audit(args)) => cmd_audit(args),
         Some(Commands::Build(args)) => cmd_build(args),
         Some(Commands::Licenses) => cmd_licenses(),

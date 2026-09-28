@@ -435,6 +435,22 @@ include(":app")
         Self::find_template_file("android/shell/app/src/main/assets/overlay")
     }
 
+    pub fn find_theme_catalog_path(explicit_path: Option<&Path>) -> Option<PathBuf> {
+        if let Some(p) = explicit_path {
+            return Some(p.to_path_buf());
+        }
+        if let Ok(env_path) = std::env::var("RUNTIMEPACK_THEMES_PATH") {
+            let p = PathBuf::from(env_path);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        if let Some(p) = Self::find_template_file("runtimes/themes") {
+            return Some(p);
+        }
+        Some(PathBuf::from("runtimes/themes"))
+    }
+
     pub fn configure_overlay_watermark(overlay_dir: &Path, flavor: &str) -> std::io::Result<()> {
         if !overlay_dir.exists() {
             fs::create_dir_all(overlay_dir)?;
@@ -558,6 +574,24 @@ include(":app")
         game_source_dir: Option<&Path>,
         flavor: Option<&str>,
     ) -> Result<(), DiagnosticError> {
+        Self::emit_project_with_themes(
+            project_dir,
+            manifest,
+            packed_content_path,
+            game_source_dir,
+            flavor,
+            None,
+        )
+    }
+
+    pub fn emit_project_with_themes(
+        project_dir: &Path,
+        manifest: &BuildManifest,
+        packed_content_path: Option<&Path>,
+        game_source_dir: Option<&Path>,
+        flavor: Option<&str>,
+        theme_catalog_path: Option<&Path>,
+    ) -> Result<(), DiagnosticError> {
         let app_dir = project_dir.join("app");
         let src_dir = app_dir.join("src/main/java");
         let assets_dir = app_dir.join("src/main/assets");
@@ -679,6 +713,103 @@ include(":app")
             .or(manifest.provenance.flavor.as_deref())
             .unwrap_or("beta");
         Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+
+        // Theme packaging and themes_manifest.json emission
+        if let Some(ref theme_entry) = manifest.themes {
+            if theme_entry.selected_themes.is_empty() {
+                return Err(DiagnosticError::from_code(
+                    crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                    "Theme selection list cannot be empty",
+                ));
+            }
+
+            if !theme_entry.selected_themes.contains(&theme_entry.default_theme) {
+                return Err(DiagnosticError::from_code(
+                    crate::diagnostics::THM_DEFAULT_NOT_PACKAGED,
+                    format!(
+                        "Default theme '{}' is not in packaged themes list: {:?}",
+                        theme_entry.default_theme, theme_entry.selected_themes
+                    ),
+                ));
+            }
+
+            let catalog_dir = Self::find_theme_catalog_path(theme_catalog_path)
+                .unwrap_or_else(|| PathBuf::from("runtimes/themes"));
+
+            if !catalog_dir.exists() {
+                return Err(DiagnosticError::from_code(
+                    crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                    format!(
+                        "Theme catalog directory does not exist: {}",
+                        catalog_dir.display()
+                    ),
+                ));
+            }
+
+            let mut catalog = crate::theme::ThemeCatalog::new();
+            catalog.discover(&catalog_dir).map_err(|e| {
+                let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
+                let msg = e.to_string();
+                let clean_msg = if let Some(idx) = msg.find("] ") {
+                    &msg[idx + 2..]
+                } else {
+                    &msg
+                };
+                DiagnosticError::from_code(code, clean_msg)
+            })?;
+
+            catalog
+                .validate_selection(
+                    &theme_entry.selected_themes,
+                    &theme_entry.default_theme,
+                    "1.0.0",
+                )
+                .map_err(|e| {
+                    let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
+                    let msg = e.to_string();
+                    let clean_msg = if let Some(idx) = msg.find("] ") {
+                        &msg[idx + 2..]
+                    } else {
+                        &msg
+                    };
+                    DiagnosticError::from_code(code, clean_msg)
+                })?;
+
+            let themes_dest_dir = overlay_dst.join("themes");
+            fs::create_dir_all(&themes_dest_dir)?;
+
+            let mut manifest_items = Vec::new();
+            for theme_id in &theme_entry.selected_themes {
+                let pkg = catalog.get(theme_id).ok_or_else(|| {
+                    DiagnosticError::from_code(
+                        crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                        format!("Theme package '{}' not found in catalog", theme_id),
+                    )
+                })?;
+
+                let theme_target_dir = themes_dest_dir.join(theme_id);
+                copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
+
+                manifest_items.push(crate::build_plan::ThemeManifestItem {
+                    id: pkg.manifest.id.clone(),
+                    name: pkg.manifest.name.clone(),
+                    version: pkg.manifest.version.clone(),
+                    dir: format!("themes/{}", theme_id),
+                });
+            }
+
+            let themes_manifest = crate::build_plan::ThemesManifest {
+                default_theme_id: theme_entry.default_theme.clone(),
+                themes: manifest_items,
+            };
+
+            let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
+                .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+            fs::write(
+                overlay_dst.join("themes_manifest.json"),
+                themes_manifest_json,
+            )?;
+        }
 
         // Copy web_shims assets (runtimepack_web_shims.js, runtimepack_asset_audit.js)
         if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
