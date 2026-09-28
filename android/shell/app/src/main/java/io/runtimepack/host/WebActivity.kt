@@ -31,6 +31,35 @@ open class WebActivity : Activity() {
     companion object {
         private const val TAG = "WebActivity"
 
+        private val HITBOX_FIELD_RE = Regex("\"(left|top|right|bottom)\"\\s*:\\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)")
+        private val HITBOX_OBJECT_RE = Regex("\\{[^{}]*\\}")
+
+        data class ControlHitbox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+            fun containsWithMargin(x: Float, y: Float, margin: Float): Boolean {
+                return x >= left - margin && x <= right + margin && y >= top - margin && y <= bottom + margin
+            }
+        }
+
+        @JvmStatic
+        fun parseControlHitboxes(json: String?): List<ControlHitbox> {
+            if (json.isNullOrBlank()) return emptyList()
+            val trimmed = json.trim()
+            if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return emptyList()
+            val hitboxes = mutableListOf<ControlHitbox>()
+            HITBOX_OBJECT_RE.findAll(trimmed).forEach { objMatch ->
+                val fields = HITBOX_FIELD_RE.findAll(objMatch.value)
+                    .associate { it.groupValues[1] to it.groupValues[2].toFloatOrNull() }
+                val left = fields["left"]
+                val top = fields["top"]
+                val right = fields["right"]
+                val bottom = fields["bottom"]
+                if (left != null && top != null && right != null && bottom != null && right > left && bottom > top) {
+                    hitboxes.add(ControlHitbox(left, top, right, bottom))
+                }
+            }
+            return hitboxes
+        }
+
         @JvmStatic
         fun androidKeyToJsKeyCode(keyCode: Int): Int {
             return when (keyCode) {
@@ -90,9 +119,18 @@ open class WebActivity : Activity() {
             y: Float,
             screenWidth: Float,
             screenHeight: Float,
-            density: Float
+            density: Float,
+            controlHitboxes: List<ControlHitbox> = emptyList()
         ): Boolean {
-            // 1. D-Pad / Joystick zone (bottom-left)
+            // 0. Precise per-control hitboxes reported by the overlay JS layer.
+            //    Only touches landing on (or ~12dp around) a real control are captured;
+            //    everything else falls through to the game canvas.
+            if (controlHitboxes.isNotEmpty()) {
+                val margin = 12f * density
+                return controlHitboxes.any { it.containsWithMargin(x, y, margin) }
+            }
+
+            // 1. D-Pad / Joystick zone (bottom-left) — legacy fallback before JS reports hitboxes.
             val dpadMaxX = maxOf(screenWidth * 0.35f, 220f * density)
             val dpadMinY = minOf(screenHeight * 0.50f, screenHeight - 240f * density)
             if (x in 0f..dpadMaxX && y in dpadMinY..screenHeight) {
@@ -125,7 +163,8 @@ open class WebActivity : Activity() {
             screenHeight: Float,
             density: Float,
             isGamepadHidden: Boolean,
-            isOverlayModalOpen: Boolean
+            isOverlayModalOpen: Boolean,
+            controlHitboxes: List<ControlHitbox> = emptyList()
         ): Boolean {
             if (isOverlayModalOpen) {
                 return true
@@ -133,7 +172,7 @@ open class WebActivity : Activity() {
             if (isTouchInsideToolbar(x, y, density)) {
                 return true
             }
-            if (!isGamepadHidden && isTouchInsideVirtualGamepad(x, y, screenWidth, screenHeight, density)) {
+            if (!isGamepadHidden && isTouchInsideVirtualGamepad(x, y, screenWidth, screenHeight, density, controlHitboxes)) {
                 return true
             }
             return false
@@ -147,13 +186,14 @@ open class WebActivity : Activity() {
             screenHeight: Float,
             density: Float,
             isGamepadHidden: Boolean,
-            isOverlayModalOpen: Boolean
+            isOverlayModalOpen: Boolean,
+            controlHitboxes: List<ControlHitbox> = emptyList()
         ): Boolean {
             if (isOverlayModalOpen) {
                 return false
             }
             return !isTouchOnActiveControls(
-                x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen
+                x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen, controlHitboxes
             )
         }
 
@@ -167,11 +207,12 @@ open class WebActivity : Activity() {
             density: Float,
             isGamepadHidden: Boolean,
             isOverlayModalOpen: Boolean,
-            wasCapturedByGame: Boolean
+            wasCapturedByGame: Boolean,
+            controlHitboxes: List<ControlHitbox> = emptyList()
         ): Boolean {
             return if (actionMasked == MotionEvent.ACTION_DOWN) {
                 shouldForwardTouchToGame(
-                    x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen
+                    x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen, controlHitboxes
                 )
             } else {
                 wasCapturedByGame
@@ -193,6 +234,9 @@ open class WebActivity : Activity() {
 
     @Volatile
     var isOverlayModalOpen: Boolean = false
+
+    @Volatile
+    var activeControlHitboxes: List<ControlHitbox> = emptyList()
 
     @Volatile
     var cachedCheatState: String = "{}"
@@ -589,6 +633,11 @@ open class WebActivity : Activity() {
             }
 
             @JavascriptInterface
+            fun updateControlHitboxes(json: String) {
+                this@WebActivity.activeControlHitboxes = parseControlHitboxes(json)
+            }
+
+            @JavascriptInterface
             fun setOverlayModalOpen(open: Boolean) {
                 this@WebActivity.isOverlayModalOpen = open
                 if (open) {
@@ -743,7 +792,8 @@ open class WebActivity : Activity() {
             density,
             isGamepadHidden,
             isOverlayModalOpen,
-            isTouchCapturedByGame
+            isTouchCapturedByGame,
+            activeControlHitboxes
         )
 
         if (isTouchCapturedByGame) {

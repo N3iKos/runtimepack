@@ -460,6 +460,35 @@ class KeyMappingTest {
     }
 
     @Test
+    fun testWebActivityPreciseHitboxTouchPassThrough() {
+        val screenWidth = 1920f
+        val screenHeight = 1080f
+        val density = 2.0f
+
+        // JSON hitboxes reported by overlay JS (e.g. D-Pad at left: 80..226, top: 700..846)
+        val json = """[{"left":80.0,"top":700.0,"right":226.0,"bottom":846.0},{"left":1600.0,"top":800.0,"right":1700.0,"bottom":900.0}]"""
+        val hitboxes = WebActivity.parseControlHitboxes(json)
+        assertEquals(2, hitboxes.size)
+
+        // Point directly inside D-Pad -> stays with overlay (isInside = true)
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(150f, 750f, screenWidth, screenHeight, density, hitboxes))
+        assertFalse(WebActivity.shouldForwardTouchToGame(150f, 750f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false, controlHitboxes = hitboxes))
+
+        // Point NEAR D-Pad but OUTSIDE button (>12dp margin, e.g. x=300, y=750)
+        // With legacy bounding box this was falsely BLOCKED. Now with precise hitboxes it PASSES THROUGH!
+        assertFalse(WebActivity.isTouchInsideVirtualGamepad(350f, 750f, screenWidth, screenHeight, density, hitboxes))
+        assertTrue(WebActivity.shouldForwardTouchToGame(350f, 750f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false, controlHitboxes = hitboxes))
+
+        // Point in empty space between controls -> passes through cleanly
+        assertTrue(WebActivity.shouldForwardTouchToGame(960f, 540f, screenWidth, screenHeight, density, isGamepadHidden = false, isOverlayModalOpen = false, controlHitboxes = hitboxes))
+
+        // Empty/null json fallback gracefully uses legacy zones
+        val emptyHitboxes = WebActivity.parseControlHitboxes("")
+        assertTrue(emptyHitboxes.isEmpty())
+        assertTrue(WebActivity.isTouchInsideVirtualGamepad(100f, 900f, screenWidth, screenHeight, density, emptyHitboxes))
+    }
+
+    @Test
     fun testWebActivityTouchPassThroughLogic() {
         val screenWidth = 1920f
         val screenHeight = 1080f
