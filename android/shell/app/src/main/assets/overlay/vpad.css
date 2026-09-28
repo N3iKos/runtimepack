@@ -368,22 +368,22 @@ body.vpad-theme-matte .vpad-touch-ripple {
    ============================================================================ */
 body.vpad-theme-clean #vpad-main-trigger-btn,
 body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 40%, rgba(15, 23, 42, 0.65) 100%) !important;
-    border: 1.2px solid rgba(255, 255, 255, 0.35) !important;
-    backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
     color: #f4f4f5 !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.6), inset 0 -1.5px 2px rgba(0, 0, 0, 0.25) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
 }
 
 body.vpad-theme-clean .vpad-top-btn,
 body:not([class*="vpad-theme-"]) .vpad-top-btn {
     color: #f1f5f9 !important;
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 40%, rgba(15, 23, 42, 0.65) 100%) !important;
-    border: 1.2px solid rgba(255, 255, 255, 0.3) !important;
-    backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 1.2px 1px rgba(255, 255, 255, 0.5) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 42%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
 }
 
 body.vpad-theme-clean .vpad-top-btn.active,
@@ -419,78 +419,81 @@ body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn.active.vpad-btn-pressed 
 body.vpad-theme-clean .vpad-btn,
 body:not([class*="vpad-theme-"]) .vpad-btn {
     color: #ffffff !important;
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 38%, rgba(15, 23, 42, 0.62) 100%) !important;
-    border: 1.2px solid rgba(255, 255, 255, 0.35) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 40%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
     border-radius: 50% !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.55), inset 0 -1.5px 2px rgba(0, 0, 0, 0.25) !important;
-    backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(185%) contrast(106%) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55), inset 0 -1.5px 2px rgba(0, 0, 0, 0.2) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
 }
 
 body.vpad-theme-clean .vpad-btn:active,
 body:not([class*="vpad-theme-"]) .vpad-btn:active {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(35, 42, 60, 0.85) 100%) !important;
-    border-color: #ffffff !important;
-    box-shadow: 0 0 20px rgba(255, 255, 255, 0.7) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.35) 0%, rgba(35, 42, 60, 0.8) 100%) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
 }
 
 body.vpad-theme-clean .vpad-btn-green,
 body:not([class*="vpad-theme-"]) .vpad-btn-green {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.5) 0%, rgba(6, 78, 59, 0.75) 100%) !important;
-    border-color: rgba(110, 231, 183, 0.85) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(16, 185, 129, 0.4) 0%, rgba(6, 78, 59, 0.75) 100%) !important;
+    border: 1px solid rgba(110, 231, 183, 0.6) !important;
     color: #ecfdf5 !important;
-    box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.45) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
 }
 body.vpad-theme-clean .vpad-btn-green:active,
 body:not([class*="vpad-theme-"]) .vpad-btn-green:active {
-    background: #059669 !important;
+    background: radial-gradient(circle at 35% 25%, rgba(52, 211, 153, 0.6) 0%, rgba(5, 150, 105, 0.85) 100%) !important;
     border-color: #a7f3d0 !important;
-    box-shadow: 0 0 24px rgba(52, 211, 153, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
 }
 
 body.vpad-theme-clean .vpad-btn-red,
 body:not([class*="vpad-theme-"]) .vpad-btn-red {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.5) 0%, rgba(127, 29, 29, 0.75) 100%) !important;
-    border-color: rgba(252, 165, 165, 0.85) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(239, 68, 68, 0.4) 0%, rgba(127, 29, 29, 0.75) 100%) !important;
+    border: 1px solid rgba(252, 165, 165, 0.6) !important;
     color: #fef2f2 !important;
-    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.45) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
 }
 body.vpad-theme-clean .vpad-btn-red:active,
 body:not([class*="vpad-theme-"]) .vpad-btn-red:active {
-    background: #dc2626 !important;
+    background: radial-gradient(circle at 35% 25%, rgba(248, 113, 113, 0.6) 0%, rgba(220, 38, 38, 0.85) 100%) !important;
     border-color: #fecaca !important;
-    box-shadow: 0 0 24px rgba(248, 113, 113, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
 }
 
 body.vpad-theme-clean .vpad-btn-yellow,
 body:not([class*="vpad-theme-"]) .vpad-btn-yellow {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.5) 0%, rgba(120, 53, 15, 0.75) 100%) !important;
-    border-color: rgba(253, 230, 138, 0.85) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(245, 158, 11, 0.4) 0%, rgba(120, 53, 15, 0.75) 100%) !important;
+    border: 1px solid rgba(253, 230, 138, 0.6) !important;
     color: #fffbeb !important;
-    box-shadow: 0 6px 20px rgba(217, 119, 6, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.45) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
 }
 body.vpad-theme-clean .vpad-btn-yellow:active,
 body:not([class*="vpad-theme-"]) .vpad-btn-yellow:active {
-    background: #d97706 !important;
+    background: radial-gradient(circle at 35% 25%, rgba(251, 191, 36, 0.6) 0%, rgba(217, 119, 6, 0.85) 100%) !important;
     border-color: #fef08a !important;
-    box-shadow: 0 0 24px rgba(251, 191, 36, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
 }
 
 body.vpad-theme-clean .vpad-btn-util,
 body:not([class*="vpad-theme-"]) .vpad-btn-util {
     border-radius: 12px !important;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(28, 34, 48, 0.75) 100%) !important;
-    border-color: rgba(255, 255, 255, 0.28) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.16) 0%, rgba(28, 34, 48, 0.75) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
     font-size: 11px !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
 }
 
 body.vpad-theme-clean .vpad-dpad-container,
 body:not([class*="vpad-theme-"]) .vpad-dpad-container {
-    background: radial-gradient(circle at 50% 50%, rgba(26, 32, 48, 0.75) 0%, rgba(10, 14, 22, 0.9) 80%) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55), inset 0 1px 2px rgba(255, 255, 255, 0.25) !important;
-    backdrop-filter: blur(8px) !important;
-    -webkit-backdrop-filter: blur(8px) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(26, 32, 48, 0.65) 50%, rgba(10, 14, 22, 0.85) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
 }
 body.vpad-theme-clean .vpad-dpad-arrow,
 body:not([class*="vpad-theme-"]) .vpad-dpad-arrow {
@@ -513,11 +516,11 @@ body:not([class*="vpad-theme-"]) .vpad-dpad-center {
 
 body.vpad-theme-clean .vpad-joystick-container,
 body:not([class*="vpad-theme-"]) .vpad-joystick-container {
-    background: radial-gradient(circle at 50% 50%, rgba(30, 36, 52, 0.75) 0%, rgba(12, 16, 26, 0.9) 80%) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55) !important;
-    backdrop-filter: blur(8px) !important;
-    -webkit-backdrop-filter: blur(8px) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(30, 36, 52, 0.65) 50%, rgba(12, 16, 26, 0.85) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
 }
 body.vpad-theme-clean .vpad-joystick-inner-ring,
 body:not([class*="vpad-theme-"]) .vpad-joystick-inner-ring {
@@ -533,6 +536,42 @@ body.vpad-theme-clean .vpad-joystick-container.active .vpad-joystick-stick,
 body:not([class*="vpad-theme-"]) .vpad-joystick-container.active .vpad-joystick-stick {
     border-color: var(--vpad-accent-cyan) !important;
     box-shadow: 0 0 20px var(--vpad-accent-cyan) !important;
+}
+
+/* Liquid Glass Panels (Editor Bar, Panels & Modals) */
+body.vpad-theme-clean #vpad-editor-bar,
+body.vpad-theme-clean #fnh-cheat-overlay,
+body.vpad-theme-clean #rp-diag-modal,
+body.vpad-theme-clean #vpad-prop-panel,
+body.vpad-theme-clean #vpad-key-modal,
+body.vpad-theme-clean .vpad-modal-box,
+body:not([class*="vpad-theme-"]) #vpad-editor-bar,
+body:not([class*="vpad-theme-"]) #fnh-cheat-overlay,
+body:not([class*="vpad-theme-"]) #rp-diag-modal,
+body:not([class*="vpad-theme-"]) #vpad-prop-panel,
+body:not([class*="vpad-theme-"]) #vpad-key-modal,
+body:not([class*="vpad-theme-"]) .vpad-modal-box {
+    border-radius: 22px !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.28) !important;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45) !important;
+}
+
+body.vpad-theme-clean #vpad-bar-done,
+body:not([class*="vpad-theme-"]) #vpad-bar-done {
+    background: #007aff !important;
+    border: 1px solid #38bdf8 !important;
+    border-radius: 14px !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+body.vpad-theme-clean #vpad-bar-done:active,
+body:not([class*="vpad-theme-"]) #vpad-bar-done:active {
+    background: #0062cc !important;
+    border-color: #7dd3fc !important;
+    transform: scale(0.92);
 }
 
 /* ============================================================================
@@ -1368,26 +1407,19 @@ body.vpad-theme-retro #rp-floating-fps {
     touch-action: none !important;
 }
 
-/* 1. MINIMALIST GLASS MODALS (Default) */
-body.vpad-theme-clean #fnh-cheat-overlay,
-body:not([class*="vpad-theme-"]) #fnh-cheat-overlay {
-    background: rgba(15, 23, 42, 0.94) !important;
-    border: 1.5px solid rgba(56, 189, 248, 0.5) !important;
-    backdrop-filter: blur(8px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(8px) saturate(180%) !important;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 25px rgba(56, 189, 248, 0.25) !important;
-    border-radius: 14px !important;
-}
+/* 1. LIQUID GLASS MODAL DETAILS (.vpad-theme-clean & Default) */
 body.vpad-theme-clean #fnh-cheat-header,
 body:not([class*="vpad-theme-"]) #fnh-cheat-header {
-    background: rgba(20, 30, 48, 0.85) !important;
-    border-bottom: 1px solid rgba(56, 189, 248, 0.25) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-top-left-radius: 21px !important;
+    border-top-right-radius: 21px !important;
 }
 body.vpad-theme-clean .fnh-cheat-tab.active,
 body:not([class*="vpad-theme-"]) .fnh-cheat-tab.active {
     color: #f4f4f5 !important;
     border-bottom-color: #38bdf8 !important;
-    background: rgba(56, 189, 248, 0.12) !important;
+    background: rgba(56, 189, 248, 0.18) !important;
 }
 body.vpad-theme-clean .fnh-btn-action,
 body.vpad-theme-clean .fnh-cat-btn.active,
@@ -1398,19 +1430,12 @@ body:not([class*="vpad-theme-"]) .fnh-cat-btn.active {
     color: #ffffff !important;
     box-shadow: 0 0 14px rgba(56, 189, 248, 0.45) !important;
 }
-body.vpad-theme-clean #rp-diag-modal,
-body:not([class*="vpad-theme-"]) #rp-diag-modal {
-    background: rgba(15, 23, 42, 0.94) !important;
-    border: 1.5px solid rgba(56, 189, 248, 0.5) !important;
-    backdrop-filter: blur(8px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(8px) saturate(180%) !important;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 25px rgba(56, 189, 248, 0.25) !important;
-    border-radius: 14px !important;
-}
 body.vpad-theme-clean #rp-diag-header,
 body:not([class*="vpad-theme-"]) #rp-diag-header {
-    background: rgba(20, 30, 48, 0.85) !important;
-    border-bottom: 1px solid rgba(56, 189, 248, 0.25) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-top-left-radius: 21px !important;
+    border-top-right-radius: 21px !important;
     color: #38bdf8 !important;
 }
 body.vpad-theme-clean .diag-tab-btn.active,

@@ -624,3 +624,61 @@ test("Matte theme: active button and editor bar deep blue accent styling", () =>
     assert(doneBtnActiveMatch[1].includes("background: #172554 !important;"), "matte done btn active must use background #172554");
     assert(doneBtnActiveMatch[1].includes("border-color: #3b82f6 !important;"), "matte done btn active must use border-color #3b82f6");
 });
+
+test("Liquid Glass theme: panels styled with squircle 22px, blur(28px), and specular rim", () => {
+    const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
+    const css = fs.readFileSync(cssPath, "utf-8");
+
+    // Verify selectors for Liquid Glass panels
+    assert(css.includes("body.vpad-theme-clean #vpad-editor-bar"), "must style clean #vpad-editor-bar");
+    assert(css.includes("body.vpad-theme-clean #fnh-cheat-overlay"), "must style clean #fnh-cheat-overlay");
+    assert(css.includes("body.vpad-theme-clean #rp-diag-modal"), "must style clean #rp-diag-modal");
+    assert(css.includes("body.vpad-theme-clean #vpad-prop-panel"), "must style clean #vpad-prop-panel");
+    assert(css.includes("body.vpad-theme-clean #vpad-key-modal"), "must style clean #vpad-key-modal");
+
+    // Match the panels rule block
+    const panelRuleRegex = /body\.vpad-theme-clean\s+#vpad-editor-bar[\s\S]*?\{([\s\S]*?)\}/;
+    const panelMatch = css.match(panelRuleRegex);
+    assert(panelMatch, "must match liquid glass panels rule block");
+    const panelBody = panelMatch[1];
+
+    assert(panelBody.includes("border-radius: 22px !important;"), "panels must have 22px squircle border-radius");
+    assert(panelBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "panels must have blur(28px) saturate(190%)");
+    assert(panelBody.includes("-webkit-backdrop-filter: blur(28px) saturate(190%) !important;"), "panels must have -webkit-backdrop-filter blur(28px)");
+    assert(panelBody.includes("linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%) !important;"), "panels must have frosted translucent gradient");
+    assert(panelBody.includes("border: 1px solid rgba(255, 255, 255, 0.28) !important;"), "panels must have 1px specular rim");
+    assert(panelBody.includes("box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45) !important;"), "panels must have clean shadow with specular inset");
+
+    // Verify editor done button in Liquid Glass
+    const doneBtnRegex = /body\.vpad-theme-clean\s+#vpad-bar-done[\s\S]*?\{([\s\S]*?)\}/;
+    const doneBtnMatch = css.match(doneBtnRegex);
+    assert(doneBtnMatch, "must match liquid glass #vpad-bar-done rule");
+    const doneBtnBody = doneBtnMatch[1];
+    assert(doneBtnBody.includes("background: #007aff !important;"), "done button must use Apple system blue #007aff");
+    assert(doneBtnBody.includes("border: 1px solid #38bdf8 !important;"), "done button must use #38bdf8 border");
+    assert(doneBtnBody.includes("border-radius: 14px !important;"), "done button must have 14px border-radius");
+    assert(doneBtnBody.includes("color: #ffffff !important;"), "done button must have white text");
+    assert(doneBtnBody.includes("box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;"), "done button must have subtle shadow");
+
+    // Verify controls in Liquid Glass
+    const btnRegex = /body\.vpad-theme-clean\s+\.vpad-btn,\s*body:not\(\[class\*="vpad-theme-"\]\)\s+\.vpad-btn\s*\{([\s\S]*?)\}/;
+    const btnMatch = css.match(btnRegex);
+    assert(btnMatch, "must match liquid glass .vpad-btn rule");
+    const btnBody = btnMatch[1];
+    assert(btnBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "buttons must have blur(28px) saturate(190%)");
+    assert(btnBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "buttons must have 1px solid rim");
+
+    const dpadRegex = /body\.vpad-theme-clean\s+\.vpad-dpad-container[\s\S]*?\{([\s\S]*?)\}/;
+    const dpadMatch = css.match(dpadRegex);
+    assert(dpadMatch, "must match liquid glass dpad rule");
+    const dpadBody = dpadMatch[1];
+    assert(dpadBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "dpad must have blur(28px) saturate(190%)");
+    assert(dpadBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "dpad must have 1px solid rim");
+
+    const joyRegex = /body\.vpad-theme-clean\s+\.vpad-joystick-container[\s\S]*?\{([\s\S]*?)\}/;
+    const joyMatch = css.match(joyRegex);
+    assert(joyMatch, "must match liquid glass joystick rule");
+    const joyBody = joyMatch[1];
+    assert(joyBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "joystick must have blur(28px) saturate(190%)");
+    assert(joyBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "joystick must have 1px solid rim");
+});
