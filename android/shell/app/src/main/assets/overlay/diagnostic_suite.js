@@ -10,6 +10,28 @@
     var globalObj = typeof window !== "undefined" ? window : (typeof global !== "undefined" ? global : root);
     var doc = typeof document !== "undefined" ? document : null;
 
+    function elevatePanel(panelOrId) {
+        if (typeof globalObj.bringPanelToFront === "function" && globalObj.bringPanelToFront !== elevatePanel) {
+            return globalObj.bringPanelToFront(panelOrId);
+        }
+        if (!panelOrId) return null;
+        var el = panelOrId;
+        if (typeof panelOrId === "string" && doc) {
+            var cleanId = panelOrId.replace(/^#/, "");
+            el = doc.getElementById(cleanId) || (doc.querySelector ? doc.querySelector(panelOrId) : null);
+        }
+        if (!el || !el.style) return null;
+        var cur = (typeof globalObj.__topPanelZIndex === "number") ? globalObj.__topPanelZIndex : 100010;
+        cur += 2;
+        globalObj.__topPanelZIndex = cur;
+        el.style.zIndex = cur;
+        return el;
+    }
+    if (typeof globalObj.bringPanelToFront !== "function") {
+        globalObj.bringPanelToFront = elevatePanel;
+        globalObj.elevatePanel = elevatePanel;
+    }
+
     var logBuffer = [];
     var MAX_LOG_ENTRIES = 250;
     var fps = 0;
@@ -666,7 +688,21 @@
             "</div>";
 
         doc.body.appendChild(modal);
-        modal.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+        modal.addEventListener("pointerdown", function (e) {
+            if (typeof globalObj.bringPanelToFront === "function") {
+                globalObj.bringPanelToFront(modal);
+            } else {
+                elevatePanel(modal);
+            }
+            e.stopPropagation();
+        });
+        modal.addEventListener("mousedown", function () {
+            if (typeof globalObj.bringPanelToFront === "function") {
+                globalObj.bringPanelToFront(modal);
+            } else {
+                elevatePanel(modal);
+            }
+        });
         modal.addEventListener("pointerup", function (e) { e.stopPropagation(); });
 
         // Bind Drag on Header
@@ -710,6 +746,11 @@
             };
 
             header.addEventListener("pointerdown", function (e) {
+                if (typeof globalObj.bringPanelToFront === "function") {
+                    globalObj.bringPanelToFront(modal);
+                } else {
+                    elevatePanel(modal);
+                }
                 if (isIgnoredTarget(e.target)) return;
                 try {
                     if (header.setPointerCapture) {
@@ -925,6 +966,13 @@
             if (modal) {
                 modal.style.display = "flex";
                 modalOpen = true;
+                if (typeof globalObj.bringPanelToFront === "function") {
+                    globalObj.bringPanelToFront(modal);
+                } else if (typeof globalObj.elevatePanel === "function") {
+                    globalObj.elevatePanel(modal);
+                } else {
+                    elevatePanel(modal);
+                }
                 startPerfLoop();
                 var diagBtn = doc.getElementById("vpad-btn-diag");
                 if (diagBtn) diagBtn.classList.add("active");

@@ -10,6 +10,28 @@
 
     const globalObj = typeof window !== "undefined" ? window : (typeof global !== "undefined" ? global : this);
 
+    function elevatePanel(panelOrId) {
+        if (typeof globalObj.bringPanelToFront === "function" && globalObj.bringPanelToFront !== elevatePanel) {
+            return globalObj.bringPanelToFront(panelOrId);
+        }
+        if (!panelOrId) return null;
+        let el = panelOrId;
+        if (typeof panelOrId === "string" && typeof document !== "undefined") {
+            const cleanId = panelOrId.replace(/^#/, "");
+            el = document.getElementById(cleanId) || (document.querySelector ? document.querySelector(panelOrId) : null);
+        }
+        if (!el || !el.style) return null;
+        let cur = (typeof globalObj.__topPanelZIndex === "number") ? globalObj.__topPanelZIndex : 100010;
+        cur += 2;
+        globalObj.__topPanelZIndex = cur;
+        el.style.zIndex = cur;
+        return el;
+    }
+    if (typeof globalObj.bringPanelToFront !== "function") {
+        globalObj.bringPanelToFront = elevatePanel;
+        globalObj.elevatePanel = elevatePanel;
+    }
+
     // State Variables
     let godModeActive = false;
     let noclipActive = false;
@@ -1174,6 +1196,14 @@
         overlay.style.display = "flex";
         isMenuOpen = true;
 
+        if (typeof globalObj.bringPanelToFront === "function") {
+            globalObj.bringPanelToFront(overlay);
+        } else if (typeof globalObj.elevatePanel === "function") {
+            globalObj.elevatePanel(overlay);
+        } else {
+            elevatePanel(overlay);
+        }
+
         if (typeof globalObj.setModalState === "function") {
             globalObj.setModalState("cheat", true);
         } else if (typeof globalObj.registerModal === "function") {
@@ -1384,7 +1414,21 @@
             </div>
         `;
         document.body.appendChild(modal);
-        modal.addEventListener("pointerdown", (e) => e.stopPropagation());
+        modal.addEventListener("pointerdown", (e) => {
+            if (typeof globalObj.bringPanelToFront === "function") {
+                globalObj.bringPanelToFront(modal);
+            } else {
+                elevatePanel(modal);
+            }
+            e.stopPropagation();
+        });
+        modal.addEventListener("mousedown", () => {
+            if (typeof globalObj.bringPanelToFront === "function") {
+                globalObj.bringPanelToFront(modal);
+            } else {
+                elevatePanel(modal);
+            }
+        });
         modal.addEventListener("pointerup", (e) => e.stopPropagation());
 
         // Header and Modal Buttons
@@ -1672,6 +1716,11 @@
             };
 
             header.addEventListener("pointerdown", (e) => {
+                if (typeof globalObj.bringPanelToFront === "function") {
+                    globalObj.bringPanelToFront(modal);
+                } else {
+                    elevatePanel(modal);
+                }
                 if (isIgnoredTarget(e.target)) return;
                 try {
                     if (header.setPointerCapture) {

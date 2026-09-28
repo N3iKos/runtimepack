@@ -1263,6 +1263,10 @@
         if (cheatBtn) {
             bindTap(cheatBtn, () => {
                 if (window.CheatMenu) window.CheatMenu.toggle();
+                const cheatOverlay = document.getElementById("fnh-cheat-overlay");
+                if (cheatOverlay && cheatOverlay.style.display !== "none") {
+                    bringPanelToFront(cheatOverlay);
+                }
             });
         }
 
@@ -1270,6 +1274,10 @@
         if (diagBtn) {
             bindTap(diagBtn, () => {
                 if (window.DiagnosticSuite) window.DiagnosticSuite.toggle();
+                const diagModal = document.getElementById("rp-diag-modal");
+                if (diagModal && diagModal.style.display !== "none") {
+                    bringPanelToFront(diagModal);
+                }
             });
         }
 
@@ -1284,7 +1292,7 @@
                 const rect = presetBtn.getBoundingClientRect();
                 presetPopover.style.left = Math.max(10, rect.left) + "px";
                 presetPopover.style.top = (rect.bottom + 6) + "px";
-                elevatePanel(presetPopover);
+                bringPanelToFront(presetPopover);
                 updatePresetPopoverUI();
                 presetPopover.classList.add("show");
                 popoverJustOpened = true;
@@ -1322,7 +1330,7 @@
                 const rect = themeBtn.getBoundingClientRect();
                 themePopover.style.left = Math.max(10, rect.left) + "px";
                 themePopover.style.top = (rect.bottom + 6) + "px";
-                elevatePanel(themePopover);
+                bringPanelToFront(themePopover);
                 themePopover.classList.add("show");
                 popoverJustOpened = true;
                 setTimeout(() => { popoverJustOpened = false; }, 250);
@@ -1392,7 +1400,13 @@
         modalInputLabel.addEventListener("keyup", (e) => { e.stopPropagation(); });
         modalInputLabel.addEventListener("keypress", (e) => { e.stopPropagation(); });
 
-        keyModal.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+        keyModal.addEventListener("pointerdown", (e) => {
+            bringPanelToFront(keyModal);
+            e.stopPropagation();
+        });
+        keyModal.addEventListener("mousedown", () => {
+            bringPanelToFront(keyModal);
+        });
         keyModal.addEventListener("pointerup", (e) => { e.stopPropagation(); });
 
         bindTap(addBtn, () => {
@@ -1405,8 +1419,7 @@
             modalInputLabel.value = "DEL";
             modalSelectedKey = COMMON_KEYS.find(k => k.code === 8) || COMMON_KEYS[0];
             populateKeyPicker(modalSelectedKey.code);
-            topPanelZIndex += 100;
-            keyModal.style.zIndex = topPanelZIndex;
+            bringPanelToFront(keyModal);
             keyModal.classList.add("show");
             setModalState("custom_control", true);
         });
@@ -1422,8 +1435,7 @@
             modalInputLabel.value = ctrl.label || "";
             modalSelectedKey = COMMON_KEYS.find(k => k.code === ctrl.keyCode) || { code: ctrl.keyCode, name: KEY_NAMES[ctrl.keyCode] || "Custom", defaultLabel: ctrl.label };
             populateKeyPicker(ctrl.keyCode);
-            topPanelZIndex += 100;
-            keyModal.style.zIndex = topPanelZIndex;
+            bringPanelToFront(keyModal);
             keyModal.classList.add("show");
             setModalState("custom_control", true);
         });
@@ -1589,7 +1601,13 @@
         bindTap(propClose, () => hidePropertyPanel());
 
         // 11. Draggable Property Panel Header
-        propPanel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        propPanel.addEventListener("pointerdown", (e) => {
+            bringPanelToFront(propPanel);
+            e.stopPropagation();
+        });
+        propPanel.addEventListener("mousedown", () => {
+            bringPanelToFront(propPanel);
+        });
         propPanel.addEventListener("pointerup", (e) => e.stopPropagation());
         setupDraggableHeader(propPanel, propHeader, (x, y) => {
             state.panelPosition = { x, y };
@@ -1597,7 +1615,13 @@
         });
 
         // 12. Draggable Editor Bar
-        editorBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+        editorBar.addEventListener("pointerdown", (e) => {
+            bringPanelToFront(editorBar);
+            e.stopPropagation();
+        });
+        editorBar.addEventListener("mousedown", () => {
+            bringPanelToFront(editorBar);
+        });
         editorBar.addEventListener("pointerup", (e) => e.stopPropagation());
         setupDraggableHeader(editorBar, barDrag, (x, y) => {
             state.toolbarPosition = { x, y };
@@ -1736,7 +1760,11 @@
     function enterEditMode() {
         isEditMode = true;
         document.body.classList.add("vpad-edit-mode");
-        document.getElementById("vpad-editor-bar").classList.add("show");
+        const editorBar = document.getElementById("vpad-editor-bar");
+        if (editorBar) {
+            editorBar.classList.add("show");
+            bringPanelToFront(editorBar);
+        }
         document.getElementById("vpad-btn-gear").classList.add("active");
         setModalState("settings", true);
         renderControls();
@@ -1773,6 +1801,7 @@
         updatePropertyPanel(ctrl);
         panel.classList.add("show");
         applyPanelPosition();
+        bringPanelToFront(panel);
         setModalState("inspector", true);
     }
 
@@ -1857,20 +1886,44 @@
     // Universal Panel Bring-To-Front (Z-Index Elevation on Touch/Click)
     // ------------------------------------------------------------------------
     let topPanelZIndex = 100010;
-    function elevatePanel(el) {
-        if (!el) return;
-        topPanelZIndex += 2;
+
+    function bringPanelToFront(panelOrId) {
+        if (!panelOrId) return null;
+        let el = panelOrId;
+        if (typeof panelOrId === "string" && typeof document !== "undefined") {
+            const cleanId = panelOrId.replace(/^#/, "");
+            el = document.getElementById(cleanId) || (document.querySelector ? document.querySelector(panelOrId) : null);
+        }
+        if (!el || !el.style) return null;
+        const isPopover = (el.classList && el.classList.contains("vpad-popover")) ||
+                          (el.id === "vpad-preset-popover" || el.id === "vpad-theme-popover");
+        const inc = isPopover ? 10 : 2;
+        const globalScope = typeof window !== "undefined" ? window : (typeof global !== "undefined" ? global : null);
+        const currentTop = (globalScope && typeof globalScope.__topPanelZIndex === "number")
+            ? globalScope.__topPanelZIndex
+            : topPanelZIndex;
+        topPanelZIndex = Math.max(topPanelZIndex, currentTop) + inc;
         el.style.zIndex = topPanelZIndex;
+        if (globalScope) {
+            globalScope.__topPanelZIndex = topPanelZIndex;
+        }
+        return el;
     }
+
+    function elevatePanel(panelOrId) {
+        return bringPanelToFront(panelOrId);
+    }
+
     if (typeof window !== "undefined") {
-        window.bringPanelToFront = elevatePanel;
+        window.bringPanelToFront = bringPanelToFront;
+        window.elevatePanel = bringPanelToFront;
     }
 
     if (typeof document !== "undefined") {
         const handlePanelElevation = (e) => {
             const panel = e.target && e.target.closest && e.target.closest("#rp-diag-modal, #fnh-cheat-overlay, #vpad-editor-bar, #vpad-prop-panel, #vpad-key-modal");
             if (panel) {
-                elevatePanel(panel);
+                bringPanelToFront(panel);
             }
         };
         document.addEventListener("pointerdown", handlePanelElevation, true);

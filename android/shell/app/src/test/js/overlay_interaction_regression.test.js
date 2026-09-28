@@ -682,3 +682,134 @@ test("Liquid Glass theme: panels styled with squircle 22px, blur(28px), and spec
     assert(joyBody.includes("backdrop-filter: blur(28px) saturate(190%) !important;"), "joystick must have blur(28px) saturate(190%)");
     assert(joyBody.includes("border: 1px solid rgba(255, 255, 255, 0.25) !important;"), "joystick must have 1px solid rim");
 });
+
+test("dynamic panel stacking: opening panel B over panel A, and tapping panel A brings it to front", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(vpadCode, "vpad.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+    const CheatMenu = env.run(cheatCode, "cheat_menu.js");
+    const DiagnosticSuite = env.run(diagnosticCode, "diagnostic_suite.js");
+    env.runTimers();
+    CheatMenu.initDOM();
+    DiagnosticSuite.init();
+
+    const cheatOverlay = env.document.getElementById("fnh-cheat-overlay");
+    const diagModal = env.document.getElementById("rp-diag-modal");
+
+    // 1. Open Panel A (Cheat Menu)
+    CheatMenu.open();
+    assert(cheatOverlay.style.display !== "none", "Cheat overlay must be open");
+    const cheatZ1 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ1 >= 100010, "Cheat overlay must have dynamic elevated z-index");
+
+    // 2. Open Panel B (Diagnostic Suite)
+    DiagnosticSuite.open();
+    assert(diagModal.style.display !== "none", "Diagnostic modal must be open");
+    const diagZ1 = Number(diagModal.style.zIndex || 0);
+    assert(diagZ1 > cheatZ1, "Panel B (Diagnostic Suite) must stack above Panel A (Cheat Menu)");
+
+    // 3. Tap Panel A (pointerdown on cheatOverlay) brings Panel A to front
+    cheatOverlay.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const cheatZ2 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ2 > diagZ1, "Tapping Panel A (pointerdown) must bring it above Panel B");
+
+    // 4. Tap Panel B (mousedown on diagModal) brings Panel B to front
+    diagModal.dispatchEvent({ type: "mousedown", cancelable: true });
+    const diagZ2 = Number(diagModal.style.zIndex || 0);
+    assert(diagZ2 > cheatZ2, "Tapping Panel B (mousedown) must bring it back above Panel A");
+
+    // 5. Test window.bringPanelToFront by ID string without '#'
+    env.window.bringPanelToFront("fnh-cheat-overlay");
+    const cheatZ3 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ3 > diagZ2, "bringPanelToFront(id) without '#' must bring Cheat overlay to front");
+
+    // 6. Test window.bringPanelToFront by selector string with '#'
+    env.window.bringPanelToFront("#rp-diag-modal");
+    const diagZ3 = Number(diagModal.style.zIndex || 0);
+    assert(diagZ3 > cheatZ3, "bringPanelToFront('#id') with '#' must bring Diagnostic modal to front");
+
+    // 7. Test window.elevatePanel alias with DOM element
+    env.window.elevatePanel(cheatOverlay);
+    const cheatZ4 = Number(cheatOverlay.style.zIndex || 0);
+    assert(cheatZ4 > diagZ3, "window.elevatePanel(element) must function identically to bringPanelToFront");
+});
+
+test("editor bar, property panel, and key modal dynamic stacking and toolbar interaction", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(vpadCode, "vpad.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+
+    const gearBtn = env.document.getElementById("vpad-btn-gear");
+    const editorBar = env.document.getElementById("vpad-editor-bar");
+    const propPanel = env.document.getElementById("vpad-prop-panel");
+    const keyModal = env.document.getElementById("vpad-key-modal");
+
+    // 1. Enter edit mode via gear button -> elevates editor bar
+    gearBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert(editorBar.classList.contains("show"), "Editor bar must show");
+    const editorZ1 = Number(editorBar.style.zIndex || 0);
+    assert(editorZ1 >= 100010, "Editor bar must be elevated on open");
+
+    // 2. Select a control to show property panel -> elevates property panel
+    const ctrlEl = env.document.querySelector(".vpad-control-item");
+    assert(ctrlEl, "Must have control item");
+    ctrlEl.dispatchEvent({ type: "mousedown", clientX: 100, clientY: 100, cancelable: true });
+    assert(propPanel.classList.contains("show"), "Property panel must show");
+    const propZ1 = Number(propPanel.style.zIndex || 0);
+    assert(propZ1 > editorZ1, "Property panel must stack above editor bar");
+
+    // 3. Tap editor bar -> elevates editor bar above property panel
+    editorBar.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const editorZ2 = Number(editorBar.style.zIndex || 0);
+    assert(editorZ2 > propZ1, "Tapping editor bar must elevate it above property panel");
+
+    // 4. Tap property panel -> elevates property panel above editor bar
+    propPanel.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const propZ2 = Number(propPanel.style.zIndex || 0);
+    assert(propZ2 > editorZ2, "Tapping property panel must elevate it above editor bar");
+
+    // 5. Open key modal (via Add Custom Control button) -> elevates key modal
+    const addBtn = env.document.getElementById("vpad-bar-add");
+    addBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert(keyModal.classList.contains("show"), "Key modal must show");
+    const keyZ1 = Number(keyModal.style.zIndex || 0);
+    assert(keyZ1 > propZ2, "Key modal must stack above property panel");
+
+    // 6. Tap editor bar -> elevates editor bar above key modal
+    editorBar.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const editorZ3 = Number(editorBar.style.zIndex || 0);
+    assert(editorZ3 > keyZ1, "Tapping editor bar must elevate it above key modal");
+
+    // 7. Tap key modal -> elevates key modal back to top
+    keyModal.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const keyZ2 = Number(keyModal.style.zIndex || 0);
+    assert(keyZ2 > editorZ3, "Tapping key modal must elevate it back to top");
+});
+
+test("popovers stack at least topPanelZIndex + 10 above the editor bar", () => {
+    const env = createEnvironment({ readyState: "complete" });
+    env.run(vpadCode, "vpad.js");
+    env.document.dispatchEvent({ type: "DOMContentLoaded" });
+
+    const gearBtn = env.document.getElementById("vpad-btn-gear");
+    const editorBar = env.document.getElementById("vpad-editor-bar");
+    gearBtn.dispatchEvent({ type: "click", cancelable: true });
+    editorBar.dispatchEvent({ type: "pointerdown", cancelable: true });
+    const editorZ = Number(editorBar.style.zIndex || 0);
+
+    const presetBtn = env.document.getElementById("vpad-bar-preset-btn");
+    const presetPopover = env.document.getElementById("vpad-preset-popover");
+    env.advance(300);
+    presetBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert(presetPopover.classList.contains("show"), "Preset popover must show");
+    const presetZ = Number(presetPopover.style.zIndex || 0);
+    assert(presetZ >= editorZ + 10, "Preset popover must stack at least editorBar.zIndex + 10");
+
+    const themeBtn = env.document.getElementById("vpad-bar-theme-btn");
+    const themePopover = env.document.getElementById("vpad-theme-popover");
+    env.advance(300);
+    themeBtn.dispatchEvent({ type: "click", cancelable: true });
+    assert(themePopover.classList.contains("show"), "Theme popover must show");
+    const themeZ = Number(themePopover.style.zIndex || 0);
+    assert(themeZ >= editorZ + 10, "Theme popover must stack at least editorBar.zIndex + 10");
+});
