@@ -162,17 +162,19 @@
         </div>
         <div class="instruction-grid">
             <div class="instruction-card">
-                <strong>Toolbar & Hide All Controls:</strong>
+                <strong>Toolbar Controls:</strong>
                 • Tombol Utama: Buka / Tutup Menu Toolbar<br>
                 • Icon 👁️ Mata: Hide All ⇄ Show All Kontrol<br>
                 • Icon ⚡ Petir: Buka Modal Cheat Engine<br>
-                • Icon ⚙️ Gear: Layout Editor + Pinch Scale
+                • Icon 🌐 Link: Buka Komunitas Veldra (Native / Web)<br>
+                • Icon 🌊 / 💫: Touch Feedback 3-Mode (All ⇄ Ripple ⇄ OFF) + Toast
             </div>
             <div class="instruction-card">
-                <strong>Micro-Interactions:</strong>
+                <strong>Micro-Interactions & Fit:</strong>
                 • Tekan tombol A/B/DASH/MENU (efek bounce empuk)<br>
                 • Drag / Putar D-Pad & Joystick 360°<br>
-                • Animasi origin-based dua arah mekar & menyusut
+                • Fluid gesture swipe ribbon & ripple<br>
+                • Mobile landscape modal fit (max 78vh / 84vw)
             </div>
         </div>
     </div>
@@ -195,14 +197,23 @@
             onKeyDown: function(code) { console.log("[RuntimePackVPad] onKeyDown:", code); },
             onKeyUp: function(code) { console.log("[RuntimePackVPad] onKeyUp:", code); },
             openUrl: function(url) { window.open(url, "_blank"); },
+            openCommunityLink: function() { console.log("[RuntimePackVPad] openCommunityLink invoked"); window.open("https://linktr.ee/Veldra.Works", "_blank"); },
             setGamepadHidden: function(h) { console.log("[RuntimePackVPad] setGamepadHidden:", h); },
             setOverlayModalOpen: function(o) { console.log("[RuntimePackVPad] setOverlayModalOpen:", o); },
             setOverlayTextFocused: function(f) { console.log("[RuntimePackVPad] setOverlayTextFocused:", f); }
         };
 
-        window.openLinktree = function() {
-            window.open("https://linktr.ee/Veldra.Works", "_blank");
-        };
+        function openCommunityLink() {
+            if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openCommunityLink === "function") {
+                window.RuntimePackVPad.openCommunityLink();
+            } else if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openUrl === "function") {
+                window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works");
+            } else {
+                window.open("https://linktr.ee/Veldra.Works", "_blank");
+            }
+        }
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
 
         function switchTheme(themeId, btn) {
             if (window.RuntimePackTheme && typeof window.RuntimePackTheme.applyTheme === "function") {

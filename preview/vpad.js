@@ -314,6 +314,7 @@
     let state = {
         activePresetId: "preset1",
         activeThemeId: "matte",
+        feedbackMode: "all",
         touchRipple: true,
         hidden: false,
         panelPosition: { x: null, y: null },
@@ -342,7 +343,14 @@
                 if (parsed && parsed.profiles) {
                     state.activePresetId = (parsed.activePresetId && PRESET_TEMPLATES[parsed.activePresetId]) ? parsed.activePresetId : "preset1";
                     state.activeThemeId = (parsed.activeThemeId && THEMES[parsed.activeThemeId]) ? parsed.activeThemeId : "matte";
-                    state.touchRipple = (typeof parsed.touchRipple === "boolean") ? parsed.touchRipple : true;
+                    if (parsed.feedbackMode === "all" || parsed.feedbackMode === "ripple_only" || parsed.feedbackMode === "off") {
+                        state.feedbackMode = parsed.feedbackMode;
+                    } else if (typeof parsed.touchRipple === "boolean") {
+                        state.feedbackMode = parsed.touchRipple ? "all" : "off";
+                    } else {
+                        state.feedbackMode = "all";
+                    }
+                    state.touchRipple = (state.feedbackMode !== "off");
                     state.hidden = Boolean(parsed.hidden);
                     if (parsed.panelPosition && typeof parsed.panelPosition.x === "number") {
                         state.panelPosition = parsed.panelPosition;
@@ -496,28 +504,39 @@
         }
     }
 
-    function openLinktree() {
-        const url = "https://linktr.ee/Veldra.Works";
-        try {
-            if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
-                window.RuntimePackVPad.openUrl(url);
-            } else if (typeof window !== "undefined" && window.cordova && window.cordova.InAppBrowser) {
-                window.cordova.InAppBrowser.open(url, "_system");
-            } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
-                navigator.app.loadUrl(url, { openExternal: true });
-            } else if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_system");
-            } else if (typeof require === "function") {
-                const nw = require("nw.gui");
-                if (nw && nw.Shell) nw.Shell.openExternal(url);
-            } else if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_blank");
-            }
-        } catch (e) {
-            if (typeof window !== "undefined" && window.open) {
-                window.open(url, "_blank");
+    function openCommunityLink() {
+        if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openCommunityLink === "function") {
+            window.RuntimePackVPad.openCommunityLink();
+        } else if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openUrl === "function") {
+            window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works");
+        } else {
+            const url = "https://linktr.ee/Veldra.Works";
+            try {
+                if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.openUrl) {
+                    window.RuntimePackVPad.openUrl(url);
+                } else if (typeof window !== "undefined" && window.cordova && window.cordova.InAppBrowser) {
+                    window.cordova.InAppBrowser.open(url, "_system");
+                } else if (typeof navigator !== "undefined" && navigator.app && navigator.app.loadUrl) {
+                    navigator.app.loadUrl(url, { openExternal: true });
+                } else if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_system");
+                } else if (typeof require === "function") {
+                    const nw = require("nw.gui");
+                    if (nw && nw.Shell) nw.Shell.openExternal(url);
+                } else if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_blank");
+                }
+            } catch (e) {
+                if (typeof window !== "undefined" && window.open) {
+                    window.open(url, "_blank");
+                }
             }
         }
+    }
+    const openLinktree = openCommunityLink;
+    if (typeof window !== "undefined") {
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
     }
 
     let collapseGuardTimestamp = 0;
@@ -729,6 +748,9 @@
         cheat: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
         link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
         gear: `<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        gestureSweep: `<svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M11 15c3.5-1.5 6.5-4.5 8.5-9.5"/><path d="M14 18c2.5-1 5-3 6.5-6.5"/></svg>`,
+        rippleOnly: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5"/></svg>`,
+        rippleOff: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
         ripple: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5"/></svg>`,
         diag: `<svg viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
     };
@@ -772,8 +794,8 @@
                     <div id="vpad-btn-diag" class="vpad-top-btn diag-interactive" title="Diagnostic Suite">
                         ${SVG_ICONS.diag}
                     </div>
-                    <div id="vpad-btn-ripple" class="vpad-top-btn" title="Touchscreen Ripple (On/Off)">
-                        ${SVG_ICONS.ripple}
+                    <div id="vpad-btn-ripple" class="vpad-top-btn active" title="Touch Feedback: Ripple + Trail (All ON)">
+                        ${SVG_ICONS.gestureSweep}
                     </div>
                 </div>
             </div>
@@ -813,6 +835,9 @@
             <div id="vpad-touch-ripple-layer">
                 <canvas id="vpad-trail-canvas"></canvas>
             </div>
+
+            <!-- 1-Second Bottom Pill Toast -->
+            <div id="vpad-touch-toast" class="vpad-pill-toast"></div>
 
             <!-- Gamepad Controls Layer -->
             <div id="vpad-controls"></div>
@@ -925,7 +950,7 @@
         document.body.appendChild(root);
 
         // Hoist floating editor panels directly into body so their stacking context is independent of gameplay buttons
-        ["vpad-editor-bar", "vpad-preset-popover", "vpad-theme-popover", "vpad-prop-panel", "vpad-key-modal"].forEach(id => {
+        ["vpad-editor-bar", "vpad-preset-popover", "vpad-theme-popover", "vpad-prop-panel", "vpad-key-modal", "vpad-touch-toast"].forEach(id => {
             const el = document.getElementById(id);
             if (el) document.body.appendChild(el);
         });
@@ -1140,15 +1165,17 @@
     // ------------------------------------------------------------------------
     const MAX_TRAIL_AGE = 450; // ms (smooth fluid trail length)
     const TRAIL_SAMPLE_DIST_SQ = 9; // >= 3px distance threshold (3 * 3)
-    const trailStrokes = new Map(); // pointerId -> Array<{ x, y, time, width }>
+    const TRAIL_ACTIVATION_DIST_SQ = 100; // >= 10px distance threshold (10 * 10)
+    const trailStrokes = new Map(); // strokeId -> Array<{ x, y, time, width }>
     let trailAnimationFrameId = null;
-    const activeFeedbackPointers = new Map();
+    const activeFeedbackPointers = new Map(); // pid -> { startX, startY, lastX, lastY, strokeId, active }
 
     function getTrailCanvas() {
-        let canvas = document.getElementById("vpad-trail-canvas");
-        if (!canvas) {
+        let canvas = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-trail-canvas") : null;
+        if (!canvas && typeof document !== "undefined" && typeof document.getElementById === "function") {
             const layer = document.getElementById("vpad-touch-ripple-layer");
-            if (layer) {
+            if (layer && typeof document.createElement === "function") {
                 canvas = document.createElement("canvas");
                 canvas.id = "vpad-trail-canvas";
                 layer.appendChild(canvas);
@@ -1209,15 +1236,13 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        for (const [pid, points] of trailStrokes.entries()) {
+        for (const [strokeId, points] of trailStrokes.entries()) {
             while (points.length > 0 && (now - points[0].time) > MAX_TRAIL_AGE) {
                 points.shift();
             }
 
             if (points.length === 0) {
-                if (!activeFeedbackPointers.has(pid) || !activeFeedbackPointers.get(pid).active) {
-                    trailStrokes.delete(pid);
-                }
+                trailStrokes.delete(strokeId);
                 continue;
             }
 
@@ -1229,10 +1254,12 @@
                 const progress = Math.min(1, Math.max(0, age / MAX_TRAIL_AGE));
                 const alpha = Math.max(0, (1 - progress) * 0.85);
                 const radius = Math.max(1, (1 - progress) * (p0.width / 2));
-                ctx.beginPath();
-                ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                ctx.fill();
+                if (alpha > 0) {
+                    ctx.beginPath();
+                    ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+                    ctx.fill();
+                }
             } else {
                 for (let i = 0; i < points.length - 1; i++) {
                     const p0 = points[i];
@@ -1254,7 +1281,7 @@
                     ctx.quadraticCurveTo(p0.x, p0.y, mid.x, mid.y);
                     ctx.lineWidth = segWidth;
                     ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                    ctx.lineCap = "round";
+                    ctx.lineCap = "butt";
                     ctx.lineJoin = "round";
                     ctx.stroke();
 
@@ -1264,10 +1291,23 @@
                         ctx.lineTo(p1.x, p1.y);
                         ctx.lineWidth = segWidth;
                         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-                        ctx.lineCap = "round";
+                        ctx.lineCap = "butt";
                         ctx.lineJoin = "round";
                         ctx.stroke();
                     }
+                }
+
+                // Only draw a round cap / circle at the very leading head (points[points.length - 1])
+                const head = points[points.length - 1];
+                const headAge = now - head.time;
+                const headProgress = Math.min(1, Math.max(0, headAge / MAX_TRAIL_AGE));
+                const headAlpha = Math.max(0, (1 - headProgress) * 0.85);
+                const headRadius = Math.max(1, (1 - headProgress) * (head.width / 2));
+                if (headAlpha > 0) {
+                    ctx.beginPath();
+                    ctx.arc(head.x, head.y, headRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${headAlpha.toFixed(3)})`;
+                    ctx.fill();
                 }
             }
         }
@@ -1297,12 +1337,13 @@
         }
     }
 
-    function addTrailPoint(pid, x, y) {
+    function addTrailPoint(strokeId, x, y) {
+        if (state.feedbackMode !== "all") return;
         const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-        let points = trailStrokes.get(pid);
+        let points = trailStrokes.get(strokeId);
         if (!points) {
             points = [];
-            trailStrokes.set(pid, points);
+            trailStrokes.set(strokeId, points);
         }
         points.push({ x, y, time: now, width: 8 });
         startTrailLoop();
@@ -1311,7 +1352,8 @@
     function clearTrailCanvas() {
         trailStrokes.clear();
         activeFeedbackPointers.clear();
-        const canvas = document.getElementById("vpad-trail-canvas");
+        const canvas = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-trail-canvas") : null;
         if (canvas && typeof canvas.getContext === "function") {
             const ctx = canvas.getContext("2d");
             if (ctx) {
@@ -1333,18 +1375,301 @@
         trailAnimationFrameId = null;
     }
 
+    // ------------------------------------------------------------------------
+    // Touch Feedback 3-State Toggle & Pill Toast Helper
+    // ------------------------------------------------------------------------
+    let touchToastTimer = null;
+    function showTouchToast(message) {
+        if (typeof document === "undefined") return null;
+        let toast = (typeof document.getElementById === "function") ?
+            document.getElementById("vpad-touch-toast") : null;
+        if (!toast && typeof document.createElement === "function") {
+            toast = document.createElement("div");
+            toast.id = "vpad-touch-toast";
+            toast.className = "vpad-pill-toast";
+            if (document.body && typeof document.body.appendChild === "function") {
+                document.body.appendChild(toast);
+            }
+        }
+        if (!toast) return null;
+        toast.textContent = message;
+        if (toast.classList && typeof toast.classList.add === "function") {
+            toast.classList.add("show");
+        }
+        if (touchToastTimer) {
+            clearTimeout(touchToastTimer);
+            touchToastTimer = null;
+        }
+        touchToastTimer = setTimeout(() => {
+            if (toast.classList && typeof toast.classList.remove === "function") {
+                toast.classList.remove("show");
+            }
+            touchToastTimer = null;
+        }, 1000);
+        return toast;
+    }
+
+    function getFeedbackMode() {
+        return state.feedbackMode || "all";
+    }
+
+    function updateRippleBtnUI() {
+        const btn = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-btn-ripple") : null;
+        if (!btn) return;
+        const mode = state.feedbackMode || "all";
+        if (mode === "all") {
+            btn.innerHTML = SVG_ICONS.gestureSweep;
+            if (btn.classList) btn.classList.add("active");
+            btn.title = "Touch Feedback: Ripple + Trail (All ON)";
+        } else if (mode === "ripple_only") {
+            btn.innerHTML = SVG_ICONS.rippleOnly;
+            if (btn.classList) btn.classList.add("active");
+            btn.title = "Touch Feedback: Ripple Only (Trail OFF)";
+        } else {
+            btn.innerHTML = SVG_ICONS.rippleOff;
+            if (btn.classList) btn.classList.remove("active");
+            btn.title = "Touch Feedback: OFF";
+        }
+    }
+
+    function setFeedbackMode(mode) {
+        if (mode === "all" || mode === "ripple_only" || mode === "off") {
+            state.feedbackMode = mode;
+        } else {
+            state.feedbackMode = "all";
+        }
+        state.touchRipple = (state.feedbackMode !== "off");
+        if (state.feedbackMode !== "all" && typeof clearTrailCanvas === "function") {
+            clearTrailCanvas();
+        }
+        saveState();
+        updateRippleBtnUI();
+        return state.feedbackMode;
+    }
+
+    function cycleFeedbackMode() {
+        if (state.feedbackMode === "all") {
+            state.feedbackMode = "ripple_only";
+        } else if (state.feedbackMode === "ripple_only") {
+            state.feedbackMode = "off";
+        } else {
+            state.feedbackMode = "all";
+        }
+        state.touchRipple = (state.feedbackMode !== "off");
+        if (state.feedbackMode !== "all" && typeof clearTrailCanvas === "function") {
+            clearTrailCanvas();
+        }
+        saveState();
+        updateRippleBtnUI();
+
+        const message = state.feedbackMode === "all"
+            ? "Touch Feedback: Ripple + Trail (All ON)"
+            : state.feedbackMode === "ripple_only"
+                ? "Touch Feedback: Ripple Only (Trail OFF)"
+                : "Touch Feedback: OFF";
+        showTouchToast(message);
+        return state.feedbackMode;
+    }
+
+    let lastRippleTime = 0;
+    let lastRippleX = -9999;
+    let lastRippleY = -9999;
+
     function spawnTouchRipple(clientX, clientY) {
-        if (!state.touchRipple) return;
-        const layer = document.getElementById("vpad-touch-ripple-layer");
-        if (!layer) return;
+        if (state.feedbackMode === "off") return;
+        const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        if (now - lastRippleTime < 60 && Math.hypot(clientX - lastRippleX, clientY - lastRippleY) < 15) {
+            return;
+        }
+        lastRippleTime = now;
+        lastRippleX = clientX;
+        lastRippleY = clientY;
+        const layer = (typeof document !== "undefined" && typeof document.getElementById === "function") ?
+            document.getElementById("vpad-touch-ripple-layer") : null;
+        if (!layer || typeof document.createElement !== "function") return;
         const ripple = document.createElement("div");
         ripple.className = "vpad-touch-ripple";
         ripple.style.left = clientX + "px";
         ripple.style.top = clientY + "px";
         layer.appendChild(ripple);
         setTimeout(() => {
-            if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
+            if (ripple.parentNode && typeof ripple.parentNode.removeChild === "function") {
+                ripple.parentNode.removeChild(ripple);
+            }
         }, 380);
+    }
+
+    let trailListenersAttached = false;
+    function setupTrailListeners() {
+        if (trailListenersAttached) return;
+        trailListenersAttached = true;
+
+        window.addEventListener("pointerdown", (e) => {
+            if (isEditMode || state.feedbackMode === "off") return;
+            if (shouldIgnoreTouchForFeedback(e.target)) return;
+            const cx = typeof e.clientX === "number" ? e.clientX : 0;
+            const cy = typeof e.clientY === "number" ? e.clientY : 0;
+            spawnTouchRipple(cx, cy);
+            if (state.feedbackMode !== "all") return;
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            activeFeedbackPointers.set(pid, {
+                startX: cx,
+                startY: cy,
+                lastX: cx,
+                lastY: cy,
+                strokeId: null,
+                active: true
+            });
+            if (e.target && typeof e.target.setPointerCapture === "function" && e.pointerId !== undefined) {
+                try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("pointermove", (e) => {
+            if (isEditMode || state.feedbackMode !== "all") return;
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            let tracked = activeFeedbackPointers.get(pid);
+            if (!tracked || !tracked.active) return;
+
+            const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
+            const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
+
+            if (!tracked.strokeId) {
+                const distSq = (cx - tracked.startX) * (cx - tracked.startX) + (cy - tracked.startY) * (cy - tracked.startY);
+                if (distSq >= TRAIL_ACTIVATION_DIST_SQ) {
+                    const strokeId = "stroke_" + pid + "_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+                    tracked.strokeId = strokeId;
+                    addTrailPoint(strokeId, tracked.startX, tracked.startY);
+                    addTrailPoint(strokeId, cx, cy);
+                    tracked.lastX = cx;
+                    tracked.lastY = cy;
+                }
+            } else {
+                const dx = cx - tracked.lastX;
+                const dy = cy - tracked.lastY;
+                if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                    addTrailPoint(tracked.strokeId, cx, cy);
+                    tracked.lastX = cx;
+                    tracked.lastY = cy;
+                }
+            }
+        }, { passive: true, capture: true });
+
+        // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
+        window.addEventListener("touchstart", (e) => {
+            if (isEditMode || state.feedbackMode === "off") return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                spawnTouchRipple(t.clientX, t.clientY);
+                if (state.feedbackMode !== "all") continue;
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                let tracked = activeFeedbackPointers.get(pid);
+                if (!tracked || !tracked.active) {
+                    activeFeedbackPointers.set(pid, {
+                        startX: t.clientX,
+                        startY: t.clientY,
+                        lastX: t.clientX,
+                        lastY: t.clientY,
+                        strokeId: null,
+                        active: true
+                    });
+                }
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchmove", (e) => {
+            if (isEditMode || state.feedbackMode !== "all") return;
+            if (!e.touches) return;
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+                const pid = t.identifier !== undefined ? t.identifier : 1;
+                let tracked = activeFeedbackPointers.get(pid);
+                if (!tracked || !tracked.active) {
+                    if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
+                    tracked = {
+                        startX: t.clientX,
+                        startY: t.clientY,
+                        lastX: t.clientX,
+                        lastY: t.clientY,
+                        strokeId: null,
+                        active: true
+                    };
+                    activeFeedbackPointers.set(pid, tracked);
+                    continue;
+                }
+                const cx = t.clientX;
+                const cy = t.clientY;
+                if (!tracked.strokeId) {
+                    const distSq = (cx - tracked.startX) * (cx - tracked.startX) + (cy - tracked.startY) * (cy - tracked.startY);
+                    if (distSq >= TRAIL_ACTIVATION_DIST_SQ) {
+                        const strokeId = "stroke_" + pid + "_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+                        tracked.strokeId = strokeId;
+                        addTrailPoint(strokeId, tracked.startX, tracked.startY);
+                        addTrailPoint(strokeId, cx, cy);
+                        tracked.lastX = cx;
+                        tracked.lastY = cy;
+                    }
+                } else {
+                    const dx = cx - tracked.lastX;
+                    const dy = cy - tracked.lastY;
+                    if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                        addTrailPoint(tracked.strokeId, cx, cy);
+                        tracked.lastX = cx;
+                        tracked.lastY = cy;
+                    }
+                }
+            }
+        }, { passive: true, capture: true });
+
+        function resetFeedbackPointer(e) {
+            const pid = e && e.pointerId !== undefined ? e.pointerId : (e && e.identifier !== undefined ? e.identifier : 1);
+            const tracked = activeFeedbackPointers.get(pid);
+            if (tracked) {
+                tracked.active = false;
+            }
+            activeFeedbackPointers.delete(pid);
+        }
+
+        window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
+        window.addEventListener("pointercancel", resetFeedbackPointer, { passive: true, capture: true });
+
+        window.addEventListener("touchend", (e) => {
+            if (e.changedTouches) {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
+                }
+            }
+            if (!e.touches || e.touches.length === 0) {
+                for (const tracked of activeFeedbackPointers.values()) {
+                    tracked.active = false;
+                }
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("touchcancel", (e) => {
+            if (e.changedTouches) {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
+                }
+            }
+            if (!e.touches || e.touches.length === 0) {
+                for (const tracked of activeFeedbackPointers.values()) {
+                    tracked.active = false;
+                }
+                activeFeedbackPointers.clear();
+            }
+        }, { passive: true, capture: true });
+
+        window.addEventListener("blur", () => {
+            for (const tracked of activeFeedbackPointers.values()) {
+                tracked.active = false;
+            }
+            activeFeedbackPointers.clear();
+        }, { passive: true });
     }
 
     function setupOverlayLogic() {
@@ -1503,26 +1828,10 @@
             updateVisibilityBtnUI();
         }
 
-        // Ripple Button: Touchscreen Visual Ripple On/Off Toggle
-        function updateRippleBtnUI() {
-            if (!rippleBtn) return;
-            if (state.touchRipple) {
-                rippleBtn.classList.add("active");
-                rippleBtn.title = "Touchscreen Ripple: ON (Tap to Disable)";
-            } else {
-                rippleBtn.classList.remove("active");
-                rippleBtn.title = "Touchscreen Ripple: OFF (Tap to Enable)";
-            }
-        }
-
+        // Feedback Toggle Button: 3-State Feedback Cycling Toggle (all -> ripple_only -> off -> all)
         if (rippleBtn) {
             bindTap(rippleBtn, () => {
-                state.touchRipple = !state.touchRipple;
-                if (!state.touchRipple && typeof clearTrailCanvas === "function") {
-                    clearTrailCanvas();
-                }
-                saveState();
-                updateRippleBtnUI();
+                cycleFeedbackMode();
             });
             updateRippleBtnUI();
         }
@@ -1540,10 +1849,11 @@
             exitEditMode();
         });
 
-        // Community Linktree
-        window.openLinktree = openLinktree;
+        // Community Link
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
         if (linkBtn) {
-            bindTap(linkBtn, window.openLinktree);
+            bindTap(linkBtn, window.openCommunityLink);
         }
 
         // Cheat Menu
@@ -2020,113 +2330,7 @@
         // --------------------------------------------------------------------
         // HTML5 Canvas Swipe Motion Trail & Visual Ripple Indicator Listeners
         // --------------------------------------------------------------------
-        window.addEventListener("pointerdown", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (shouldIgnoreTouchForFeedback(e.target)) return;
-            spawnTouchRipple(e.clientX, e.clientY);
-            const pid = e.pointerId !== undefined ? e.pointerId : 1;
-            const cx = typeof e.clientX === "number" ? e.clientX : 0;
-            const cy = typeof e.clientY === "number" ? e.clientY : 0;
-            activeFeedbackPointers.set(pid, { lastX: cx, lastY: cy, active: true });
-            addTrailPoint(pid, cx, cy);
-            if (e.target && typeof e.target.setPointerCapture === "function" && e.pointerId !== undefined) {
-                try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("pointermove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            const pid = e.pointerId !== undefined ? e.pointerId : 1;
-            let tracked = activeFeedbackPointers.get(pid);
-            if (!tracked || !tracked.active) return;
-
-            const cx = typeof e.clientX === "number" ? e.clientX : tracked.lastX;
-            const cy = typeof e.clientY === "number" ? e.clientY : tracked.lastY;
-            const dx = cx - tracked.lastX;
-            const dy = cy - tracked.lastY;
-            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
-                addTrailPoint(pid, cx, cy);
-                tracked.lastX = cx;
-                tracked.lastY = cy;
-            }
-        }, { passive: true, capture: true });
-
-        // Touch Events Fallback & Streaming (prevents Android WebView gesture cancel)
-        window.addEventListener("touchstart", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (!e.touches) return;
-            for (let i = 0; i < e.touches.length; i++) {
-                const t = e.touches[i];
-                if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
-                const pid = t.identifier !== undefined ? t.identifier : 1;
-                activeFeedbackPointers.set(pid, { lastX: t.clientX, lastY: t.clientY, active: true });
-                addTrailPoint(pid, t.clientX, t.clientY);
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchmove", (e) => {
-            if (isEditMode || !state.touchRipple) return;
-            if (!e.touches) return;
-            for (let i = 0; i < e.touches.length; i++) {
-                const t = e.touches[i];
-                const pid = t.identifier !== undefined ? t.identifier : 1;
-                let tracked = activeFeedbackPointers.get(pid);
-                if (!tracked || !tracked.active) {
-                    if (shouldIgnoreTouchForFeedback(t.target || e.target)) continue;
-                    tracked = { lastX: t.clientX, lastY: t.clientY, active: true };
-                    activeFeedbackPointers.set(pid, tracked);
-                    addTrailPoint(pid, t.clientX, t.clientY);
-                    continue;
-                }
-                const cx = t.clientX;
-                const cy = t.clientY;
-                const dx = cx - tracked.lastX;
-                const dy = cy - tracked.lastY;
-                if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
-                    addTrailPoint(pid, cx, cy);
-                    tracked.lastX = cx;
-                    tracked.lastY = cy;
-                }
-            }
-        }, { passive: true, capture: true });
-
-        function resetFeedbackPointer(e) {
-            const pid = e && e.pointerId !== undefined ? e.pointerId : 1;
-            const tracked = activeFeedbackPointers.get(pid);
-            if (tracked) {
-                tracked.active = false;
-            }
-            activeFeedbackPointers.delete(pid);
-        }
-
-        window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
-        window.addEventListener("pointercancel", (e) => {
-            // In Android WebView, pointercancel fires when scrolling begins, but touchmove continues.
-            // Only deactivate if there are no active touches.
-            if (!e || e.pointerType !== "touch") {
-                resetFeedbackPointer(e);
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchend", (e) => {
-            if (e.changedTouches) {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    resetFeedbackPointer({ pointerId: e.changedTouches[i].identifier });
-                }
-            }
-            if (!e.touches || e.touches.length === 0) {
-                activeFeedbackPointers.clear();
-            }
-        }, { passive: true, capture: true });
-
-        window.addEventListener("touchcancel", (e) => {
-            if (!e.touches || e.touches.length === 0) {
-                activeFeedbackPointers.clear();
-            }
-        }, { passive: true, capture: true });
-        window.addEventListener("blur", () => {
-            activeFeedbackPointers.clear();
-        }, { passive: true });
+        setupTrailListeners();
 
         window.addEventListener("resize", () => {
             resizeTrailCanvas();
@@ -3070,7 +3274,8 @@
     if (typeof window !== "undefined") {
         window.pressKey = pressKey;
         window.releaseKey = releaseKey;
-        window.openLinktree = openLinktree;
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
         window.vpadSwitchPreset = switchPreset;
         window.shouldIgnoreTouchForFeedback = shouldIgnoreTouchForFeedback;
         window.getTrailCanvas = getTrailCanvas;
@@ -3079,6 +3284,14 @@
         window.clearTrailCanvas = clearTrailCanvas;
         window.addTrailPoint = addTrailPoint;
         window.trailStrokes = trailStrokes;
+        window.activeFeedbackPointers = activeFeedbackPointers;
+        window.setupTrailListeners = setupTrailListeners;
+        window.spawnTouchRipple = spawnTouchRipple;
+        window.showTouchToast = showTouchToast;
+        window.cycleFeedbackMode = cycleFeedbackMode;
+        window.getFeedbackMode = getFeedbackMode;
+        window.setFeedbackMode = setFeedbackMode;
+        window.updateRippleBtnUI = updateRippleBtnUI;
     }
 
     if (typeof module !== "undefined" && module.exports) {
@@ -3086,6 +3299,7 @@
             pressKey,
             releaseKey,
             openLinktree,
+            openCommunityLink,
             setupDirectManipulation,
             setupDpadTouch,
             shouldIgnoreTouchForFeedback,
@@ -3094,7 +3308,16 @@
             renderTrailLoop,
             clearTrailCanvas,
             addTrailPoint,
-            trailStrokes
+            trailStrokes,
+            activeFeedbackPointers,
+            setupTrailListeners,
+            spawnTouchRipple,
+            showTouchToast,
+            cycleFeedbackMode,
+            getFeedbackMode,
+            setFeedbackMode,
+            updateRippleBtnUI,
+            SVG_ICONS
         };
     }
 
