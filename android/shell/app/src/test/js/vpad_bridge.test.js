@@ -70,7 +70,7 @@ global.window = {
 
 // Load vpad.js
 const vpadPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.js");
-const { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch } = require(vpadPath);
+const { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch, shouldIgnoreTouchForFeedback } = require(vpadPath);
 
 // Test 1: pressKey(90) -> window.RuntimePackVPad.onKeyDown(90)
 keyDownCalls.length = 0;
@@ -355,5 +355,52 @@ global.document.hidden = false;
 document.dispatchEvent("visibilitychange", {});
 assert.deepStrictEqual(textFocusCalls, [], "visible document must not toggle overlay text focus");
 console.log("✔ Window blur and hidden document reset RuntimePackVPad.setOverlayTextFocused(false)");
+
+// Test 10: Verify layout default D-Pad cy is raised to ~0.75, icon gear is classic wrench, and Liquid Glass / Matte default
+const vpadSource = fs.readFileSync(path.join(__dirname, "../../main/assets/overlay/vpad.js"), "utf8");
+assert(vpadSource.includes('cx: 0.11, cy: 0.75'), "Preset 1 D-Pad must be positioned at cx: 0.11, cy: 0.75");
+assert(vpadSource.includes('vpad_controller_profiles_v11'), "STORAGE_KEY must be vpad_controller_profiles_v11");
+assert(vpadSource.includes('updateControlHitboxes'), "vpad.js must call updateControlHitboxes");
+assert(vpadSource.includes('M14.7 6.3'), "gear icon must be classic wrench SVG");
+assert(vpadSource.includes('Liquid Glass'), "Liquid Glass theme must be defined");
+assert(vpadSource.includes('activeThemeId: "matte"'), "Default active theme must be Minimalist Matte");
+assert(vpadSource.includes('vpad-touch-ripple'), "vpad.js must implement touchscreen visual ripple");
+console.log("✔ Layout preset D-Pad raised (cy: 0.75), STORAGE_KEY v11, classic wrench icon, Liquid Glass, and Matte default verified");
+
+// Test 11: Universal Thin-Ring Visual Ripple, Swipe Motion Trail, and Touch Feedback Filtering
+const vpadCss = fs.readFileSync(path.join(__dirname, "../../main/assets/overlay/vpad.css"), "utf8");
+// 1. Universal thin 1.5px white ring styling across themes
+assert(vpadCss.includes('border: 1.5px solid rgba(255, 255, 255, 0.9) !important;'), "vpad.css must define universal 1.5px thin white ring");
+assert(vpadCss.includes('background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 55%, transparent 75%) !important;'), "vpad.css must define subtle inner gradient");
+assert(vpadCss.includes('box-shadow: 0 0 6px rgba(0, 0, 0, 0.45) !important;'), "vpad.css must define subtle 6px shadow");
+// 2. Swipe motion trail styling and animation
+assert(vpadCss.includes('.vpad-touch-tail-segment'), "vpad.css must define .vpad-touch-tail-segment");
+assert(vpadCss.includes('background: rgba(255, 255, 255, 0.45);'), "vpad.css must style tail segment with 0.45 background opacity");
+assert(vpadCss.includes('border: 1px solid rgba(255, 255, 255, 0.8);'), "vpad.css must style tail segment with 1px solid white border");
+assert(vpadCss.includes('animation: vpad-tail-fade 0.22s ease-out forwards;'), "vpad.css must define vpad-tail-fade 0.22s animation");
+assert(vpadCss.includes('@keyframes vpad-tail-fade'), "vpad.css must define @keyframes vpad-tail-fade");
+
+// 3. Filter controls from touch feedback in vpad.js
+assert(vpadSource.includes('shouldIgnoreTouchForFeedback'), "vpad.js must implement shouldIgnoreTouchForFeedback");
+assert(vpadSource.includes('.vpad-control-item'), "vpad.js must check .vpad-control-item to ignore button touches for ripples/trails");
+assert(vpadSource.includes('vpad-touch-tail-segment'), "vpad.js must reference vpad-touch-tail-segment");
+
+const makeMockTarget = (matchedSelector) => ({
+    closest: (sel) => sel === matchedSelector ? { className: matchedSelector } : null
+});
+
+assert.strictEqual(typeof shouldIgnoreTouchForFeedback, "function", "shouldIgnoreTouchForFeedback must be a function");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-control-item")), true, "must ignore .vpad-control-item");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-topbar")), true, "must ignore #vpad-topbar");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-editor-bar")), true, "must ignore #vpad-editor-bar");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-prop-panel")), true, "must ignore #vpad-prop-panel");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#vpad-key-modal")), true, "must ignore #vpad-key-modal");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#fnh-cheat-overlay")), true, "must ignore #fnh-cheat-overlay");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("#rp-diag-modal")), true, "must ignore #rp-diag-modal");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget(".vpad-popover")), true, "must ignore .vpad-popover");
+assert.strictEqual(shouldIgnoreTouchForFeedback(makeMockTarget("canvas")), false, "must NOT ignore game canvas");
+assert.strictEqual(shouldIgnoreTouchForFeedback(null), false, "must NOT ignore null target");
+assert.strictEqual(shouldIgnoreTouchForFeedback({}), false, "must NOT ignore plain object without closest/matches");
+console.log("✔ Universal thin-ring ripple, .vpad-touch-tail-segment, and control feedback filtering verified");
 
 console.log("\nAll test assertions passed successfully.");

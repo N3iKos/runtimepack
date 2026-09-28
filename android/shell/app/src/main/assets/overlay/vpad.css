@@ -177,7 +177,7 @@
 #vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(6) { transition-delay: 0.12s; }
 
 /* ============================================================================
-   Touchscreen Visual Ripple Indicator Layer
+   Touchscreen Visual Ripple Indicator Layer & Swipe Motion Trail
    ============================================================================ */
 #vpad-touch-ripple-layer {
     position: fixed;
@@ -198,16 +198,25 @@
     margin-top: -24px;
     border-radius: 50%;
     pointer-events: none;
-    background: radial-gradient(circle, rgba(56, 189, 248, 0.4) 0%, rgba(56, 189, 248, 0.12) 45%, rgba(255, 255, 255, 0.7) 70%, transparent 100%);
-    border: 1.5px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 14px rgba(56, 189, 248, 0.65), inset 0 0 8px rgba(255, 255, 255, 0.6);
+    box-sizing: border-box;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 55%, transparent 75%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45) !important;
     animation: vpad-ripple-pop 0.35s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
 }
 
-body.vpad-theme-matte .vpad-touch-ripple {
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, transparent 100%);
-    border: 1.5px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.6), inset 0 0 4px rgba(255, 255, 255, 0.4);
+.vpad-touch-tail-segment {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    margin-left: -7px;
+    margin-top: -7px;
+    border-radius: 50%;
+    pointer-events: none;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    animation: vpad-tail-fade 0.22s ease-out forwards;
 }
 
 @keyframes vpad-ripple-pop {
@@ -220,6 +229,17 @@ body.vpad-theme-matte .vpad-touch-ripple {
     }
     100% {
         transform: scale(1.65);
+        opacity: 0;
+    }
+}
+
+@keyframes vpad-tail-fade {
+    0% {
+        transform: scale(1);
+        opacity: 0.85;
+    }
+    100% {
+        transform: scale(0.2);
         opacity: 0;
     }
 }

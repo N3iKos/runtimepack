@@ -241,7 +241,7 @@
     // 2. The 5 Presets Templates
     // ------------------------------------------------------------------------
     const TEMPLATE_PRESET_1 = [
-        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.10, cy: 0.84, scale: 1.0, opacity: 0.75, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
+        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.11, cy: 0.75, scale: 1.0, opacity: 0.75, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
         { id: "btn_ok", type: "button", name: "A (OK / Z)", cx: 0.89, cy: 0.84, scale: 1.0, opacity: 0.75, width: 66, height: 66, keyCode: 90, label: "A", style: "green", visible: true },
         { id: "btn_cancel", type: "button", name: "B (Cancel / X)", cx: 0.82, cy: 0.92, scale: 1.0, opacity: 0.75, width: 60, height: 60, keyCode: 88, label: "B", style: "red", visible: true },
         { id: "btn_dash", type: "button", name: "DASH (Shift)", cx: 0.82, cy: 0.76, scale: 1.0, opacity: 0.75, width: 54, height: 54, keyCode: 16, label: "DASH", style: "yellow", visible: true },
@@ -252,7 +252,7 @@
     ];
 
     const TEMPLATE_PRESET_2 = [
-        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.09, cy: 0.86, scale: 0.82, opacity: 0.55, width: 140, height: 140, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
+        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.10, cy: 0.77, scale: 0.82, opacity: 0.55, width: 140, height: 140, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
         { id: "btn_ok", type: "button", name: "A (OK / Z)", cx: 0.90, cy: 0.86, scale: 0.85, opacity: 0.55, width: 66, height: 66, keyCode: 90, label: "A", style: "green", visible: true },
         { id: "btn_cancel", type: "button", name: "B (Cancel / X)", cx: 0.84, cy: 0.93, scale: 0.85, opacity: 0.55, width: 60, height: 60, keyCode: 88, label: "B", style: "red", visible: true },
         { id: "btn_dash", type: "button", name: "DASH (Shift)", cx: 0.84, cy: 0.79, scale: 0.85, opacity: 0.55, width: 54, height: 54, keyCode: 16, label: "DASH", style: "yellow", visible: true },
@@ -263,7 +263,7 @@
     ];
 
     const TEMPLATE_PRESET_3 = [
-        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.12, cy: 0.81, scale: 1.15, opacity: 0.80, width: 154, height: 154, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
+        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.13, cy: 0.72, scale: 1.15, opacity: 0.80, width: 154, height: 154, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
         { id: "btn_ok", type: "button", name: "A (OK / Z)", cx: 0.92, cy: 0.82, scale: 1.25, opacity: 0.80, width: 66, height: 66, keyCode: 90, label: "A", style: "green", visible: true },
         { id: "btn_cancel", type: "button", name: "B (Cancel / X)", cx: 0.83, cy: 0.91, scale: 1.25, opacity: 0.80, width: 60, height: 60, keyCode: 88, label: "B", style: "red", visible: true },
         { id: "btn_dash", type: "button", name: "DASH (Shift)", cx: 0.83, cy: 0.72, scale: 1.20, opacity: 0.80, width: 54, height: 54, keyCode: 16, label: "DASH", style: "yellow", visible: true },
@@ -274,13 +274,13 @@
     ];
 
     const TEMPLATE_PRESET_4 = [
-        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.10, cy: 0.84, scale: 1.0, opacity: 0.65, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
+        { id: "dpad", type: "dpad", name: "D-Pad 8-Way", cx: 0.11, cy: 0.75, scale: 1.0, opacity: 0.65, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
         { id: "btn_ok", type: "button", name: "A (OK)", cx: 0.94, cy: 0.85, scale: 1.05, opacity: 0.70, width: 66, height: 66, keyCode: 90, label: "A", style: "green", visible: true },
         { id: "btn_cancel", type: "button", name: "B (Cancel)", cx: 0.86, cy: 0.92, scale: 1.0, opacity: 0.70, width: 60, height: 60, keyCode: 88, label: "B", style: "red", visible: true }
     ];
 
     const TEMPLATE_PRESET_5 = [
-        { id: "joystick", type: "joystick", name: "Analog Joystick", cx: 0.10, cy: 0.84, scale: 1.0, opacity: 0.75, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
+        { id: "joystick", type: "joystick", name: "Analog Joystick", cx: 0.11, cy: 0.75, scale: 1.0, opacity: 0.75, width: 146, height: 146, visible: true, bindings: { up: 38, down: 40, left: 37, right: 39 } },
         { id: "btn_ok", type: "button", name: "A (South / OK)", cx: 0.86, cy: 0.90, scale: 1.0, opacity: 0.75, width: 58, height: 58, keyCode: 90, label: "A", style: "green", visible: true },
         { id: "btn_cancel", type: "button", name: "B (East / Cancel)", cx: 0.92, cy: 0.81, scale: 1.0, opacity: 0.75, width: 58, height: 58, keyCode: 88, label: "B", style: "red", visible: true },
         { id: "btn_dash", type: "button", name: "X (West / Dash)", cx: 0.80, cy: 0.81, scale: 1.0, opacity: 0.75, width: 58, height: 58, keyCode: 16, label: "X", style: "yellow", visible: true },
@@ -299,19 +299,20 @@
     };
 
     const THEMES = {
-        clean: { id: "clean", name: "Minimalist Glass" },
         matte: { id: "matte", name: "Minimalist Matte" },
+        clean: { id: "clean", name: "Liquid Glass" },
         retro: { id: "retro", name: "Retro OSD" }
     };
 
     // ------------------------------------------------------------------------
     // 3. Persistent State Management
     // ------------------------------------------------------------------------
-    const STORAGE_KEY = "vpad_controller_profiles_v10";
+    const STORAGE_KEY = "vpad_controller_profiles_v11";
 
     let state = {
         activePresetId: "preset1",
-        activeThemeId: "clean",
+        activeThemeId: "matte",
+        touchRipple: true,
         hidden: false,
         panelPosition: { x: null, y: null },
         toolbarPosition: { x: null, y: null },
@@ -338,7 +339,8 @@
                 const parsed = JSON.parse(raw);
                 if (parsed && parsed.profiles) {
                     state.activePresetId = (parsed.activePresetId && PRESET_TEMPLATES[parsed.activePresetId]) ? parsed.activePresetId : "preset1";
-                    state.activeThemeId = (parsed.activeThemeId && THEMES[parsed.activeThemeId]) ? parsed.activeThemeId : "clean";
+                    state.activeThemeId = (parsed.activeThemeId && THEMES[parsed.activeThemeId]) ? parsed.activeThemeId : "matte";
+                    state.touchRipple = (typeof parsed.touchRipple === "boolean") ? parsed.touchRipple : true;
                     state.hidden = Boolean(parsed.hidden);
                     if (parsed.panelPosition && typeof parsed.panelPosition.x === "number") {
                         state.panelPosition = parsed.panelPosition;
@@ -724,7 +726,8 @@
         eyeOff: `<svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
         cheat: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
         link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-        gear: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M9.5 2h5l.6 2.8a7.7 7.7 0 0 1 1.8 1l2.6-1.2 2.5 4.3-2 2a7.7 7.7 0 0 1 0 2.2l2 2-2.5 4.3-2.6 1.2a7.7 7.7 0 0 1-1.8 1L14.5 22h-5l-.6-2.8a7.7 7.7 0 0 1-1.8-1l-2.6 1.2-2.5-4.3 2-2a7.7 7.7 0 0 1 0-2.2l-2-2 2.5-4.3 2.6 1.2a7.7 7.7 0 0 1 1.8-1L9.5 2Z"/></svg>`,
+        gear: `<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        ripple: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5"/></svg>`,
         diag: `<svg viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
     };
 
@@ -750,7 +753,7 @@
                     ${SVG_ICONS.gamepad}
                 </div>
 
-                <!-- Sub-Menu: 1. Gear/Settings, 2. Cheat, 3. Link, 4. Eye/Visibility (setelah link), 5. Diag -->
+                <!-- Sub-Menu: 1. Gear/Settings, 2. Cheat, 3. Link, 4. Eye/Visibility, 5. Diag, 6. Ripple -->
                 <div id="vpad-sub-menu">
                     <div id="vpad-btn-gear" class="vpad-top-btn" title="Layout Editor & Settings">
                         ${SVG_ICONS.gear}
@@ -767,6 +770,9 @@
                     <div id="vpad-btn-diag" class="vpad-top-btn diag-interactive" title="Diagnostic Suite">
                         ${SVG_ICONS.diag}
                     </div>
+                    <div id="vpad-btn-ripple" class="vpad-top-btn" title="Touchscreen Ripple (On/Off)">
+                        ${SVG_ICONS.ripple}
+                    </div>
                 </div>
             </div>
 
@@ -778,7 +784,7 @@
                     <span id="vpad-bar-preset-name">Preset 1 — Standard Default</span> ▼
                 </div>
                 <div id="vpad-bar-theme-btn" class="vpad-bar-btn">
-                    <span id="vpad-bar-theme-name">Theme: Minimalist Glass</span> ▼
+                    <span id="vpad-bar-theme-name">Theme: Minimalist Matte</span> ▼
                 </div>
                 <button id="vpad-bar-add" class="vpad-bar-btn">+ Add Button</button>
                 <button id="vpad-bar-reset" class="vpad-bar-btn">↺ Reset</button>
@@ -796,10 +802,13 @@
 
             <!-- Theme Dropdown Popover -->
             <div id="vpad-theme-popover" class="vpad-popover">
-                <div class="vpad-popover-item" data-id="clean">1. Minimalist Glass (Default)</div>
-                <div class="vpad-popover-item" data-id="matte">2. Minimalist Matte</div>
+                <div class="vpad-popover-item" data-id="matte">1. Minimalist Matte (Default)</div>
+                <div class="vpad-popover-item" data-id="clean">2. Liquid Glass</div>
                 <div class="vpad-popover-item" data-id="retro">3. Retro OSD</div>
             </div>
+
+            <!-- Touchscreen Visual Ripple Layer -->
+            <div id="vpad-touch-ripple-layer"></div>
 
             <!-- Gamepad Controls Layer -->
             <div id="vpad-controls"></div>
@@ -918,7 +927,7 @@
         });
 
         setupOverlayLogic();
-        applyTheme(state.activeThemeId || "clean");
+        applyTheme(state.activeThemeId || "matte");
     }
 
     // ------------------------------------------------------------------------
@@ -996,7 +1005,7 @@
     let opacSliderCtrl = null;
 
     function applyTheme(themeId) {
-        const valid = THEMES[themeId] ? themeId : "clean";
+        const valid = THEMES[themeId] ? themeId : "matte";
         state.activeThemeId = valid;
         if (typeof document !== "undefined" && document.body) {
             document.body.classList.remove("vpad-theme-clean", "vpad-theme-matte", "vpad-theme-retro");
@@ -1021,6 +1030,39 @@
         window.applyVpadTheme = applyTheme;
     }
 
+    function shouldIgnoreTouchForFeedback(target) {
+        if (!target) return false;
+        if (typeof target.closest === "function") {
+            return !!(
+                target.closest(".vpad-control-item") ||
+                target.closest("#vpad-topbar") ||
+                target.closest("#vpad-editor-bar") ||
+                target.closest("#vpad-prop-panel") ||
+                target.closest("#vpad-key-modal") ||
+                target.closest("#fnh-cheat-overlay") ||
+                target.closest("#rp-diag-modal") ||
+                target.closest(".vpad-popover")
+            );
+        }
+        let cur = target;
+        while (cur) {
+            if (typeof cur.matches === "function" && (
+                cur.matches(".vpad-control-item") ||
+                cur.matches("#vpad-topbar") ||
+                cur.matches("#vpad-editor-bar") ||
+                cur.matches("#vpad-prop-panel") ||
+                cur.matches("#vpad-key-modal") ||
+                cur.matches("#fnh-cheat-overlay") ||
+                cur.matches("#rp-diag-modal") ||
+                cur.matches(".vpad-popover")
+            )) {
+                return true;
+            }
+            cur = cur.parentElement;
+        }
+        return false;
+    }
+
     function setupOverlayLogic() {
         const mainTriggerBtn = document.getElementById("vpad-main-trigger-btn");
         const subMenu = document.getElementById("vpad-sub-menu");
@@ -1029,6 +1071,7 @@
         const cheatBtn = document.getElementById("vpad-btn-cheat");
         const linkBtn = document.getElementById("vpad-btn-link");
         const diagBtn = document.getElementById("vpad-btn-diag");
+        const rippleBtn = document.getElementById("vpad-btn-ripple");
 
         const editorBar = document.getElementById("vpad-editor-bar");
         const barDrag = document.getElementById("vpad-bar-drag");
@@ -1122,6 +1165,7 @@
             if (typeof window !== "undefined" && window.RuntimePackVPad && window.RuntimePackVPad.setGamepadHidden) {
                 window.RuntimePackVPad.setGamepadHidden(state.hidden);
             }
+            reportControlHitboxes();
         }
         applyGamepadHidden();
 
@@ -1173,6 +1217,27 @@
                 updateVisibilityBtnUI();
             });
             updateVisibilityBtnUI();
+        }
+
+        // Ripple Button: Touchscreen Visual Ripple On/Off Toggle
+        function updateRippleBtnUI() {
+            if (!rippleBtn) return;
+            if (state.touchRipple) {
+                rippleBtn.classList.add("active");
+                rippleBtn.title = "Touchscreen Ripple: ON (Tap to Disable)";
+            } else {
+                rippleBtn.classList.remove("active");
+                rippleBtn.title = "Touchscreen Ripple: OFF (Tap to Enable)";
+            }
+        }
+
+        if (rippleBtn) {
+            bindTap(rippleBtn, () => {
+                state.touchRipple = !state.touchRipple;
+                saveState();
+                updateRippleBtnUI();
+            });
+            updateRippleBtnUI();
         }
 
         // Layout Editor Gear Button
@@ -1592,6 +1657,73 @@
         document.addEventListener("pointerdown", handleEmptyDeselect);
         document.addEventListener("touchstart", handleEmptyDeselect, { passive: true });
 
+        // Touchscreen Visual Ripple Indicator & Swipe Motion Trail
+        function spawnTouchRipple(clientX, clientY) {
+            if (!state.touchRipple) return;
+            const layer = document.getElementById("vpad-touch-ripple-layer");
+            if (!layer) return;
+            const ripple = document.createElement("div");
+            ripple.className = "vpad-touch-ripple";
+            ripple.style.left = clientX + "px";
+            ripple.style.top = clientY + "px";
+            layer.appendChild(ripple);
+            setTimeout(() => {
+                if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
+            }, 380);
+        }
+
+        function spawnTouchTail(clientX, clientY) {
+            if (!state.touchRipple) return;
+            const layer = document.getElementById("vpad-touch-ripple-layer");
+            if (!layer) return;
+            const tail = document.createElement("div");
+            tail.className = "vpad-touch-tail-segment";
+            tail.style.left = clientX + "px";
+            tail.style.top = clientY + "px";
+            layer.appendChild(tail);
+            setTimeout(() => {
+                if (tail.parentNode) tail.parentNode.removeChild(tail);
+            }, 240);
+        }
+
+        const activeFeedbackPointers = new Map();
+
+        window.addEventListener("pointerdown", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            if (shouldIgnoreTouchForFeedback(e.target)) return;
+            spawnTouchRipple(e.clientX, e.clientY);
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            const cx = typeof e.clientX === "number" ? e.clientX : 0;
+            const cy = typeof e.clientY === "number" ? e.clientY : 0;
+            activeFeedbackPointers.set(pid, { x: cx, y: cy });
+        }, { passive: true, capture: true });
+
+        window.addEventListener("pointermove", (e) => {
+            if (isEditMode || !state.touchRipple) return;
+            const pid = e.pointerId !== undefined ? e.pointerId : 1;
+            const tracked = activeFeedbackPointers.get(pid);
+            if (!tracked) return;
+
+            const cx = typeof e.clientX === "number" ? e.clientX : tracked.x;
+            const cy = typeof e.clientY === "number" ? e.clientY : tracked.y;
+            const dx = cx - tracked.x;
+            const dy = cy - tracked.y;
+            if (dx * dx + dy * dy >= 100) { // ~10px distance threshold
+                spawnTouchTail(cx, cy);
+                tracked.x = cx;
+                tracked.y = cy;
+            }
+        }, { passive: true, capture: true });
+
+        function resetFeedbackPointer(e) {
+            const pid = e && e.pointerId !== undefined ? e.pointerId : 1;
+            activeFeedbackPointers.delete(pid);
+        }
+
+        window.addEventListener("pointerup", resetFeedbackPointer, { passive: true, capture: true });
+        window.addEventListener("pointercancel", resetFeedbackPointer, { passive: true, capture: true });
+        window.addEventListener("blur", () => { activeFeedbackPointers.clear(); }, { passive: true });
+
         window.addEventListener("resize", () => {
             applyToolbarPosition();
             applyPanelPosition();
@@ -1922,6 +2054,26 @@
             const el = container.querySelector(`[data-id="${selectedControlId}"]`);
             if (el) el.classList.add("vpad-selected");
         }
+
+        reportControlHitboxes();
+    }
+
+    function reportControlHitboxes() {
+        if (typeof window === "undefined" || !window.RuntimePackVPad ||
+            typeof window.RuntimePackVPad.updateControlHitboxes !== "function") return;
+        try {
+            const rects = [];
+            const controlsEl = document.getElementById("vpad-controls");
+            if (controlsEl && !controlsEl.classList.contains("vpad-hidden")) {
+                controlsEl.querySelectorAll(".vpad-control-item").forEach(el => {
+                    const r = el.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) return;
+                    rects.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+                });
+            }
+            window.RuntimePackVPad.updateControlHitboxes(JSON.stringify(rects));
+        } catch (ignored) {
+        }
     }
 
     function updateControlDOM(ctrl) {
@@ -2106,6 +2258,7 @@
                 isDragging = false;
                 dragState.type = null;
                 saveState();
+                reportControlHitboxes();
             }
         };
         addControlWindowListener("touchend", handleTouchEnd);
@@ -2158,6 +2311,7 @@
                 isDragging = false;
                 dragState.type = null;
                 saveState();
+                reportControlHitboxes();
             }
         });
     }
@@ -2451,10 +2605,11 @@
         window.releaseKey = releaseKey;
         window.openLinktree = openLinktree;
         window.vpadSwitchPreset = switchPreset;
+        window.shouldIgnoreTouchForFeedback = shouldIgnoreTouchForFeedback;
     }
 
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch };
+        module.exports = { pressKey, releaseKey, openLinktree, setupDirectManipulation, setupDpadTouch, shouldIgnoreTouchForFeedback };
     }
 
     // ------------------------------------------------------------------------
