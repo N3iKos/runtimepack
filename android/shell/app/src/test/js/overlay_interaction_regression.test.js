@@ -1075,3 +1075,43 @@ test("Dynamic panel stacking: single clean event capture without triple-incremen
     const zAfterGesture = Number(diagModal.style.zIndex || 0);
     assert.strictEqual(zAfterGesture, zAfterPointer, "Subsequent touch/mouse events from same gesture must not triple-increment z-index");
 });
+
+test("Compact Mobile Landscape Modal Sizing: #rp-diag-modal and #fnh-cheat-overlay compact boundaries", () => {
+    const cssPath = path.resolve(__dirname, "../../main/assets/overlay/vpad.css");
+    const vpadCss = fs.readFileSync(cssPath, "utf-8");
+
+    // 1. Assert #rp-diag-modal and #fnh-cheat-overlay dimensions in vpad.css
+    assert(vpadCss.includes("max-height: min(78vh, 320px)"), "vpad.css must declare max-height: min(78vh, 320px)");
+    assert(vpadCss.includes("width: min(84vw, 460px)"), "vpad.css must declare width: min(84vw, 460px)");
+
+    // Verify #rp-diag-modal rule
+    const diagMatch = vpadCss.match(/#rp-diag-modal\s*\{[^}]+\}/);
+    assert(diagMatch, "vpad.css must define #rp-diag-modal");
+    assert(diagMatch[0].includes("max-height: min(78vh, 320px)"), "#rp-diag-modal must have max-height: min(78vh, 320px)");
+    assert(diagMatch[0].includes("width: min(84vw, 460px)"), "#rp-diag-modal must have width: min(84vw, 460px)");
+
+    // Verify #fnh-cheat-overlay rule
+    const cheatMatch = vpadCss.match(/#fnh-cheat-overlay\s*\{[^}]+\}/);
+    assert(cheatMatch, "vpad.css must define #fnh-cheat-overlay");
+    assert(cheatMatch[0].includes("max-height: min(78vh, 320px)"), "#fnh-cheat-overlay must have max-height: min(78vh, 320px)");
+    assert(cheatMatch[0].includes("width: min(84vw, 460px)"), "#fnh-cheat-overlay must have width: min(84vw, 460px)");
+
+    // Verify key modal, prop panel, console log, and cheat content compact boundaries
+    assert(vpadCss.includes("min(84vw, 440px)"), "vpad.css must limit key modal box width to min(84vw, 440px)");
+    assert(vpadCss.includes("min(80vw, 290px)"), "vpad.css must limit prop panel width to min(80vw, 290px)");
+    assert(vpadCss.includes("max-height: min(78vh, 310px)"), "vpad.css must limit prop panel max-height to min(78vh, 310px)");
+    assert(vpadCss.includes("max-height: 90px"), "vpad.css must adjust console log box max-height to 90px");
+    assert(vpadCss.includes("max-height: 180px"), "vpad.css must adjust cheat content max-height to 180px");
+    assert(vpadCss.includes("max-height: 140px"), "vpad.css must adjust key modal scroll area max-height to 140px");
+
+    // 2. Verify synchronization in theme packages
+    const themes = ["matte", "liquid_glass", "retro_osd"];
+    themes.forEach(theme => {
+        const themeCssPath = path.resolve(__dirname, "../../../../../../runtimes/themes", theme, "components.css");
+        const themeCss = fs.readFileSync(themeCssPath, "utf-8");
+        assert(themeCss.includes("max-height: min(78vh, 320px)"), `${theme} components.css must declare max-height: min(78vh, 320px)`);
+        assert(themeCss.includes("width: min(84vw, 460px)"), `${theme} components.css must declare width: min(84vw, 460px)`);
+        assert(themeCss.includes("width: min(80vw, 290px)"), `${theme} components.css must limit prop panel width`);
+        assert(themeCss.includes("max-height: 180px"), `${theme} components.css must adjust cheat content max-height`);
+    });
+});

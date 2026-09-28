@@ -176,3 +176,80 @@
   border-color: rgba(255, 255, 255, 0.5);
   transform: scale(0.92);
 }
+
+#rp-diag-modal {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+.diag-console-box,
+.diag-log-box {
+  max-height: 90px;
+}
+
+#fnh-cheat-overlay {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+#fnh-cheat-content,
+#fnh-cheat-body {
+  max-height: 180px;
+}
+
+#fnh-cheat-overlay .fnh-cheat-row {
+  padding: 6px 10px;
+}
+
+#vpad-key-modal .vpad-modal-box {
+  width: min(84vw, 440px);
+  max-height: min(78vh, 320px);
+}
+
+.vpad-modal-scroll-area {
+  max-height: 140px;
+}
+
+#vpad-prop-panel {
+  width: min(80vw, 290px);
+  max-height: min(78vh, 310px);
+}
+
+@media (max-height: 480px) {
+  #rp-diag-modal {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .diag-tab-pane {
+    padding: 8px !important;
+  }
+  .diag-card {
+    padding: 8px !important;
+  }
+  .diag-console-box,
+  .diag-log-box {
+    max-height: 90px !important;
+  }
+  #fnh-cheat-overlay {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  #fnh-cheat-content,
+  #fnh-cheat-body {
+    max-height: 180px !important;
+  }
+  .fnh-cheat-row {
+    padding: 6px 10px !important;
+  }
+  #vpad-key-modal .vpad-modal-box {
+    width: min(84vw, 440px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .vpad-modal-scroll-area {
+    max-height: 140px !important;
+  }
+  #vpad-prop-panel {
+    width: min(80vw, 290px) !important;
+    max-height: min(78vh, 310px) !important;
+  }
+}

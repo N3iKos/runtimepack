@@ -1163,7 +1163,8 @@ body.vpad-theme-retro .vpad-segmented-btn.active {
 /* Floating Inspector Property Panel */
 #vpad-prop-panel {
     position: fixed;
-    width: 255px;
+    width: min(80vw, 290px);
+    max-height: min(78vh, 310px);
     background: rgba(18, 22, 30, 0.94);
     border: 1.5px solid rgba(56, 189, 248, 0.55);
     backdrop-filter: blur(8px);
@@ -1176,6 +1177,7 @@ body.vpad-theme-retro .vpad-segmented-btn.active {
     display: none;
     font-size: 12px;
     touch-action: none !important;
+    overflow-y: auto;
 }
 #vpad-prop-panel.show {
     display: block !important;
@@ -1290,9 +1292,9 @@ body.vpad-theme-retro .vpad-segmented-btn.active {
     display: flex !important;
 }
 .vpad-modal-box {
-    width: 90%;
+    width: min(84vw, 440px);
     max-width: 440px;
-    max-height: 85vh;
+    max-height: min(78vh, 320px);
     background: rgba(18, 22, 30, 0.98);
     border: 1.5px solid var(--vpad-accent-cyan);
     border-radius: 16px;
@@ -1304,6 +1306,10 @@ body.vpad-theme-retro .vpad-segmented-btn.active {
     box-shadow: 0 16px 36px rgba(0,0,0,0.85);
     pointer-events: auto !important;
     touch-action: none !important;
+}
+#vpad-key-modal .vpad-modal-box {
+    width: min(84vw, 440px);
+    max-height: min(78vh, 320px);
 }
 .vpad-modal-header {
     flex-shrink: 0;
@@ -1371,7 +1377,7 @@ body.vpad-theme-retro .vpad-segmented-btn.active {
 }
 .vpad-modal-scroll-area {
     margin: 8px 0;
-    max-height: 180px;
+    max-height: 140px;
     overflow-y: auto !important;
     touch-action: pan-y !important;
     -webkit-overflow-scrolling: touch;
@@ -1456,9 +1462,8 @@ body.vpad-theme-retro #rp-floating-fps {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 94%;
-    max-width: 520px;
-    max-height: 88vh;
+    width: min(84vw, 460px);
+    max-height: min(78vh, 320px);
     background: var(--theme-bg-panel, rgba(15, 23, 42, 0.75));
     border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
     border-radius: var(--theme-radius-panel, 24px);
@@ -1813,11 +1818,13 @@ body.vpad-theme-retro #rp-floating-fps {
     color: #cbd5e1;
 }
 
+.diag-console-box,
 .diag-log-box {
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     height: 135px;
+    max-height: 90px;
     overflow-y: auto;
     padding: 6px 8px;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -1894,9 +1901,8 @@ body.vpad-theme-retro #rp-floating-fps {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 92vw;
-    max-width: 520px;
-    max-height: 86vh;
+    width: min(84vw, 460px);
+    max-height: min(78vh, 320px);
     background: var(--theme-bg-panel, rgba(15, 23, 42, 0.75));
     border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
     border-radius: var(--theme-radius-panel, 24px);
@@ -2015,16 +2021,17 @@ body.vpad-theme-retro #rp-floating-fps {
     background: rgba(56, 189, 248, 0.08);
 }
 
+#fnh-cheat-content,
 #fnh-cheat-body {
     flex: 1;
     overflow-y: auto;
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
-    padding: 10px 12px;
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    min-height: 260px;
+    max-height: 180px;
 }
 
 .fnh-tab-pane {
@@ -2038,7 +2045,7 @@ body.vpad-theme-retro #rp-floating-fps {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 6px 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2527,9 +2534,24 @@ body.vpad-theme-retro .diag-console-pre {
 @media (max-height: 480px) {
     #fnh-cheat-overlay,
     #rp-diag-modal {
-        max-height: 94vh !important;
-        max-width: 96vw !important;
+        width: min(84vw, 460px) !important;
+        max-height: min(78vh, 320px) !important;
         font-size: 11px !important;
+    }
+    #fnh-cheat-content,
+    #fnh-cheat-body {
+        max-height: 180px !important;
+    }
+    #vpad-key-modal .vpad-modal-box {
+        width: min(84vw, 440px) !important;
+        max-height: min(78vh, 320px) !important;
+    }
+    #vpad-prop-panel {
+        width: min(80vw, 290px) !important;
+        max-height: min(78vh, 310px) !important;
+    }
+    .vpad-modal-scroll-area {
+        max-height: 140px !important;
     }
     #fnh-cheat-header,
     #rp-diag-header {
@@ -2569,12 +2591,16 @@ body.vpad-theme-retro .diag-console-pre {
         flex-shrink: 0 !important;
     }
     .diag-body-container,
+    .diag-tab-pane,
     .fnh-modal-body {
         padding: 6px 10px !important;
     }
     .diag-card {
-        padding: 6px 8px !important;
+        padding: 8px !important;
         margin-bottom: 6px !important;
+    }
+    .fnh-cheat-row {
+        padding: 6px 10px !important;
     }
     .diag-card-title {
         font-size: 11px !important;
@@ -2601,12 +2627,14 @@ body.vpad-theme-retro .diag-console-pre {
     .diag-console-section {
         max-height: 110px !important;
     }
+    .diag-console-box,
     .diag-log-box {
-        max-height: 80px !important;
+        max-height: 90px !important;
         font-size: 10px !important;
     }
     .vpad-modal-box {
-        max-height: 94vh !important;
+        width: min(84vw, 440px) !important;
+        max-height: min(78vh, 320px) !important;
         padding: 10px !important;
     }
 }
@@ -2614,7 +2642,8 @@ body.vpad-theme-retro .diag-console-pre {
 @media (max-width: 768px) {
     #fnh-cheat-overlay,
     #rp-diag-modal {
-        max-width: 96vw !important;
+        width: min(84vw, 460px) !important;
+        max-height: min(78vh, 320px) !important;
     }
     .fnh-cheat-tab,
     .diag-tab-btn,
