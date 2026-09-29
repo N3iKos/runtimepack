@@ -9,7 +9,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.InputStream
+import org.json.JSONArray
 
 class WebBridge(private val saveService: SaveService) {
     @JavascriptInterface
@@ -30,6 +32,34 @@ class WebBridge(private val saveService: SaveService) {
     @JavascriptInterface
     fun onFirstFrame() {
         HealthMarker.FIRST_FRAME.emit()
+    }
+
+    @JavascriptInterface
+    fun readdir(relPath: String): String {
+        val clean = relPath.replace('\\', '/').trim('/', '.').lowercase()
+        val prefix = if (clean.isEmpty()) "" else "$clean/"
+        val reader = WebActivity.currentInstance?.gpackReader
+        val gameDir = WebActivity.currentInstance?.gameDirectory
+
+        val packEntries = reader?.fileIndexMap?.keys
+            ?.filter { it.startsWith(prefix) }
+            ?.map { it.removePrefix(prefix).substringBefore('/') }
+            ?.distinct()
+
+        val diskEntries = gameDir?.let {
+            val dir = if (clean.isEmpty()) it else File(it, clean)
+            if (dir.exists() && dir.isDirectory) dir.list()?.toList() else null
+        }
+
+        val result = (packEntries ?: diskEntries ?: emptyList()).distinct()
+        val json = try {
+            org.json.JSONArray(result).toString()
+        } catch (_: Throwable) {
+            null
+        }
+        return if (!json.isNullOrEmpty()) json else result.joinToString(prefix = "[", postfix = "]", separator = ",") {
+            "\"" + it.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }
     }
 }
 

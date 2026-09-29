@@ -19,7 +19,7 @@ class GpackStreamReader private constructor(
     val indexOffset: Long,
     val indexLength: Long,
     val fileCount: Int,
-    private val fileIndexMap: Map<String, IndexEntry>
+    val fileIndexMap: Map<String, IndexEntry>
 ) : AutoCloseable, Closeable {
 
     val isEncrypted: Boolean

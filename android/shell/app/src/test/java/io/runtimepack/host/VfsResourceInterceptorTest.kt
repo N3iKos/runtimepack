@@ -320,4 +320,41 @@ class VfsResourceInterceptorTest {
         val audioResp = interceptor.intercept("https://game.local/audio/se/missing.rpgmvo")
         assertNotNull("Missing .rpgmvo should return empty audio placeholder", audioResp)
     }
+
+    @Test
+    fun testWebBridgeReaddirWithGpackReader() {
+        val gpackBytes = createTestGpack(
+            listOf(
+                "data/System.json" to "{}".toByteArray(Charsets.UTF_8),
+                "data/Map001.json" to "{}".toByteArray(Charsets.UTF_8),
+                "img/pictures/cg1.png" to "png".toByteArray(Charsets.UTF_8)
+            )
+        )
+        GpackStreamReader.open(ByteArrayInputStream(gpackBytes), null).use { reader ->
+            val mockActivity = WebActivity()
+            mockActivity.gpackReader = reader
+            WebActivity.currentInstance = mockActivity
+            try {
+                val bridge = WebBridge(object : SaveService {
+                    override fun openRead(slot: String): java.io.InputStream? = null
+                    override fun openWrite(slot: String): java.io.OutputStream = java.io.ByteArrayOutputStream()
+                    override fun exists(slot: String): Boolean = false
+                    override fun list(): List<String> = emptyList()
+                    override fun delete(slot: String): Boolean = false
+                })
+                val dataJson = bridge.readdir("data")
+                org.junit.Assert.assertTrue("readdir('data') should include system.json", dataJson.contains("\"system.json\""))
+                org.junit.Assert.assertTrue("readdir('data') should include map001.json", dataJson.contains("\"map001.json\""))
+                org.junit.Assert.assertFalse("readdir('data') should not include cg1.png", dataJson.contains("cg1.png"))
+
+                val picJson = bridge.readdir("img/pictures")
+                org.junit.Assert.assertTrue("readdir('img/pictures') should include cg1.png", picJson.contains("\"cg1.png\""))
+
+                val emptyJson = bridge.readdir("nonexistent")
+                org.junit.Assert.assertEquals("[]", emptyJson)
+            } finally {
+                WebActivity.currentInstance = null
+            }
+        }
+    }
 }

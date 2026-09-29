@@ -548,7 +548,37 @@
                 size: exists ? (syncFetch(p) || "").length : 0
             };
         },
-        readdirSync: function() { return []; },
+        readdirSync: function(dirPath) {
+            var clean = String(dirPath || "").replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/$/, "");
+            var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative) || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+            if (nativeBridge && typeof nativeBridge.readdir === "function") {
+                try {
+                    var res = nativeBridge.readdir(clean);
+                    var parsed = JSON.parse(res);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return parsed;
+                    }
+                } catch (e) {}
+            }
+            if (clean === "data" || clean === "") {
+                var mapInfosStr = syncFetch("data/MapInfos.json");
+                if (mapInfosStr) {
+                    var list = ["Actors.json", "Classes.json", "CommonEvents.json", "Enemies.json", "Items.json", "MapInfos.json", "Skills.json", "States.json", "System.json", "Tilesets.json", "Troops.json", "Weapons.json", "Armors.json", "Animations.json"];
+                    try {
+                        var infos = JSON.parse(mapInfosStr);
+                        if (Array.isArray(infos)) {
+                            infos.forEach(function(m) {
+                                if (m && typeof m.id === "number") {
+                                    list.push("Map" + String(m.id).padStart(3, "0") + ".json");
+                                }
+                            });
+                        }
+                    } catch (e) {}
+                    return list;
+                }
+            }
+            return [];
+        },
         unlinkSync: function() {},
         readFile: function(file, opt, cb) {
             var callback = typeof opt === "function" ? opt : cb;

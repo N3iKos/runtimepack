@@ -34,7 +34,9 @@ open class WebActivity : Activity() {
         private val HITBOX_FIELD_RE = Regex("\"(left|top|right|bottom)\"\\s*:\\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)")
         private val HITBOX_OBJECT_RE = Regex("\\{[^{}]*\\}")
 
-        data class ControlHitbox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+        data class ControlHitbox(val left: Float, val top: Float, val right: Float, val bottom: Float, val id: String = "") {
+            constructor(id: String, left: Float, top: Float, right: Float, bottom: Float) : this(left, top, right, bottom, id)
+
             fun containsWithMargin(x: Float, y: Float, margin: Float, density: Float = 1.0f): Boolean {
                 // 1. Direct physical coordinate match (if hitboxes were reported scaled by dpr)
                 if (x in (left - margin)..(right + margin) && y in (top - margin)..(bottom + margin)) {
@@ -232,12 +234,16 @@ open class WebActivity : Activity() {
                 wasCapturedByGame
             }
         }
+
+        @Volatile
+        var currentInstance: WebActivity? = null
     }
 
     var gameWebView: WebView? = null
     var overlayWebView: WebView? = null
     var vfsInterceptor: VfsResourceInterceptor? = null
     var gpackReader: GpackStreamReader? = null
+    var gameDirectory: File? = null
     var webShimsScript: String = ""
 
     @Volatile
@@ -277,6 +283,8 @@ open class WebActivity : Activity() {
         )
 
         val gameDir = File(filesDir, "game")
+        gameDirectory = gameDir
+        currentInstance = this
         AssetAuditService.init(filesDir, "rpgmaker_web", this)
         prepareGameContent(gameDir)
         setupVfs(gameDir)
@@ -853,6 +861,9 @@ open class WebActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (currentInstance === this) {
+            currentInstance = null
+        }
         try {
             gpackReader?.close()
         } catch (_: Exception) {}

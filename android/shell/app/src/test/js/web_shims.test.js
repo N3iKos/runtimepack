@@ -593,4 +593,30 @@ function createSandbox(initialStorageManager) {
     assert.strictEqual(sbLate.Graphics._stretchHeight(), 1080, "Late assigned Graphics._stretchHeight must return 1080");
 }
 
+{
+    const sb = createSandbox();
+    sb.RuntimePackNative = {
+        readdir: function(dir) {
+            if (dir === "data" || dir === "data/") {
+                return JSON.stringify(["System.json", "Map001.json", "Map002.json"]);
+            }
+            if (dir === "img/pictures") {
+                return JSON.stringify(["cg1.png", "cg2.png"]);
+            }
+            return "[]";
+        }
+    };
+    vm.runInContext(shimsCode, sb);
+
+    const fs = vm.runInContext("require('fs')", sb);
+    const dataFiles = fs.readdirSync("data");
+    assert(Array.isArray(dataFiles), "readdirSync must return an array");
+    assert.strictEqual(dataFiles.length, 3, "readdirSync('data') must return 3 files");
+    assert.strictEqual(dataFiles[0], "System.json");
+
+    const pictures = fs.readdirSync("img/pictures");
+    assert.strictEqual(pictures.length, 2);
+    assert.strictEqual(pictures[1], "cg2.png");
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");
