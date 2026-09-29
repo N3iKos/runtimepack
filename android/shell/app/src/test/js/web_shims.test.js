@@ -900,3 +900,76 @@ function createSandbox(initialStorageManager) {
 
     console.log("Engine Input Patch tests PASSED");
 }
+
+{
+    const sb = createSandbox();
+    vm.runInContext(shimsCode, sb);
+
+    vm.runInContext(`
+        function Window_BaseMock() {}
+        Window_BaseMock.prototype.convertEscapeCharacters = function(text) {
+            return text.replace(/\\\\V\\[1\\]/g, "Var1Value");
+        };
+        window.Window_Base = Window_BaseMock;
+
+        function Sprite_ButtonMock() {}
+        window.Sprite_Button = Sprite_ButtonMock;
+
+        if (typeof window.__runtimepackPollHalfMoveCompat === "function") {
+            window.__runtimepackPollHalfMoveCompat();
+        }
+    `, sb);
+
+    assert(vm.runInContext("typeof window.Sprite_Button.prototype.convertEscapeCharacters === 'function'", sb),
+        "Sprite_Button.prototype.convertEscapeCharacters must be a function after patch");
+
+    vm.runInContext(`
+        var button1 = new window.Sprite_Button();
+        var helpWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _helpWindow: helpWin,
+                _windowLayer: { children: [button1, helpWin] }
+            }
+        };
+    `, sb);
+
+    const resHelp = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resHelp, "Var1Value", "convertEscapeCharacters on children[0] (Sprite_Button) must delegate to _helpWindow");
+
+    vm.runInContext(`
+        var button2 = new window.Sprite_Button();
+        var listWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _helpWindow: null,
+                _windowLayer: { children: [button2, listWin] }
+            }
+        };
+    `, sb);
+
+    const resLayer = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resLayer, "Var1Value", "convertEscapeCharacters on children[0] must delegate to first Window_Base child when _helpWindow is null");
+
+    vm.runInContext(`
+        var button3 = new window.Sprite_Button();
+        window.SceneManager = { _scene: null };
+    `, sb);
+
+    const resFallback = vm.runInContext("button3.convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resFallback, "Var1Value", "convertEscapeCharacters on Sprite_Button must fall back to Window_Base prototype when scene has no windows");
+
+    vm.runInContext(`
+        var pcWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _windowLayer: { children: [pcWin] }
+            }
+        };
+    `, sb);
+
+    const resPc = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resPc, "Var1Value", "convertEscapeCharacters on Window_Base children[0] must function unmodified for PC parity");
+
+    console.log("HalfMove Compat tests PASSED");
+}

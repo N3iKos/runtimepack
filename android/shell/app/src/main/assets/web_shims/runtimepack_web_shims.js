@@ -1605,9 +1605,62 @@
             } catch (err) {}
         }
     }
-    // [RP_LOAD_DEBUG] instrumentation end
 
-    // Diekspos untuk test/manual poll (sandbox Node tidak punya setInterval penuh di beberapa konteks)
+    var _compatDummyWindow = null;
+    function patchHalfMoveCompat() {
+        if (root.__runtimepack_halfmove_compat_patched) return;
+        var Sprite_Button = root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button);
+        if (!Sprite_Button || !Sprite_Button.prototype) return;
+
+        root.__runtimepack_halfmove_compat_patched = true;
+
+        Sprite_Button.prototype.convertEscapeCharacters = function(text) {
+            try {
+                var scene = (root.SceneManager && root.SceneManager._scene) ||
+                            (typeof window !== "undefined" && window.SceneManager && window.SceneManager._scene);
+                if (scene) {
+                    if (scene._helpWindow && typeof scene._helpWindow.convertEscapeCharacters === "function") {
+                        return scene._helpWindow.convertEscapeCharacters(text);
+                    }
+                    if (scene._windowLayer && Array.isArray(scene._windowLayer.children)) {
+                        for (var i = 0; i < scene._windowLayer.children.length; i++) {
+                            var child = scene._windowLayer.children[i];
+                            if (child && child !== this && typeof child.convertEscapeCharacters === "function") {
+                                return child.convertEscapeCharacters(text);
+                            }
+                        }
+                    }
+                }
+                var Window_Base = root.Window_Base || (typeof window !== "undefined" && window.Window_Base);
+                if (Window_Base && Window_Base.prototype && typeof Window_Base.prototype.convertEscapeCharacters === "function") {
+                    if (!_compatDummyWindow) {
+                        if (typeof root.Rectangle === "function") {
+                            try {
+                                _compatDummyWindow = new Window_Base(new root.Rectangle(0, 0, 0, 0));
+                            } catch (e) {}
+                        }
+                        if (!_compatDummyWindow) {
+                            _compatDummyWindow = Object.create(Window_Base.prototype);
+                        }
+                    }
+                    if (_compatDummyWindow && typeof _compatDummyWindow.convertEscapeCharacters === "function") {
+                        return _compatDummyWindow.convertEscapeCharacters(text);
+                    }
+                    return Window_Base.prototype.convertEscapeCharacters.call(this, text);
+                }
+            } catch (err) {
+                if (root.console && typeof root.console.warn === "function") {
+                    root.console.warn("[RuntimePack] Sprite_Button.convertEscapeCharacters delegation error:", err);
+                }
+            }
+            return text;
+        };
+
+        try {
+            console.log("[RP_LOAD_DEBUG] halfmove compat applied");
+        } catch (e) {}
+    }
+
     root.__runtimepackPollEngineInput = patchEngineInput;
     if (typeof root.window !== "undefined") {
         root.window.__runtimepackPollEngineInput = patchEngineInput;
@@ -1615,6 +1668,10 @@
     root.__runtimepackPollLoadDebug = patchLoadDebug;
     if (typeof root.window !== "undefined") {
         root.window.__runtimepackPollLoadDebug = patchLoadDebug;
+    }
+    root.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
     }
 
     function pollPatches() {
@@ -1638,6 +1695,9 @@
         }
         if (root.Scene_Load || root.Scene_File || root.Window_SavefileList || root.DataManager || root.StorageManager || root.SceneManager) {
             patchLoadDebug();
+        }
+        if (root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button)) {
+            patchHalfMoveCompat();
         }
     }
 
