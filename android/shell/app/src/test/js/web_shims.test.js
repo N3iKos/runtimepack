@@ -19,7 +19,9 @@ function createSandbox(initialStorageManager) {
             error: console.error,
             info: console.info
         },
-        _warned: warned
+        _warned: warned,
+        btoa: (str) => Buffer.from(str, "binary").toString("base64"),
+        atob: (b64) => Buffer.from(b64, "base64").toString("binary")
     };
     sandbox.window = sandbox;
     sandbox.global = sandbox;
@@ -619,4 +621,282 @@ function createSandbox(initialStorageManager) {
     assert.strictEqual(pictures[1], "cg2.png");
 }
 
-console.log("All Mobile Web Shims tests passed successfully!");
+{
+    // Test: RPG Maker MV Universal Save Adapter
+    const sb = createSandbox();
+    const mvSlots = {};
+
+    sb.RuntimePackNative = {
+        saveSlot: function(ns, slot, payload) {
+            if (ns !== "mv") return false;
+            mvSlots[slot] = payload;
+            return true;
+        },
+        loadSlot: function(ns, slot) {
+            if (ns !== "mv") return null;
+            return mvSlots[slot] !== undefined ? mvSlots[slot] : null;
+        },
+        slotExists: function(ns, slot) {
+            return ns === "mv" && mvSlots[slot] !== undefined;
+        },
+        deleteSlot: function(ns, slot) {
+            if (ns === "mv" && mvSlots[slot] !== undefined) {
+                delete mvSlots[slot];
+                return true;
+            }
+            return false;
+        },
+        listSlots: function(ns) {
+            if (ns !== "mv") return "[]";
+            return JSON.stringify(Object.keys(mvSlots));
+        }
+    };
+
+    // Minimal mock of LZString
+    sb.LZString = {
+        compressToBase64: function(s) { return "lzb64:" + s; },
+        decompressFromBase64: function(s) { return s && s.startsWith("lzb64:") ? s.substring(6) : s; }
+    };
+
+    // Mock MV StorageManager before shims initialization
+    sb.StorageManager = {
+        saveToWebStorage: function() {},
+        loadFromWebStorage: function() {},
+        webStorageExists: function() {},
+        removeWebStorage: function() {},
+        backup: function() {},
+        backupExists: function() {},
+        cleanBackup: function() {},
+        restoreBackup: function() {},
+        loadFromWebStorageBackup: function() {}
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    const sm = sb.StorageManager;
+
+    // 1. Save and Load slot 1
+    sm.saveToWebStorage(1, "{\"party\":[\"Actor1\"]}");
+    assert.strictEqual(sm.webStorageExists(1), true, "Slot 1 must exist");
+    const loadedJson = sm.loadFromWebStorage(1);
+    assert.strictEqual(loadedJson, "{\"party\":[\"Actor1\"]}", "Loaded slot 1 JSON must match original");
+
+    // Check underlying mapped slot in native repository
+    assert.strictEqual(mvSlots["file1"], "lzb64:{\"party\":[\"Actor1\"]}", "Native slot must be mapped to 'file1'");
+
+    // 2. Backup and restore
+    sm.backup(1);
+    assert.strictEqual(sm.backupExists(1), true, "Backup for slot 1 must exist");
+    assert.strictEqual(mvSlots["file1.bak"], "lzb64:{\"party\":[\"Actor1\"]}", "Backup must be saved as file1.bak");
+
+    // Overwrite slot 1 with corrupt data
+    sm.saveToWebStorage(1, "corrupt");
+    assert.strictEqual(sm.loadFromWebStorage(1), "corrupt");
+
+    // Restore backup
+    sm.restoreBackup(1);
+    assert.strictEqual(sm.loadFromWebStorage(1), "{\"party\":[\"Actor1\"]}", "Restored slot 1 must match backup");
+    assert.strictEqual(sm.backupExists(1), false, "Backup must be cleaned up after restore");
+
+    // 3. Config and Global slots
+    sm.saveToWebStorage(-1, "{\"volume\":80}");
+    sm.saveToWebStorage(0, "[null,\"info1\"]");
+    assert.strictEqual(mvSlots["config"], "lzb64:{\"volume\":80}");
+    assert.strictEqual(mvSlots["global"], "lzb64:[null,\"info1\"]");
+    assert.strictEqual(sm.loadFromWebStorage(-1), "{\"volume\":80}");
+    assert.strictEqual(sm.loadFromWebStorage(0), "[null,\"info1\"]");
+}
+
+{
+    // Test: RPG Maker MZ Universal Save Adapter
+    const sb = createSandbox();
+    const storedSlots = {};
+
+    sb.RuntimePackNative = {
+        saveSlot: function(ns, slot, payload) {
+            if (ns !== "mz") return false;
+            storedSlots[slot] = payload;
+            return true;
+        },
+        loadSlot: function(ns, slot) {
+            if (ns !== "mz") return null;
+            return storedSlots[slot] !== undefined ? storedSlots[slot] : null;
+        },
+        slotExists: function(ns, slot) {
+            return ns === "mz" && storedSlots[slot] !== undefined;
+        },
+        deleteSlot: function(ns, slot) {
+            if (ns === "mz" && storedSlots[slot] !== undefined) {
+                delete storedSlots[slot];
+                return true;
+            }
+            return false;
+        },
+        listSlots: function(ns) {
+            if (ns !== "mz") return "[]";
+            return JSON.stringify(Object.keys(storedSlots));
+        }
+    };
+
+    // Mock MZ StorageManager before shims initialization
+    sb.StorageManager = {
+        _forageKeys: [],
+        _forageKeysUpdated: false,
+        forageKey: function(name) { return "rmmzsave.test." + name; },
+        forageTestKey: function() { return "rmmzsave.test"; },
+        saveToForage: function() {},
+        loadFromForage: function() {},
+        forageExists: function(name) { return this._forageKeys.includes(this.forageKey(name)); },
+        removeForage: function() {},
+        updateForageKeys: function() {},
+        forageKeysUpdated: function() { return this._forageKeysUpdated; }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    // 1. Verify updateForageKeys queries native listSlots
+    storedSlots["global"] = Buffer.from("mz_global_data").toString("base64");
+    storedSlots["file1"] = Buffer.from("mz_binary_\x00\x80\xFF_data", "binary").toString("base64");
+
+    const sm = sb.StorageManager;
+    sm.updateForageKeys().then(function() {
+        assert.strictEqual(sm.forageKeysUpdated(), true, "forageKeysUpdated must be true after update");
+        assert.strictEqual(sm.forageExists("global"), true, "forageExists('global') must be true");
+        assert.strictEqual(sm.forageExists("file1"), true, "forageExists('file1') must be true");
+        assert.strictEqual(sm.forageExists("file2"), false, "forageExists('file2') must be false");
+
+        // 2. Verify loadFromForage decodes Base64 preserving binary bytes
+        return sm.loadFromForage("file1");
+    }).then(function(rawZip) {
+        assert.strictEqual(rawZip, "mz_binary_\x00\x80\xFF_data", "loadFromForage must decode raw binary string exactly");
+
+        // 3. Verify saveToForage encodes binary to Base64 and persists to native
+        return sm.saveToForage("file2", "new_save_\x01\x02\xFE");
+    }).then(function() {
+        assert(storedSlots["file2"], "file2 must be stored in native bridge");
+        const decoded = Buffer.from(storedSlots["file2"], "base64").toString("binary");
+        assert.strictEqual(decoded, "new_save_\x01\x02\xFE", "Persisted payload must match original binary bytes");
+        assert.strictEqual(sm.forageExists("file2"), true, "forageExists must report true for newly saved slot");
+
+        // 4. Verify binary strings with UTF-8 lookalike bytes maintain byte length and equality without being mutated
+        const binaryPayload = "mz_save_\xC2\xA0\x00\x80\xFF_bytes";
+        return sm.saveToForage("file3", binaryPayload).then(function() {
+            return sm.loadFromForage("file3");
+        }).then(function(loadedPayload) {
+            assert.strictEqual(loadedPayload.length, binaryPayload.length, "Binary payload length must remain identical");
+            assert.strictEqual(loadedPayload, binaryPayload, "Binary payload with UTF-8 lookalike bytes must not be mutated");
+            return sm.removeForage("file3");
+        });
+    }).then(function() {
+        // 5. Verify removeForage removes from native
+        return sm.removeForage("file2");
+    }).then(function() {
+        assert.strictEqual(storedSlots["file2"], undefined, "file2 must be deleted from native repository");
+        assert.strictEqual(sm.forageExists("file2"), false, "forageExists must be false after deletion");
+        console.log("All Mobile Web Shims tests passed successfully!");
+    }).catch(function(err) {
+        console.error("Test failed in MZ storage promise chain:", err);
+        process.exit(1);
+    });
+}
+
+// ============================================================
+// Engine Input Patch (Touch Ok + moveThreshold + codeMapper + RuntimePackInput)
+// ============================================================
+{
+    const sb = createSandbox();
+    // Mock engine MZ yang dimuat SETELAH shim dieksekusi (late binding)
+    vm.runInContext(shimsCode, sb);
+
+    vm.runInContext(`
+        window.Input = {
+            keyMapper: { 90: "ok", 13: "ok", 27: "escape", 37: "left", 38: "up" },
+            _currentState: {},
+            _latestButton: null,
+            _pressedTime: -1,
+            _date: 0,
+            _onKeyDown: function(event) {
+                var buttonName = this.keyMapper[event.keyCode];
+                if (!buttonName && event.code && this.codeMapper) {
+                    buttonName = this.codeMapper[event.code];
+                }
+                if (buttonName) {
+                    this._currentState[buttonName] = true;
+                }
+            },
+            _onKeyUp: function(event) {
+                var buttonName = this.keyMapper[event.keyCode];
+                if (!buttonName && event.code && this.codeMapper) {
+                    buttonName = this.codeMapper[event.code];
+                }
+                if (buttonName) {
+                    this._currentState[buttonName] = false;
+                }
+            }
+        };
+        window.TouchInput = { moveThreshold: 10 };
+        function Window_SelectableMock() { this._doubleTouch = false; }
+        Window_SelectableMock.prototype.isOkEnabled = function() { return true; };
+        Window_SelectableMock.prototype.isTouchOkEnabled = function() {
+            return this.isOkEnabled() && (this._doubleTouch);
+        };
+        window.Window_Selectable = Window_SelectableMock;
+        function Window_SavefileListMock() { this._doubleTouch = false; }
+        Window_SavefileListMock.prototype = Object.create(Window_SelectableMock.prototype);
+        Window_SavefileListMock.prototype.constructor = Window_SavefileListMock;
+        window.Window_SavefileList = Window_SavefileListMock;
+        // Trigger pollPatches ulang manual (meniru interval di WebView)
+        if (typeof window.__runtimepackPollEngineInput === "function") {
+            window.__runtimepackPollEngineInput();
+        }
+    `, sb);
+
+    // 1. moveThreshold dinaikkan dari 10 -> 24
+    const threshold = vm.runInContext("window.TouchInput.moveThreshold", sb);
+    assert.strictEqual(threshold, 24, "TouchInput.moveThreshold must be raised to 24");
+
+    // 2. Single-tap OK: isTouchOkEnabled harus true TANPA _doubleTouch
+    const touchOk = vm.runInContext(
+        "var w = new Window_SavefileList(); w.isTouchOkEnabled()", sb
+    );
+    assert.strictEqual(touchOk, true,
+        "Window_SavefileList.isTouchOkEnabled must return true on single tap (no doubleTouch)");
+
+    // 3. Window_Selectable umum juga single-tap (mode non-NWjs/mobile)
+    const genericOk = vm.runInContext(
+        "var g = new Window_Selectable(); g.isTouchOkEnabled()", sb
+    );
+    assert.strictEqual(genericOk, true,
+        "Window_Selectable.isTouchOkEnabled must return true in non-NWjs (mobile) environment");
+
+    // 4. Input.codeMapper fallback: event keyCode 0 + code 'KeyZ' -> action 'ok'
+    vm.runInContext(`
+        var fakeEvent = { keyCode: 0, code: "KeyZ" };
+        window.Input._onKeyDown(fakeEvent);
+    `, sb);
+    const okState = vm.runInContext("window.Input._currentState['ok']", sb);
+    assert.strictEqual(okState, true,
+        "Input._onKeyDown must map event.code 'KeyZ' to action 'ok' when keyCode is 0");
+
+    vm.runInContext(`
+        var fakeUp = { keyCode: 0, code: "KeyZ" };
+        window.Input._onKeyUp(fakeUp);
+    `, sb);
+    const okStateAfter = vm.runInContext("window.Input._currentState['ok']", sb);
+    assert.strictEqual(okStateAfter, false,
+        "Input._onKeyUp must release action 'ok' via event.code mapping");
+
+    // 5. RuntimePackInput API
+    assert(vm.runInContext("typeof window.RuntimePackInput === 'object'", sb),
+        "window.RuntimePackInput must be defined");
+    vm.runInContext("window.RuntimePackInput.press('escape')", sb);
+    assert.strictEqual(vm.runInContext("window.Input._currentState['escape']", sb), true,
+        "RuntimePackInput.press('escape') must set Input._currentState.escape = true");
+    vm.runInContext("window.RuntimePackInput.release('escape')", sb);
+    assert.strictEqual(vm.runInContext("window.Input._currentState['escape']", sb), false,
+        "RuntimePackInput.release('escape') must set Input._currentState.escape = false");
+    assert.strictEqual(vm.runInContext("window.RuntimePackInput.isAvailable()", sb), true,
+        "RuntimePackInput.isAvailable() must return true when Input is present");
+
+    console.log("Engine Input Patch tests PASSED");
+}
