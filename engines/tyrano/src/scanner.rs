@@ -1,7 +1,7 @@
 use runtimepack_core::compatibility::{Analyzer, CompatibilityIssue, CompatibilityReport};
 use runtimepack_core::detection::EngineDescriptor;
 use runtimepack_core::diagnostics::{DiagnosticCode, DiagnosticSeverity, RemediationCategory};
-use runtimepack_core::domain::{CompatibilityStatus, EngineId};
+use runtimepack_core::domain::EngineId;
 use runtimepack_core::ingest::GameSourceIndex;
 
 pub struct TyranoAnalyzer;
@@ -140,10 +140,6 @@ impl Analyzer for TyranoAnalyzer {
                     }
                 }
             }
-        }
-
-        if report.status == CompatibilityStatus::Blocked {
-            report.status = CompatibilityStatus::Compatible;
         }
 
         report

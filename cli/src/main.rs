@@ -768,11 +768,6 @@ fn cmd_build(args: BuildArgs) {
             "game contains an unsupported native dependency",
         ));
     }
-    if descriptor.id == EngineId::Tyrano {
-        println!(
-            "Notice:         Tyrano distribution is subject to TYRANO-LEGAL gate review (informational)"
-        );
-    }
 
     // 4. Static Asset Audit and Runtime Resolution
     let audit_options = AssetAuditOptions {

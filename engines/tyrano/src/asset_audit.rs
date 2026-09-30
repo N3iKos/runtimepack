@@ -74,8 +74,6 @@ fn make_finding(
     *finding_counter += 1;
     let (severity, disposition) = if code == DiagnosticCode::CMP_NODE_NATIVE_MODULE {
         (FindingSeverity::Error, FindingDisposition::Blocking)
-    } else if code == DiagnosticCode::TYR_LEGAL_GATE_BLOCKED {
-        (FindingSeverity::Info, FindingDisposition::Informational)
     } else {
         audit_finding_classification(code, requiredness, false)
             .unwrap_or((FindingSeverity::Warning, FindingDisposition::Warning))
@@ -542,8 +540,6 @@ pub struct TyranoAssetAuditor;
 impl TyranoAssetAuditor {
     pub const AUDITOR_ID: &'static str = "tyrano-static-auditor";
     pub const AUDITOR_VERSION: &'static str = "0.1.0";
-    pub const TYR_LEGAL_REDISTRIBUTION_BLOCKED: &'static str =
-        DiagnosticCode::TYR_LEGAL_GATE_BLOCKED;
 
     pub fn new() -> Self {
         Self
@@ -696,16 +692,7 @@ impl AssetAuditor for TyranoAssetAuditor {
             ));
         }
 
-        // 3. Legal Gate: emit informational TYR-101 finding
-        findings.push(make_finding(
-            DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
-            ReferenceRequiredness::Required,
-            "Tyrano packaging remains blocked by the TYRANO-LEGAL gate. Redistribution of TyranoScript requires explicit permission from developer.".to_string(),
-            Vec::new(),
-            &mut finding_counter,
-        ));
-
-        // 4. Runtime entrypoints
+        // 3. Runtime entrypoints
         if effective_source.has_file("index.html") {
             ensure_node(
                 &mut graph,

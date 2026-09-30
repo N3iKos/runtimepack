@@ -143,16 +143,6 @@ fn test_tyrano_unpacked_valid_game() {
     );
     assert!(report.completeness.required_scope_complete);
 
-    // Finding contains TYR_LEGAL_GATE_BLOCKED ("TYR-101") as informational finding
-    assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.code == DiagnosticCode::TYR_LEGAL_GATE_BLOCKED),
-        "Expected TYR-101 finding for legal gate: {:#?}",
-        report.findings
-    );
-
     // Verify graph has nodes and edges
     assert!(report
         .graph
@@ -678,10 +668,6 @@ fn test_tyrano_asar_valid_game() {
         "Expected Pass, findings: {:#?}",
         report.findings
     );
-    assert!(report
-        .findings
-        .iter()
-        .any(|f| f.code == DiagnosticCode::TYR_LEGAL_GATE_BLOCKED));
     assert!(report
         .graph
         .nodes
