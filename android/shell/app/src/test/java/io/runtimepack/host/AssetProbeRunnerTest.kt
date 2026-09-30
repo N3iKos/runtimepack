@@ -8,8 +8,12 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -451,5 +455,93 @@ class AssetProbeRunnerTest {
 
         // Stage counts for DECODE_SUCCESS must only be 1 (for pic.png)
         assertEquals(1, report.stage_counts["DECODE_SUCCESS"])
+    }
+
+    @Test
+    fun testGpackAwareProbingValidatesPackedAssets() {
+        // Create an in-memory GPACK containing valid assets, while gameDir has no files on disk
+        val pngHeader = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val oggHeader = byteArrayOf(0x4F, 0x67, 0x67, 0x53, 0x00, 0x02)
+        val gpackBytes = createTestGpack(
+            listOf(
+                "img/sprite.png" to pngHeader,
+                "audio/bgm.ogg" to oggHeader
+            )
+        )
+
+        GpackStreamReader.open(ByteArrayInputStream(gpackBytes), null).use { reader ->
+            val runner = AssetProbeRunner(
+                gameDir = gameDir, // empty directory
+                stateDir = stateDir,
+                engine = "rpg-maker-mv",
+                mode = ProbeMode.EXHAUSTIVE,
+                gpackReader = reader
+            )
+
+            val report = runner.run()
+
+            assertEquals(RuntimeAuditOutcome.PASS, report.outcome)
+            assertEquals(2, report.total_probed)
+            assertEquals(2, report.passed_count)
+            assertEquals(0, report.failed_count)
+
+            val probedPaths = report.events.map { it.asset_path }.distinct()
+            assertTrue(probedPaths.contains("img/sprite.png"))
+            assertTrue(probedPaths.contains("audio/bgm.ogg"))
+            assertEquals(2, report.stage_counts["FILE_EXISTS"])
+            assertEquals(2, report.stage_counts["FILE_READABLE"])
+            assertEquals(2, report.stage_counts["INTEGRITY_VERIFIED"])
+            assertEquals(1, report.stage_counts["DECODE_SUCCESS"])
+        }
+    }
+
+    private fun createTestGpack(files: List<Pair<String, ByteArray>>): ByteArray {
+        val magic = byteArrayOf(
+            'G'.code.toByte(), 'P'.code.toByte(), 'A'.code.toByte(), 'C'.code.toByte(),
+            'K'.code.toByte(), 0, 1, 0
+        )
+        val headerSize = 64
+        var indexLen = 0
+        for ((path, _) in files) {
+            val pBytes = path.toByteArray(Charsets.UTF_8)
+            indexLen += 4 + pBytes.size + 8 + 8 + 8 + 32 + 1 + 1
+        }
+        val indexOffset = headerSize.toLong()
+        val dataOffset = indexOffset + indexLen
+
+        val headerBuf = ByteArray(64)
+        System.arraycopy(magic, 0, headerBuf, 0, 8)
+        val hWrap = ByteBuffer.wrap(headerBuf).order(ByteOrder.LITTLE_ENDIAN)
+        hWrap.position(8)
+        hWrap.putInt(1)
+        hWrap.putInt(0)
+        hWrap.putLong(indexOffset)
+        hWrap.putLong(indexLen.toLong())
+        hWrap.putInt(files.size)
+
+        val indexBuf = ByteArray(indexLen)
+        val iWrap = ByteBuffer.wrap(indexBuf).order(ByteOrder.LITTLE_ENDIAN)
+
+        var curOffset = dataOffset
+        for ((path, data) in files) {
+            val pBytes = path.toByteArray(Charsets.UTF_8)
+            iWrap.putInt(pBytes.size)
+            iWrap.put(pBytes)
+            iWrap.putLong(curOffset)
+            iWrap.putLong(data.size.toLong())
+            iWrap.putLong(data.size.toLong())
+            iWrap.put(ByteArray(32))
+            iWrap.put(0.toByte())
+            iWrap.put(0.toByte())
+            curOffset += data.size
+        }
+
+        val out = ByteArrayOutputStream()
+        out.write(headerBuf)
+        out.write(indexBuf)
+        for ((_, data) in files) {
+            out.write(data)
+        }
+        return out.toByteArray()
     }
 }

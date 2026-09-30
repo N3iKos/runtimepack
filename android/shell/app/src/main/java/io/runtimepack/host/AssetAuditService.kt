@@ -207,7 +207,8 @@ object AssetAuditService {
                 stateDir = baseFilesDir,
                 engine = currentEngine,
                 mode = requestedMode,
-                context = appContext
+                context = appContext,
+                gpackReader = WebActivity.currentInstance?.gpackReader
             )
             activeRunner = runner
             probeExecutor.submit {
@@ -274,7 +275,8 @@ object AssetAuditService {
             sampleLimitPerCategory = sampleLimitPerCategory,
             checkpointInterval = checkpointInterval,
             timeoutMs = timeoutMs,
-            context = appContext
+            context = appContext,
+            gpackReader = WebActivity.currentInstance?.gpackReader
         )
         activeRunner = runner
         return runner.run()
