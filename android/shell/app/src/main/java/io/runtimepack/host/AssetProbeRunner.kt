@@ -16,7 +16,8 @@ class AssetProbeRunner(
     val timeoutMs: Long = 60000L,
     var bitmapDecoder: BitmapProbeDecoder = DefaultBitmapProbeDecoder,
     var onAssetProbed: ((Int) -> Unit)? = null,
-    val context: Context? = null
+    val context: Context? = null,
+    val gpackReader: GpackStreamReader? = null
 ) {
     private val isCancelled = AtomicBoolean(false)
 
@@ -111,10 +112,13 @@ class AssetProbeRunner(
             }
 
             val relPath = assetsToProbe[i]
+            val reader = gpackReader ?: WebActivity.currentInstance?.gpackReader
+            val hasPackFile = reader?.hasFile(relPath) == true
             val file = File(gameDir, relPath)
+            val exists = hasPackFile || file.exists()
 
             // Stage 1: FILE_EXISTS
-            if (!file.exists()) {
+            if (!exists) {
                 val ev = RuntimeAuditEvent(
                     sequence_id = 0L,
                     stage = RuntimeAuditStage.FILE_EXISTS,
@@ -137,7 +141,11 @@ class AssetProbeRunner(
 
             // Stage 2: FILE_READABLE
             val fis: InputStream = try {
-                val s = FileInputStream(file)
+                val s = if (hasPackFile) {
+                    reader?.openStream(relPath) ?: if (file.exists()) FileInputStream(file) else throw java.io.FileNotFoundException("GPACK stream was null for $relPath")
+                } else {
+                    FileInputStream(file)
+                }
                 stageCounts["FILE_READABLE"] = (stageCounts["FILE_READABLE"] ?: 0) + 1
                 s
             } catch (e: Exception) {
@@ -160,7 +168,12 @@ class AssetProbeRunner(
             }
 
             // Stage 3: INTEGRITY_VERIFIED
-            if (file.length() == 0L) {
+            val isZeroLength = if (hasPackFile) {
+                (reader?.getEntry(relPath)?.size ?: 0L) == 0L
+            } else {
+                file.length() == 0L
+            }
+            if (isZeroLength) {
                 try { fis.close() } catch (_: Exception) {}
                 val ev = RuntimeAuditEvent(
                     sequence_id = 0L,
@@ -390,6 +403,8 @@ class AssetProbeRunner(
     }
 
     private fun discoverAssets(auditDir: File): List<String> {
+        val reader = gpackReader ?: WebActivity.currentInstance?.gpackReader
+
         // 1. Look for asset-dependency-graph.json or asset-audit-report.json in Android assets if context is provided
         if (context != null) {
             try {
@@ -413,7 +428,30 @@ class AssetProbeRunner(
             } catch (_: Throwable) {}
         }
 
-        // 2. Look for asset-dependency-graph.json or asset-audit-report.json on disk
+        // 2. Look for asset-dependency-graph.json or asset-audit-report.json in GPACK
+        if (reader != null) {
+            try {
+                reader.openStream("asset-dependency-graph.json")?.use { stream ->
+                    val text = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val parsed = parseLogicalPathsFromJson(text)
+                    if (parsed.isNotEmpty()) {
+                        return parsed.distinct().sorted()
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            try {
+                reader.openStream("asset-audit-report.json")?.use { stream ->
+                    val text = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val parsed = parseLogicalPathsFromJson(text)
+                    if (parsed.isNotEmpty()) {
+                        return parsed.distinct().sorted()
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 3. Look for asset-dependency-graph.json or asset-audit-report.json on disk
         val graphCandidates = listOfNotNull(
             File(gameDir, "asset-dependency-graph.json"),
             File(auditDir, "asset-dependency-graph.json"),
@@ -433,7 +471,7 @@ class AssetProbeRunner(
             }
         }
 
-        // 3. Fallback: scan gameDir recursively, strictly filtering out non-media files
+        // 4. Fallback: scan gameDir recursively, strictly filtering out non-media files
         val results = mutableListOf<String>()
         if (gameDir.exists() && gameDir.isDirectory) {
             gameDir.walkTopDown().forEach { file ->
@@ -445,6 +483,17 @@ class AssetProbeRunner(
                 }
             }
         }
+
+        // 5. Fallback: scan gpack entries if disk scan found no media files
+        if (results.isEmpty() && reader != null) {
+            for (entry in reader.entries) {
+                val rel = entry.logicalPath.replace('\\', '/').trimStart('/')
+                if (!isExcludedPath(rel) && isValidFallbackMediaExtension(rel)) {
+                    results.add(rel)
+                }
+            }
+        }
+
         return results.distinct().sorted()
     }
 

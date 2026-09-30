@@ -146,7 +146,7 @@ pub fn sanitize_path_str(raw: &str) -> String {
     ];
 
     let segments: Vec<&str> = path_no_home.split('/').filter(|s| !s.is_empty()).collect();
-    if let Some(pos) = segments.iter().rposition(|segment| {
+    if let Some(pos) = segments.iter().position(|segment| {
         let lower = segment.to_ascii_lowercase();
         WELL_KNOWN_DIRS.contains(&lower.as_str())
     }) {
@@ -362,3 +362,20 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_path_str_preserves_js_plugins_prefix() {
+        let input = "js/plugins/inazuma/Activity.js";
+        let sanitized = sanitize_path_str(input);
+        assert_eq!(sanitized, "js/plugins/inazuma/Activity.js");
+
+        let deep_input = "www/js/plugins/inazuma/core/audio/WebAudioEx.js";
+        let deep_sanitized = sanitize_path_str(deep_input);
+        assert_eq!(deep_sanitized, "www/js/plugins/inazuma/core/audio/WebAudioEx.js");
+    }
+}
+
