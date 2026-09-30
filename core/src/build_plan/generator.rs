@@ -1,5 +1,7 @@
 use crate::build_plan::BuildManifest;
 use crate::diagnostics::{DiagnosticCode, DiagnosticError};
+use crate::ingest::{GameSourceIndex, IndexedFile};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -77,6 +79,33 @@ impl AndroidProjectGenerator {
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
     ];
+
+    pub const DEFAULT_PROGUARD_RULES: &'static str = r#"# Preserve all JavascriptInterface methods and their enclosing classes
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keepclasseswithmembernames class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Preserve Activities registered in AndroidManifest.xml
+-keep public class * extends android.app.Activity
+
+# Preserve native JNI methods (SDL, Ruby, mkxp-z, Ren'Py)
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Preserve RuntimeBuildInfo and RuntimeIntegrity constants & classes
+-keep class io.runtimepack.host.RuntimeBuildInfo { *; }
+-keep class io.runtimepack.host.RuntimeIntegrity { *; }
+-keep class io.runtimepack.host.OverlayAssetSource { *; }
+
+# Preserve Gpack models & AssetAudit serialization models
+-keep class io.runtimepack.host.BuildManifestData** { *; }
+-keep class io.runtimepack.host.RuntimeAudit** { *; }
+"#;
 
     pub fn detect_game_profile_id(game_source_dir: &Path) -> Option<String> {
         let path_str = game_source_dir.to_string_lossy().to_lowercase();
@@ -334,7 +363,7 @@ android {{
             signingConfig = signingConfigs.getByName("debug")
         }}
         release {{
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -637,8 +666,41 @@ include(":app")
         );
         fs::write(app_dir.join("build.gradle.kts"), gradle_kts)?;
 
+        // Write app/proguard-rules.pro
+        let proguard_dst = app_dir.join("proguard-rules.pro");
+        if let Some(src) = Self::find_template_file("android/shell/app/proguard-rules.pro") {
+            if fs::copy(&src, &proguard_dst).is_err() {
+                fs::write(&proguard_dst, Self::DEFAULT_PROGUARD_RULES)?;
+            }
+        } else {
+            fs::write(&proguard_dst, Self::DEFAULT_PROGUARD_RULES)?;
+        }
+
+        let effective_flavor = flavor
+            .or(manifest.flavor.as_deref())
+            .or(manifest.provenance.flavor.as_deref())
+            .unwrap_or("beta");
+        let is_release = effective_flavor.eq_ignore_ascii_case("release");
+
+        let overlay_src = Self::find_overlay_src()
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+        let shims_src = Self::find_template_file("android/shell/app/src/main/assets/web_shims")
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/web_shims"));
+        let fonts_src = Self::find_template_file("android/shell/app/src/main/assets/fonts");
+
+        let integrity_hash = Self::compute_runtime_integrity_hash(
+            &overlay_src,
+            &shims_src,
+            fonts_src.as_deref(),
+        ).unwrap_or_default();
+
         // Write build-manifest.json to assets
-        let manifest_json = serde_json::to_string_pretty(manifest)
+        let mut manifest_val = serde_json::to_value(manifest)
+            .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+        if !integrity_hash.is_empty() {
+            manifest_val["runtime_integrity_sha256"] = serde_json::Value::String(integrity_hash.clone());
+        }
+        let manifest_json = serde_json::to_string_pretty(&manifest_val)
             .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         fs::write(assets_dir.join("build-manifest.json"), &manifest_json)?;
 
@@ -682,6 +744,24 @@ include(":app")
             copy_dir_all(&host_java_src, &src_dir)?;
         }
 
+        // Emit generated RuntimeBuildInfo.kt with computed integrity hash and flavor
+        let runtime_build_info_content = format!(
+            r#"package io.runtimepack.host
+
+object RuntimeBuildInfo {{
+    @Volatile
+    var RUNTIME_INTEGRITY_SHA256: String = "{}"
+
+    @Volatile
+    var BUILD_FLAVOR: String = "{}"
+}}
+"#,
+            integrity_hash, effective_flavor
+        );
+        let host_pkg_dir = src_dir.join("io/runtimepack/host");
+        fs::create_dir_all(&host_pkg_dir)?;
+        fs::write(host_pkg_dir.join("RuntimeBuildInfo.kt"), runtime_build_info_content)?;
+
         // Copy native jniLibs
         if let Some(jni_src) = Self::find_template_file("android/shell/app/src/main/jniLibs") {
             let jni_dst = app_dir.join("src/main/jniLibs");
@@ -697,22 +777,18 @@ include(":app")
             }
         }
 
-        // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
+        // Copy overlay assets (vpad.js, cheat_menu.js, index.html) only if not release
         let overlay_dst = assets_dir.join("overlay");
-        let overlay_src = Self::find_overlay_src()
-            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
-        if overlay_src.exists() {
-            copy_dir_all(&overlay_src, &overlay_dst)?;
-        }
-        // Inject game-specific cheat profile or fallback to neutral template
-        Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
+        if !is_release {
+            if overlay_src.exists() {
+                copy_dir_all(&overlay_src, &overlay_dst)?;
+            }
+            // Inject game-specific cheat profile or fallback to neutral template
+            Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
 
-        // Configure watermark injection into assets/overlay based on flavor
-        let effective_flavor = flavor
-            .or(manifest.flavor.as_deref())
-            .or(manifest.provenance.flavor.as_deref())
-            .unwrap_or("beta");
-        Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+            // Configure watermark injection into assets/overlay based on flavor
+            Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+        }
 
         // Theme packaging and themes_manifest.json emission
         if let Some(ref theme_entry) = manifest.themes {
@@ -775,52 +851,58 @@ include(":app")
                     DiagnosticError::from_code(code, clean_msg)
                 })?;
 
-            let themes_dest_dir = overlay_dst.join("themes");
-            fs::create_dir_all(&themes_dest_dir)?;
+            if !is_release {
+                let themes_dest_dir = overlay_dst.join("themes");
+                fs::create_dir_all(&themes_dest_dir)?;
 
-            let mut manifest_items = Vec::new();
-            for theme_id in &theme_entry.selected_themes {
-                let pkg = catalog.get(theme_id).ok_or_else(|| {
-                    DiagnosticError::from_code(
-                        crate::diagnostics::THM_PACKAGE_NOT_FOUND,
-                        format!("Theme package '{}' not found in catalog", theme_id),
-                    )
-                })?;
+                let mut manifest_items = Vec::new();
+                for theme_id in &theme_entry.selected_themes {
+                    let pkg = catalog.get(theme_id).ok_or_else(|| {
+                        DiagnosticError::from_code(
+                            crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                            format!("Theme package '{}' not found in catalog", theme_id),
+                        )
+                    })?;
 
-                let theme_target_dir = themes_dest_dir.join(theme_id);
-                copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
+                    let theme_target_dir = themes_dest_dir.join(theme_id);
+                    copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
 
-                manifest_items.push(crate::build_plan::ThemeManifestItem {
-                    id: pkg.manifest.id.clone(),
-                    name: pkg.manifest.name.clone(),
-                    version: pkg.manifest.version.clone(),
-                    dir: format!("themes/{}", theme_id),
-                });
+                    manifest_items.push(crate::build_plan::ThemeManifestItem {
+                        id: pkg.manifest.id.clone(),
+                        name: pkg.manifest.name.clone(),
+                        version: pkg.manifest.version.clone(),
+                        dir: format!("themes/{}", theme_id),
+                    });
+                }
+
+                let themes_manifest = crate::build_plan::ThemesManifest {
+                    default_theme_id: theme_entry.default_theme.clone(),
+                    themes: manifest_items,
+                };
+
+                let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
+                    .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+                fs::write(
+                    overlay_dst.join("themes_manifest.json"),
+                    themes_manifest_json,
+                )?;
             }
-
-            let themes_manifest = crate::build_plan::ThemesManifest {
-                default_theme_id: theme_entry.default_theme.clone(),
-                themes: manifest_items,
-            };
-
-            let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
-                .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
-            fs::write(
-                overlay_dst.join("themes_manifest.json"),
-                themes_manifest_json,
-            )?;
         }
 
         // Copy web_shims assets (runtimepack_web_shims.js, runtimepack_asset_audit.js)
-        if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
-            let shims_dst = assets_dir.join("web_shims");
-            copy_dir_all(&shims_src, &shims_dst)?;
+        if !is_release {
+            if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
+                let shims_dst = assets_dir.join("web_shims");
+                copy_dir_all(&shims_src, &shims_dst)?;
+            }
         }
 
         // Copy fonts (e.g. VL-Gothic-Regular.ttf)
-        if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
-            let fonts_dst = assets_dir.join("fonts");
-            copy_dir_all(&fonts_src, &fonts_dst)?;
+        if !is_release {
+            if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
+                let fonts_dst = assets_dir.join("fonts");
+                copy_dir_all(&fonts_src, &fonts_dst)?;
+            }
         }
 
         // Copy Android resources (launcher icons, mipmaps)
@@ -913,6 +995,157 @@ kotlin.code.style=official
 
         Ok(())
     }
+
+    pub fn append_runtime_overlay_assets(
+        index: &mut GameSourceIndex,
+        overlay_src: &Path,
+        shims_src: &Path,
+        fonts_src: Option<&Path>,
+    ) -> Result<(), std::io::Error> {
+        let mut add_dir = |dir: &Path, prefix: &str| -> Result<(), std::io::Error> {
+            if !dir.exists() {
+                return Ok(());
+            }
+            let abs_dir = if dir.is_relative() {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(dir))
+                    .unwrap_or_else(|_| dir.to_path_buf())
+            } else {
+                dir.to_path_buf()
+            };
+            for entry in walkdir::WalkDir::new(dir).follow_links(true) {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(err) => {
+                        let err_str = err.to_string();
+                        return Err(err.into_io_error().unwrap_or_else(|| {
+                            std::io::Error::new(std::io::ErrorKind::Other, err_str)
+                        }));
+                    }
+                };
+                if entry.file_type().is_file() {
+                    let path = entry.path();
+                    let rel_path = path.strip_prefix(dir).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
+                    let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+                    let rel_trimmed = rel_str.trim_start_matches('/');
+                    let logical_path = format!("{}/{}", prefix, rel_trimmed);
+                    let size_bytes = entry.metadata()?.len();
+
+                    let indexed_file = IndexedFile::with_source_root(
+                        logical_path.clone(),
+                        rel_path.to_path_buf(),
+                        size_bytes,
+                        Some(abs_dir.clone()),
+                    );
+
+                    if let Some(old) = index.files.insert(logical_path, indexed_file) {
+                        index.total_size_bytes =
+                            index.total_size_bytes.saturating_sub(old.size_bytes);
+                    }
+                    index.total_size_bytes += size_bytes;
+                }
+            }
+            Ok(())
+        };
+
+        add_dir(overlay_src, "overlay")?;
+        add_dir(shims_src, "web_shims")?;
+        if let Some(fonts_dir) = fonts_src {
+            add_dir(fonts_dir, "fonts")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn compute_runtime_integrity_hash_from_entries<B: AsRef<[u8]>>(
+        entries: &[(String, B)],
+    ) -> String {
+        let mut sorted = entries
+            .iter()
+            .map(|(p, b)| {
+                let norm_path = p.replace('\\', "/").trim_start_matches('/').to_lowercase();
+                (norm_path, b.as_ref())
+            })
+            .collect::<Vec<_>>();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut hasher = Sha256::new();
+        for (path, bytes) in sorted {
+            hasher.update(path.as_bytes());
+            hasher.update(&[0u8]);
+            hasher.update(bytes);
+            hasher.update(&[0u8]);
+        }
+        let digest = hasher.finalize();
+        digest.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    pub fn compute_runtime_integrity_hash(
+        overlay_src: &Path,
+        shims_src: &Path,
+        fonts_src: Option<&Path>,
+    ) -> Result<String, std::io::Error> {
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+
+        let mut add_dir = |dir: &Path, prefix: &str| -> Result<(), std::io::Error> {
+            if !dir.exists() {
+                return Ok(());
+            }
+            for entry in walkdir::WalkDir::new(dir).follow_links(true) {
+                let entry = entry.map_err(|e| {
+                    let err_str = e.to_string();
+                    e.into_io_error().unwrap_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::Other, err_str)
+                    })
+                })?;
+                if entry.file_type().is_file() {
+                    let path = entry.path();
+                    let rel_path = path.strip_prefix(dir).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
+                    let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+                    let rel_trimmed = rel_str.trim_start_matches('/');
+                    let logical_path = format!("{}/{}", prefix, rel_trimmed);
+                    let bytes = fs::read(path)?;
+                    entries.push((logical_path, bytes));
+                }
+            }
+            Ok(())
+        };
+
+        add_dir(overlay_src, "overlay")?;
+        add_dir(shims_src, "web_shims")?;
+        if let Some(fonts_dir) = fonts_src {
+            add_dir(fonts_dir, "fonts")?;
+        }
+
+        Ok(Self::compute_runtime_integrity_hash_from_entries(&entries))
+    }
+}
+
+pub fn append_runtime_overlay_assets(
+    index: &mut GameSourceIndex,
+    overlay_src: &Path,
+    shims_src: &Path,
+    fonts_src: Option<&Path>,
+) -> Result<(), std::io::Error> {
+    AndroidProjectGenerator::append_runtime_overlay_assets(index, overlay_src, shims_src, fonts_src)
+}
+
+pub fn compute_runtime_integrity_hash(
+    overlay_src: &Path,
+    shims_src: &Path,
+    fonts_src: Option<&Path>,
+) -> Result<String, std::io::Error> {
+    AndroidProjectGenerator::compute_runtime_integrity_hash(overlay_src, shims_src, fonts_src)
+}
+
+pub fn compute_runtime_integrity_hash_from_entries<B: AsRef<[u8]>>(
+    entries: &[(String, B)],
+) -> String {
+    AndroidProjectGenerator::compute_runtime_integrity_hash_from_entries(entries)
 }
 
 pub fn sanitize_gradle_project_name(name: &str) -> String {

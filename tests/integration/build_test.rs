@@ -2363,10 +2363,24 @@ fn test_build_flavor_release_omits_watermark() {
     .unwrap();
 
     let overlay_dir = project_dir.join("app/src/main/assets/overlay");
-    let vpad_js_path = overlay_dir.join("vpad.js");
-    let index_html_path = overlay_dir.join("index.html");
+    assert!(
+        !overlay_dir.exists(),
+        "Plain overlay dir must NOT exist in release project assets"
+    );
 
-    assert!(overlay_dir.exists(), "Overlay dir must exist");
+    let direct_overlay = temp_dir.join("direct_overlay");
+    std::fs::create_dir_all(&direct_overlay).unwrap();
+    let overlay_src = AndroidProjectGenerator::find_overlay_src().unwrap();
+    for entry in std::fs::read_dir(&overlay_src).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            std::fs::copy(entry.path(), direct_overlay.join(entry.file_name())).unwrap();
+        }
+    }
+    AndroidProjectGenerator::configure_overlay_watermark(&direct_overlay, "release").unwrap();
+
+    let vpad_js_path = direct_overlay.join("vpad.js");
+    let index_html_path = direct_overlay.join("index.html");
 
     let mut combined_content = String::new();
     if vpad_js_path.exists() {
@@ -3314,3 +3328,582 @@ fn test_cli_build_help_mentions_probe_flags() {
         "Help must contain --probe-device"
     );
 }
+
+#[test]
+fn test_release_build_omits_plain_overlay_and_shims_assets() {
+    let temp_dir = test_temp_dir("release-omits-plain-assets");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Release Asset Hardening Test".to_string(),
+            package: "io.runtimepack.test.release".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        !assets_dir.join("overlay").exists(),
+        "assets/overlay must NOT exist in release project build"
+    );
+    assert!(
+        !assets_dir.join("web_shims").exists(),
+        "assets/web_shims must NOT exist in release project build"
+    );
+    assert!(
+        !assets_dir.join("fonts").exists(),
+        "assets/fonts must NOT exist in release project build"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_beta_build_preserves_plain_overlay_and_shims_assets() {
+    let temp_dir = test_temp_dir("beta-preserves-plain-assets");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Beta Asset Hardening Test".to_string(),
+            package: "io.runtimepack.test.beta".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+    )
+    .unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        assets_dir.join("overlay/index.html").exists(),
+        "assets/overlay/index.html must exist in beta project build"
+    );
+    assert!(
+        assets_dir.join("web_shims/runtimepack_web_shims.js").exists(),
+        "assets/web_shims/runtimepack_web_shims.js must exist in beta project build"
+    );
+    assert!(
+        assets_dir.join("fonts/VL-Gothic-Regular.ttf").exists(),
+        "assets/fonts/VL-Gothic-Regular.ttf must exist in beta project build"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_release_gpack_contains_overlay_and_shim_entries() {
+    let fixture = test_temp_dir("release-gpack-fixture");
+    let out_dir = test_temp_dir("release-gpack-out");
+
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Release Pack Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("release")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run runtimepack build");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Build must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    let pack_path = out_dir.join("game.pack");
+    assert!(pack_path.exists(), "game.pack must exist");
+
+    let reader = runtimepack_pack::GpackReader::open(&pack_path)
+        .expect("game.pack must be a valid GPACK");
+
+    assert!(
+        reader.has_file("overlay/index.html"),
+        "game.pack must contain overlay/index.html"
+    );
+    assert!(
+        reader.has_file("web_shims/runtimepack_web_shims.js"),
+        "game.pack must contain web_shims/runtimepack_web_shims.js"
+    );
+    assert!(
+        reader.has_file("fonts/VL-Gothic-Regular.ttf"),
+        "game.pack must contain fonts/VL-Gothic-Regular.ttf"
+    );
+
+    let project_assets = out_dir.join("app/src/main/assets");
+    if project_assets.exists() {
+        assert!(
+            !project_assets.join("overlay").exists(),
+            "plain overlay must not exist in output assets for release"
+        );
+        assert!(
+            !project_assets.join("web_shims").exists(),
+            "plain web_shims must not exist in output assets for release"
+        );
+        assert!(
+            !project_assets.join("fonts").exists(),
+            "plain fonts must not exist in output assets for release"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_compute_runtime_integrity_hash_from_entries_vectors() {
+    use runtimepack_core::build_plan::compute_runtime_integrity_hash_from_entries;
+
+    let v1 = vec![("overlay/test.txt".to_string(), b"hello".to_vec())];
+    let h1 = compute_runtime_integrity_hash_from_entries(&v1);
+    assert_eq!(
+        h1, "b3d9db26cfb28fa5d189b914eb404c61b995a743b9c2e583d155bc1dfcbfaa88",
+        "Single-entry test vector must match Kotlin host exactly"
+    );
+
+    let v2_reverse = vec![
+        ("overlay/b.js".to_string(), b"test".to_vec()),
+        ("fonts/a.ttf".to_string(), b"world".to_vec()),
+    ];
+    let h2 = compute_runtime_integrity_hash_from_entries(&v2_reverse);
+    assert_eq!(
+        h2, "f5f5a7000e20110ccac51637f556b04558263117b9eb36b5db6cb50504bac4a0",
+        "Multi-entry sorted test vector must match Kotlin host exactly"
+    );
+
+    let v2_normalized = vec![
+        ("\\fonts\\a.ttf".to_string(), b"world".to_vec()),
+        ("/overlay/b.js".to_string(), b"test".to_vec()),
+    ];
+    let h2_norm = compute_runtime_integrity_hash_from_entries(&v2_normalized);
+    assert_eq!(h2, h2_norm, "Path normalization must produce identical hash");
+}
+
+#[test]
+fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
+    let temp_dir = test_temp_dir("runtime-build-info-release");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Build Info Release Test".to_string(),
+            package: "io.runtimepack.test.buildinfo".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    assert!(
+        build_info_path.exists(),
+        "RuntimeBuildInfo.kt must be emitted to generated host java sources"
+    );
+
+    let content = std::fs::read_to_string(&build_info_path).unwrap();
+    assert!(
+        content.contains("var BUILD_FLAVOR: String = \"release\""),
+        "BUILD_FLAVOR must be release, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("var RUNTIME_INTEGRITY_SHA256: String = \""),
+        "RUNTIME_INTEGRITY_SHA256 must be emitted, got:\n{}",
+        content
+    );
+
+    // Extract hash from RuntimeBuildInfo.kt
+    let prefix = "var RUNTIME_INTEGRITY_SHA256: String = \"";
+    let start = content.find(prefix).expect("prefix found") + prefix.len();
+    let end = content[start..].find('"').expect("closing quote") + start;
+    let hash_in_code = &content[start..end];
+    assert_eq!(
+        hash_in_code.len(),
+        64,
+        "Integrity hash must be a 64-char hex string: {}",
+        hash_in_code
+    );
+
+    // Verify manifest JSON also contains runtime_integrity_sha256
+    let manifest_path = project_dir.join("app/src/main/assets/build-manifest.json");
+    let manifest_raw = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest_val: serde_json::Value = serde_json::from_str(&manifest_raw).unwrap();
+    assert_eq!(
+        manifest_val.get("runtime_integrity_sha256").and_then(|v| v.as_str()),
+        Some(hash_in_code),
+        "build-manifest.json must contain identical runtime_integrity_sha256"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_emit_project_beta_flavor_runtime_build_info() {
+    let temp_dir = test_temp_dir("runtime-build-info-beta");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Build Info Beta Test".to_string(),
+            package: "io.runtimepack.test.buildinfo.beta".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+    )
+    .unwrap();
+
+    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    let content = std::fs::read_to_string(&build_info_path).unwrap();
+    assert!(
+        content.contains("var BUILD_FLAVOR: String = \"beta\""),
+        "BUILD_FLAVOR must be beta, got:\n{}",
+        content
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_release_project_emits_proguard_rules_and_enables_minify() {
+    let temp_dir = test_temp_dir("release-project-minify");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Release Proguard Test".to_string(),
+            package: "io.runtimepack.test.release".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let build_gradle_path = project_dir.join("app/build.gradle.kts");
+    assert!(
+        build_gradle_path.exists(),
+        "app/build.gradle.kts must exist"
+    );
+    let build_gradle = std::fs::read_to_string(&build_gradle_path).unwrap();
+    assert!(
+        build_gradle.contains("isMinifyEnabled = true"),
+        "release block in app/build.gradle.kts must set isMinifyEnabled = true, got:\n{}",
+        build_gradle
+    );
+
+    let proguard_rules_path = project_dir.join("app/proguard-rules.pro");
+    assert!(
+        proguard_rules_path.exists(),
+        "app/proguard-rules.pro must exist in emitted project"
+    );
+    let proguard_content = std::fs::read_to_string(&proguard_rules_path).unwrap();
+    assert!(
+        proguard_content.contains("@android.webkit.JavascriptInterface"),
+        "proguard-rules.pro must keep @android.webkit.JavascriptInterface, got:\n{}",
+        proguard_content
+    );
+    assert!(
+        proguard_content.contains("io.runtimepack.host.RuntimeIntegrity"),
+        "proguard-rules.pro must keep RuntimeIntegrity"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+

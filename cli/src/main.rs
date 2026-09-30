@@ -1023,21 +1023,10 @@ fn cmd_build(args: BuildArgs) {
         }
     }
 
-    let total_bytes = if content_source_dir == *path {
-        let content_index = renpy_launcher_alias.as_ref().unwrap_or(&source_index);
-        match GpackPacker::pack_from_index_with_options(
-            content_index,
-            &pack_path,
-            encryption_key.as_ref(),
-        ) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("[CNT-102] Failed to pack content: {}", e);
-                std::process::exit(1);
-            }
-        }
+    let mut pack_index = if content_source_dir == *path {
+        renpy_launcher_alias.unwrap_or_else(|| source_index.clone())
     } else {
-        let normalized_index = match GameSourceIndex::build_with_auto_rtp(
+        match GameSourceIndex::build_with_auto_rtp(
             &content_source_dir,
             source_index.rtp_path().or(rtp_path),
         ) {
@@ -1046,17 +1035,37 @@ fn cmd_build(args: BuildArgs) {
                 eprintln!("[ING-101] Failed to ingest content source: {}", e);
                 std::process::exit(1);
             }
-        };
-        match GpackPacker::pack_from_index_with_options(
-            &normalized_index,
-            &pack_path,
-            encryption_key.as_ref(),
+        }
+    };
+
+    if normalized_flavor == "release" {
+        println!("Hardening: bundling overlay, web shims, and fonts into GPACK (plain assets omitted)");
+        let overlay_src = AndroidProjectGenerator::find_overlay_src()
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+        let shims_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/web_shims")
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/web_shims"));
+        let fonts_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/fonts");
+
+        if let Err(e) = AndroidProjectGenerator::append_runtime_overlay_assets(
+            &mut pack_index,
+            &overlay_src,
+            &shims_src,
+            fonts_src.as_deref(),
         ) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("[CNT-102] Failed to pack content: {}", e);
-                std::process::exit(1);
-            }
+            eprintln!("[CNT-102] Failed to bundle runtime overlay assets: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    let total_bytes = match GpackPacker::pack_from_index_with_options(
+        &pack_index,
+        &pack_path,
+        encryption_key.as_ref(),
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[CNT-102] Failed to pack content: {}", e);
+            std::process::exit(1);
         }
     };
 
