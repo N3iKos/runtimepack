@@ -118,13 +118,49 @@ object RuntimeIntegrity {
     private fun showCorruptedScreen(activity: Activity, code: String, detail: String) {
         activity.runOnUiThread {
             try {
-                activity.setContentView(R.layout.activity_corrupted)
-                val tvCode = activity.findViewById<android.widget.TextView>(R.id.tv_error_code)
-                tvCode?.text = "ERROR: $code ($detail)"
-                val btnExit = activity.findViewById<android.widget.Button>(R.id.btn_exit)
-                btnExit?.setOnClickListener {
-                    activity.finishAffinity()
-                    kotlin.system.exitProcess(1)
+                val pkg = activity.packageName
+                val layoutResId = activity.resources.getIdentifier("activity_corrupted", "layout", pkg)
+                if (layoutResId != 0) {
+                    activity.setContentView(layoutResId)
+                    val tvCodeId = activity.resources.getIdentifier("tv_error_code", "id", pkg)
+                    val tvCode = if (tvCodeId != 0) activity.findViewById<android.widget.TextView>(tvCodeId) else null
+                    tvCode?.text = "ERROR: $code ($detail)"
+                    val btnExitId = activity.resources.getIdentifier("btn_exit", "id", pkg)
+                    val btnExit = if (btnExitId != 0) activity.findViewById<android.widget.Button>(btnExitId) else null
+                    btnExit?.setOnClickListener {
+                        activity.finishAffinity()
+                        kotlin.system.exitProcess(1)
+                    }
+                } else {
+                    val layout = android.widget.LinearLayout(activity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        gravity = android.view.Gravity.CENTER
+                        setBackgroundColor(0xFF121212.toInt())
+                        setPadding(48, 48, 48, 48)
+                    }
+                    val tvTitle = android.widget.TextView(activity).apply {
+                        text = "APPLICATION CORRUPTED"
+                        setTextColor(0xFFFF5252.toInt())
+                        textSize = 22f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                    }
+                    val tvCode = android.widget.TextView(activity).apply {
+                        text = "ERROR: $code ($detail)"
+                        setTextColor(0xFFE0E0E0.toInt())
+                        textSize = 14f
+                        setPadding(0, 32, 0, 32)
+                    }
+                    val btnExit = android.widget.Button(activity).apply {
+                        text = "Exit"
+                        setOnClickListener {
+                            activity.finishAffinity()
+                            kotlin.system.exitProcess(1)
+                        }
+                    }
+                    layout.addView(tvTitle)
+                    layout.addView(tvCode)
+                    layout.addView(btnExit)
+                    activity.setContentView(layout)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to inflate activity_corrupted: ${e.message}", e)
