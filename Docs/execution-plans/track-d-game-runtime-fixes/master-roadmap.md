@@ -1,6 +1,6 @@
-# Master Roadmap: Track D — Game Runtime Fixes (Show Off & Mizuki And Me)
+# Master Roadmap: Track D — Game Runtime Fixes & Universal Runtime Infrastructure
 
-**Date:** 2026-09-27  
+**Date:** 2026-09-29  
 **Status:** Approved  
 **Spec:** `Docs/execution-plans/track-d-game-runtime-fixes/design.md`
 
@@ -8,29 +8,40 @@
 
 ## 1. Objective
 
-Make **both** ported games playable, normal, and stable on Android (MuMu emulator), executed strictly sequentially, all work delegated to sub-agents.
+Make ported games playable, normal, and stable across all supported engines on Android (MuMu emulator), followed by hardening the universal VFS and overlay layer to guarantee zero regressions for future ports. All implementation work is executed strictly sequentially and delegated to sub-agents.
 
 ## 2. Execution Order & Gates
 
 ```text
-Track 1: Show Off (TyranoScript)  [Fast — 1-line root cause + integrity gate]
-   │  Gate: title screen renders, audio + input work, logcat free of SyntaxError
+Track 1: Show Off (TyranoScript)               [COMPLETED & PLAYABLE]
+   │  Gate: ASAR 3-byte offset fix + SHA-256 integrity gate. Verified on MuMu.
    ▼
-Track 2: Mizuki And Me (Ren'Py)   [Heavy — new Android runtime subsystem]
-   │  Gate: boots to title screen, navigation + save/load work on MuMu
+Track 2: Mizuki And Me (Ren'Py 8 / Python 3.9) [COMPLETED & PLAYABLE]
+   │  Gate: Official RAPT 8.3.7 arm64 runtime + RenpyBootstrapActivity + pyjnius bridge. Verified on MuMu.
+   ▼
+Track 3: Ren'Py Overlay & Touch Routing        [READY FOR SUBAGENT EXECUTION]
+   │  Gate: Transparent overlayWebView on mLayout, RuntimePackVPad bridge,
+   │        precision hit-tested touch pass-through to mSurface, lifecycle sync.
+   ▼
+Track 4: 4 Pillars of Universal RPG Maker VFS  [READY FOR SUBAGENT EXECUTION]
+   │  Gate: In-memory readdirSync, fast stat/exists bridge, O(1) VFS HashMap resolver,
+   │        VFS-aware AssetProbeRunner, and compiler path sanitizer fix.
    ▼
 Done
 ```
 
 ## 3. Plan Directory
 
-| Order | Plan | Engine | Runtime Approach |
-| :---: | :--- | :--- | :--- |
-| 1 | `./track-1-show-off-plan.md` | TyranoScript | Fix `asar.rs` data offset + post-pack integrity gate |
-| 2 | `./track-2-mizuki-renpy-plan.md` | Ren'Py | Bundle official RAPT runtime + `RenpyActivity.kt` |
+| Track | Plan Document | Scope | Status |
+| :---: | :--- | :--- | :---: |
+| 1 | `./track-1-show-off-plan.md` | TyranoScript ASAR offset fix + integrity gate | **COMPLETED** |
+| 2 | `./track-2-mizuki-renpy-plan.md` | Official RAPT 8.3.7 runtime + `RenpyActivity.kt` | **COMPLETED** |
+| 3 | `./track-3-renpy-overlay-and-rpgm-universal-vfs-plan.md` (Part 1) | Ren'Py overlay integration & touch routing | **PENDING EXECUTION** |
+| 4 | `./track-3-renpy-overlay-and-rpgm-universal-vfs-plan.md` (Part 2) | 4 Pillars of Universal RPG Maker VFS | **PENDING EXECUTION** |
 
 ## 4. Governance
 
-- One-by-one: do not start Track 2 until Track 1 passes its emulator gate.
-- `Raw-Game/` immutable; builds use `--flavor beta`.
-- Every task reviewed; every fix verified on MuMu before the track is marked complete.
+- One-by-one execution: sub-agents execute tasks incrementally with strict review gates.
+- `Raw-Game/` directories remain strictly 100% immutable.
+- All APK builds use `--flavor beta`.
+- All native bridge, shims, and compiler changes must have automated unit tests before emulator verification.

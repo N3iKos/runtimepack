@@ -619,4 +619,23 @@ function createSandbox(initialStorageManager) {
     assert.strictEqual(pictures[1], "cg2.png");
 }
 
+{
+    const sb = createSandbox();
+    sb.RuntimePackNative = {
+        fileExists: function(path) { return path === "audio/bgm/Theme.ogg" || path === "gameenv.iz"; },
+        fileSize: function(path) { return path === "audio/bgm/Theme.ogg" ? 5242880 : 100; }
+    };
+    vm.runInContext(shimsCode, sb);
+
+    const fs = vm.runInContext("require('fs')", sb);
+    assert.strictEqual(fs.existsSync("audio/bgm/Theme.ogg"), true);
+    assert.strictEqual(fs.existsSync("audio/bgm/Missing.ogg"), false);
+    assert.strictEqual(fs.existsSync("gameenv.iz"), false, "gameenv.iz must always return false to allow plaintext gameenv.json fallback");
+
+    const stat = fs.statSync("audio/bgm/Theme.ogg");
+    assert.strictEqual(stat.isFile(), true);
+    assert.strictEqual(stat.isDirectory(), false);
+    assert.strictEqual(stat.size, 5242880);
+}
+
 console.log("All Mobile Web Shims tests passed successfully!");

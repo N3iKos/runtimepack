@@ -16,6 +16,26 @@ class VfsResourceInterceptor(
 
     constructor(streamProvider: (String) -> InputStream?) : this(null, null, streamProvider)
 
+    private val pluginFilenameMap: Map<String, String> by lazy {
+        val map = HashMap<String, String>()
+        reader?.entries?.forEach { entry ->
+            val norm = entry.logicalPath.replace('\\', '/').removePrefix("www/")
+            if (norm.startsWith("js/plugins/") && norm.endsWith(".js")) {
+                val filename = norm.substringAfterLast('/').lowercase()
+                map.putIfAbsent(filename, entry.logicalPath)
+            }
+        }
+        map
+    }
+
+    private fun createResponse(mime: String, encoding: String?, stream: InputStream?): WebResourceResponse {
+        return object : WebResourceResponse(mime, encoding, stream) {
+            override fun getMimeType(): String = mime
+            override fun getEncoding(): String? = encoding
+            override fun getData(): InputStream? = stream
+        }
+    }
+
     companion object {
         private val LOCALHOST_REGEX = Regex("""^http://(?:localhost|127\.0\.0\.1)(?::\d+)?/""")
 
@@ -170,11 +190,9 @@ class VfsResourceInterceptor(
             }
         }
         if (stream == null && reader != null) {
-            val matchedEntry = reader.entries.firstOrNull { entry ->
-                entry.logicalPath.equals(logicalPath, ignoreCase = true)
-            }
-            if (matchedEntry != null) {
-                stream = streamProvider(matchedEntry.logicalPath)
+            val entry = reader.getEntry(logicalPath)
+            if (entry != null) {
+                stream = streamProvider(entry.logicalPath)
             }
         }
         if (stream == null && logicalPath.contains('%')) {
@@ -194,18 +212,10 @@ class VfsResourceInterceptor(
             }
         }
         if (stream == null && (logicalPath.startsWith("js/plugins/") || logicalPath.startsWith("www/js/plugins/")) && logicalPath.endsWith(".js")) {
-            val filename = logicalPath.substringAfterLast('/')
-            if (reader != null) {
-                val matchedEntry = reader.entries.firstOrNull { entry ->
-                    val norm = entry.logicalPath.replace('\\', '/').removePrefix("www/")
-                    norm.startsWith("js/plugins/") && norm.endsWith("/$filename")
-                } ?: reader.entries.firstOrNull { entry ->
-                    val norm = entry.logicalPath.replace('\\', '/').removePrefix("www/")
-                    norm.startsWith("js/plugins/") && norm.substringAfterLast('/').equals(filename, ignoreCase = true)
-                }
-                if (matchedEntry != null) {
-                    stream = streamProvider(matchedEntry.logicalPath)
-                }
+            val filename = logicalPath.substringAfterLast('/').lowercase()
+            val matchedLogicalPath = pluginFilenameMap[filename]
+            if (matchedLogicalPath != null) {
+                stream = streamProvider(matchedLogicalPath)
             }
         }
         if (stream == null && rpgMakerKey != null) {
@@ -226,11 +236,9 @@ class VfsResourceInterceptor(
                     }
                 }
                 if (encStream == null && reader != null) {
-                    val matchedEntry = reader.entries.firstOrNull { entry ->
-                        entry.logicalPath.equals(encPath, ignoreCase = true)
-                    }
-                    if (matchedEntry != null) {
-                        encStream = streamProvider(matchedEntry.logicalPath)
+                    val entry = reader.getEntry(encPath)
+                    if (entry != null) {
+                        encStream = streamProvider(entry.logicalPath)
                     }
                 }
                 if (encStream != null) {
@@ -239,7 +247,7 @@ class VfsResourceInterceptor(
                     if (decrypted != null) {
                         recordResourceServed(logicalPath)
                         val mime = getMimeType(logicalPath)
-                        return WebResourceResponse(mime, getEncoding(mime), ByteArrayInputStream(decrypted))
+                        return createResponse(mime, getEncoding(mime), ByteArrayInputStream(decrypted))
                     }
                 }
             }
@@ -249,7 +257,7 @@ class VfsResourceInterceptor(
             val s = streamProvider(oggEnc) ?: if (oggEnc.lowercase() != oggEnc) streamProvider(oggEnc.lowercase()) else null
             if (s != null) {
                 recordResourceServed(logicalPath)
-                return WebResourceResponse("audio/ogg", null, s)
+                return createResponse("audio/ogg", null, s)
             }
         }
         if (stream == null && (logicalPath.endsWith(".m4a") || logicalPath.endsWith(".m4a_"))) {
@@ -258,7 +266,7 @@ class VfsResourceInterceptor(
             val sEnc = streamProvider(oggEnc) ?: if (oggEnc.lowercase() != oggEnc) streamProvider(oggEnc.lowercase()) else null
             if (sEnc != null) {
                 recordResourceServed(logicalPath)
-                return WebResourceResponse("audio/ogg", null, sEnc)
+                return createResponse("audio/ogg", null, sEnc)
             }
             val oggMvEnc = base + ".rpgmvo"
             val sMvEnc = streamProvider(oggMvEnc) ?: if (oggMvEnc.lowercase() != oggMvEnc) streamProvider(oggMvEnc.lowercase()) else null
@@ -267,17 +275,17 @@ class VfsResourceInterceptor(
                     val decrypted = decryptRpgMakerAsset(sMvEnc.readBytes(), rpgMakerKey)
                     if (decrypted != null) {
                         recordResourceServed(logicalPath)
-                        return WebResourceResponse("audio/ogg", null, ByteArrayInputStream(decrypted))
+                        return createResponse("audio/ogg", null, ByteArrayInputStream(decrypted))
                     }
                 }
                 recordResourceServed(logicalPath)
-                return WebResourceResponse("audio/ogg", null, sMvEnc)
+                return createResponse("audio/ogg", null, sMvEnc)
             }
             val oggPlain = base + ".ogg"
             val sPlain = streamProvider(oggPlain) ?: if (oggPlain.lowercase() != oggPlain) streamProvider(oggPlain.lowercase()) else null
             if (sPlain != null) {
                 recordResourceServed(logicalPath)
-                return WebResourceResponse("audio/ogg", null, sPlain)
+                return createResponse("audio/ogg", null, sPlain)
             }
         }
         if (stream == null && (logicalPath.endsWith(".ogg") || logicalPath.endsWith(".png"))) {
@@ -286,7 +294,7 @@ class VfsResourceInterceptor(
             if (s != null) {
                 recordResourceServed(logicalPath)
                 val mime = getMimeType(logicalPath)
-                return WebResourceResponse(mime, getEncoding(mime), s)
+                return createResponse(mime, getEncoding(mime), s)
             }
         }
         if (stream == null) {
@@ -299,7 +307,7 @@ class VfsResourceInterceptor(
                     fallbackAction = "PLACEHOLDER_SUBSTITUTED",
                     errorMessage = "Resource missing in VFS, transparent placeholder substituted"
                 )
-                return WebResourceResponse("image/png", null, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
+                return createResponse("image/png", null, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
             }
             if (cleanExt in AUDIO_EXTENSIONS) {
                 val mime = getMimeType(logicalPath)
@@ -310,12 +318,12 @@ class VfsResourceInterceptor(
                     fallbackAction = "PLACEHOLDER_SUBSTITUTED",
                     errorMessage = "Resource missing in VFS, transparent placeholder substituted"
                 )
-                return WebResourceResponse(mime, null, ByteArrayInputStream(EMPTY_AUDIO))
+                return createResponse(mime, null, ByteArrayInputStream(EMPTY_AUDIO))
             }
             return null
         }
         recordResourceServed(logicalPath)
         val mime = getMimeType(logicalPath)
-        return WebResourceResponse(mime, getEncoding(mime), stream)
+        return createResponse(mime, getEncoding(mime), stream)
     }
 }

@@ -35,6 +35,22 @@ class WebBridge(private val saveService: SaveService) {
     }
 
     @JavascriptInterface
+    fun fileExists(relPath: String): Boolean {
+        val clean = relPath.replace('\\', '/').trim('/', '.').lowercase()
+        val reader = WebActivity.currentInstance?.gpackReader
+        val gameDir = WebActivity.currentInstance?.gameDirectory
+        return reader?.hasFile(clean) ?: File(gameDir, clean).exists()
+    }
+
+    @JavascriptInterface
+    fun fileSize(relPath: String): Long {
+        val clean = relPath.replace('\\', '/').trim('/', '.').lowercase()
+        val reader = WebActivity.currentInstance?.gpackReader
+        val gameDir = WebActivity.currentInstance?.gameDirectory
+        return reader?.getEntry(clean)?.size ?: File(gameDir, clean).length()
+    }
+
+    @JavascriptInterface
     fun readdir(relPath: String): String {
         val clean = relPath.replace('\\', '/').trim('/', '.').lowercase()
         val prefix = if (clean.isEmpty()) "" else "$clean/"

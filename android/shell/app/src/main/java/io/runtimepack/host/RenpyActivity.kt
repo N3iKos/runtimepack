@@ -1,10 +1,21 @@
 package io.runtimepack.host
 
+import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.widget.RelativeLayout
+import io.runtimepack.host.WebActivity.Companion.ControlHitbox
 import org.libsdl.app.SDLActivity
 import org.renpy.android.PythonSDLActivity
 import java.io.File
@@ -25,6 +36,12 @@ import java.io.File
  * already-mounted content and the SDL thread is started from [onStart].
  */
 open class RenpyActivity : PythonSDLActivity() {
+
+    var overlayWebView: WebView? = null
+    var isGamepadHidden: Boolean = false
+    var isOverlayModalOpen: Boolean = false
+    var isTouchCapturedByGame: Boolean = false
+    var activeControlHitboxes: List<ControlHitbox> = emptyList()
 
     companion object {
         private const val TAG = "RenpyActivity"
@@ -98,6 +115,82 @@ open class RenpyActivity : PythonSDLActivity() {
             ENV_ANDROID_ARGUMENT to gameRoot(filesDir).absolutePath,
             ENV_RENPY_PATH_TO_SAVES to saveDir(filesDir).absolutePath
         )
+
+        @JvmStatic
+        fun shouldForwardTouchToGame(
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float,
+            isGamepadHidden: Boolean,
+            isOverlayModalOpen: Boolean,
+            controlHitboxes: List<ControlHitbox> = emptyList()
+        ): Boolean {
+            if (isOverlayModalOpen) {
+                return false
+            }
+            return !WebActivity.isTouchOnActiveControls(
+                x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen, controlHitboxes
+            )
+        }
+
+        @JvmStatic
+        fun resolveGestureCapturedByGame(
+            actionMasked: Int,
+            x: Float,
+            y: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            density: Float,
+            isGamepadHidden: Boolean,
+            isOverlayModalOpen: Boolean,
+            wasCapturedByGame: Boolean,
+            controlHitboxes: List<ControlHitbox> = emptyList()
+        ): Boolean {
+            return if (actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                shouldForwardTouchToGame(
+                    x, y, screenWidth, screenHeight, density, isGamepadHidden, isOverlayModalOpen, controlHitboxes
+                )
+            } else {
+                wasCapturedByGame
+            }
+        }
+
+        @JvmStatic
+        fun mapJsKeyCodeToAndroidKeyCode(jsKeyCode: Int): Int {
+            return when (jsKeyCode) {
+                38 -> KeyEvent.KEYCODE_DPAD_UP
+                40 -> KeyEvent.KEYCODE_DPAD_DOWN
+                37 -> KeyEvent.KEYCODE_DPAD_LEFT
+                39 -> KeyEvent.KEYCODE_DPAD_RIGHT
+                90 -> KeyEvent.KEYCODE_BUTTON_A
+                13 -> KeyEvent.KEYCODE_ENTER
+                32 -> KeyEvent.KEYCODE_SPACE
+                88 -> KeyEvent.KEYCODE_BUTTON_B
+                27 -> KeyEvent.KEYCODE_MENU
+                16 -> KeyEvent.KEYCODE_SHIFT_LEFT
+                17 -> KeyEvent.KEYCODE_CTRL_LEFT
+                81 -> KeyEvent.KEYCODE_PAGE_UP
+                69 -> KeyEvent.KEYCODE_PAGE_DOWN
+                else -> KeyEvent.KEYCODE_UNKNOWN
+            }
+        }
+
+        @JvmStatic
+        fun mapVPadButtonToKeyCode(button: String): Int {
+            return when (button.lowercase()) {
+                "up" -> KeyEvent.KEYCODE_DPAD_UP
+                "down" -> KeyEvent.KEYCODE_DPAD_DOWN
+                "left" -> KeyEvent.KEYCODE_DPAD_LEFT
+                "right" -> KeyEvent.KEYCODE_DPAD_RIGHT
+                "a", "ok" -> KeyEvent.KEYCODE_BUTTON_A
+                "b", "cancel" -> KeyEvent.KEYCODE_BUTTON_B
+                "menu" -> KeyEvent.KEYCODE_MENU
+                "dash", "shift" -> KeyEvent.KEYCODE_SHIFT_LEFT
+                else -> KeyEvent.KEYCODE_UNKNOWN
+            }
+        }
     }
 
     override fun getLibraries(): Array<String> = arrayOf(RENPY_LIBRARY)
@@ -124,7 +217,182 @@ open class RenpyActivity : PythonSDLActivity() {
         // (see RgssActivity); guard it so an unmounted game never boots.
         if (isContentMounted(gameRoot(filesDir))) {
             resumeNativeThread()
+            if (overlayWebView == null) {
+                setupOverlayWebView()
+            }
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    fun setupOverlayWebView() {
+        if (mLayout == null) return
+        try {
+            val wv = WebView(this)
+            wv.layoutParams = RelativeLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            wv.setBackgroundColor(Color.TRANSPARENT)
+            wv.isVerticalScrollBarEnabled = false
+            wv.isHorizontalScrollBarEnabled = false
+            wv.overScrollMode = View.OVER_SCROLL_NEVER
+            wv.isFocusable = false
+            wv.isFocusableInTouchMode = false
+
+            val settings = wv.settings
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = true
+            settings.allowContentAccess = true
+
+            wv.addJavascriptInterface(object : Any() {
+                @JavascriptInterface
+                fun openCommunityLink() {
+                    this@RenpyActivity.openCommunityLink()
+                }
+
+                @JavascriptInterface
+                fun openUrl(url: String) {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to open url: ${e.message}", e)
+                    }
+                }
+
+                @JavascriptInterface
+                fun updateControlHitboxes(json: String) {
+                    activeControlHitboxes = WebActivity.parseControlHitboxes(json)
+                }
+
+                @JavascriptInterface
+                fun setGamepadHidden(hidden: Boolean) {
+                    isGamepadHidden = hidden
+                    if (hidden) {
+                        runOnUiThread { mSurface?.requestFocus() }
+                    }
+                }
+
+                @JavascriptInterface
+                fun setOverlayModalOpen(open: Boolean) {
+                    isOverlayModalOpen = open
+                    runOnUiThread {
+                        if (open) {
+                            wv.isFocusable = true
+                            wv.isFocusableInTouchMode = true
+                            wv.requestFocus()
+                        } else {
+                            wv.isFocusable = false
+                            wv.isFocusableInTouchMode = false
+                            mSurface?.requestFocus()
+                        }
+                    }
+                }
+
+                @JavascriptInterface
+                fun onKeyDown(jsKeyCode: Int) {
+                    val keyCode = mapJsKeyCodeToAndroidKeyCode(jsKeyCode)
+                    if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+                        try {
+                            onNativeKeyDown(keyCode)
+                        } catch (ignored: Throwable) {}
+                    }
+                }
+
+                @JavascriptInterface
+                fun onKeyUp(jsKeyCode: Int) {
+                    val keyCode = mapJsKeyCodeToAndroidKeyCode(jsKeyCode)
+                    if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+                        try {
+                            onNativeKeyUp(keyCode)
+                        } catch (ignored: Throwable) {}
+                    }
+                }
+
+                @JavascriptInterface
+                fun sendKeyEvent(button: String, isDown: Boolean) {
+                    val keyCode = mapVPadButtonToKeyCode(button)
+                    if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+                        try {
+                            if (isDown) {
+                                onNativeKeyDown(keyCode)
+                            } else {
+                                onNativeKeyUp(keyCode)
+                            }
+                        } catch (ignored: Throwable) {
+                            // In host unit tests where native library is not loaded
+                        }
+                    }
+                }
+            }, "RuntimePackVPad")
+
+            wv.loadUrl("file:///android_asset/overlay/index.html")
+            mLayout.addView(wv)
+            overlayWebView = wv
+            mSurface?.requestFocus()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to attach overlay: ${e.message}", e)
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (mSurface != null) {
+            val handled = SDLActivity.handleKeyEvent(mSurface, event.keyCode, event, null)
+            if (handled) return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+        val screenHeight = resources.displayMetrics.heightPixels.toFloat()
+
+        val action = event.actionMasked
+        isTouchCapturedByGame = resolveGestureCapturedByGame(
+            action,
+            event.x,
+            event.y,
+            screenWidth,
+            screenHeight,
+            density,
+            isGamepadHidden,
+            isOverlayModalOpen,
+            isTouchCapturedByGame,
+            activeControlHitboxes
+        )
+
+        if (isTouchCapturedByGame) {
+            try {
+                mSurface?.onTouch(mSurface, event)
+                mSurface?.dispatchTouchEvent(event)
+            } catch (ignored: Exception) {}
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                isTouchCapturedByGame = false
+            }
+            return true
+        }
+
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        overlayWebView?.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        overlayWebView?.onResume()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        overlayWebView?.destroy()
+        overlayWebView = null
     }
 
     @JavascriptInterface

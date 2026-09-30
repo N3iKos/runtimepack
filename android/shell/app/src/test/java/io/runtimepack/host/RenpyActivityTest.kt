@@ -2,6 +2,7 @@ package io.runtimepack.host
 
 import android.app.Activity
 import android.content.Context
+import io.runtimepack.host.WebActivity.Companion.ControlHitbox
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -309,5 +310,62 @@ class RenpyActivityTest {
         assertNotNull(Class.forName("org.renpy.android.StoreInterface"))
         assertNotNull(Class.forName("org.renpy.android.ResourceManager"))
         assertNotNull(Class.forName("org.renpy.android.Action"))
+    }
+
+    @Test
+    fun testShouldForwardTouchToRenpyGameOutsideControls() {
+        val hitboxes = listOf(
+            ControlHitbox("btn-a", 800f, 400f, 900f, 500f)
+        )
+        // Touch outside any control -> should forward to Ren'Py game surface
+        val forwardOutside = RenpyActivity.shouldForwardTouchToGame(
+            x = 200f,
+            y = 200f,
+            screenWidth = 1000f,
+            screenHeight = 600f,
+            density = 2.0f,
+            isGamepadHidden = false,
+            isOverlayModalOpen = false,
+            controlHitboxes = hitboxes
+        )
+        assertTrue(forwardOutside)
+
+        // Touch inside btn-a -> should NOT forward to Ren'Py game surface
+        val forwardInside = RenpyActivity.shouldForwardTouchToGame(
+            x = 850f,
+            y = 450f,
+            screenWidth = 1000f,
+            screenHeight = 600f,
+            density = 2.0f,
+            isGamepadHidden = false,
+            isOverlayModalOpen = false,
+            controlHitboxes = hitboxes
+        )
+        assertFalse(forwardInside)
+
+        // When overlay modal is open -> NEVER forward to game
+        val forwardModalOpen = RenpyActivity.shouldForwardTouchToGame(
+            x = 200f,
+            y = 200f,
+            screenWidth = 1000f,
+            screenHeight = 600f,
+            density = 2.0f,
+            isGamepadHidden = false,
+            isOverlayModalOpen = true,
+            controlHitboxes = hitboxes
+        )
+        assertFalse(forwardModalOpen)
+    }
+
+    @Test
+    fun testRenpyKeyMappingForGamepadButtons() {
+        assertEquals(android.view.KeyEvent.KEYCODE_DPAD_UP, RenpyActivity.mapVPadButtonToKeyCode("up"))
+        assertEquals(android.view.KeyEvent.KEYCODE_DPAD_DOWN, RenpyActivity.mapVPadButtonToKeyCode("down"))
+        assertEquals(android.view.KeyEvent.KEYCODE_DPAD_LEFT, RenpyActivity.mapVPadButtonToKeyCode("left"))
+        assertEquals(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, RenpyActivity.mapVPadButtonToKeyCode("right"))
+        assertEquals(android.view.KeyEvent.KEYCODE_BUTTON_A, RenpyActivity.mapVPadButtonToKeyCode("a"))
+        assertEquals(android.view.KeyEvent.KEYCODE_BUTTON_B, RenpyActivity.mapVPadButtonToKeyCode("b"))
+        assertEquals(android.view.KeyEvent.KEYCODE_MENU, RenpyActivity.mapVPadButtonToKeyCode("menu"))
+        assertEquals(android.view.KeyEvent.KEYCODE_SHIFT_LEFT, RenpyActivity.mapVPadButtonToKeyCode("dash"))
     }
 }

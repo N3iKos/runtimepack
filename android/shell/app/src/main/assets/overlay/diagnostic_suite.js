@@ -408,14 +408,14 @@
             "            <div id=\"diag-export-status\" class=\"diag-status-line\" style=\"margin-top:6px;\"></div>" +
             "        </div>" +
             "    </div>" +
-            "</div>" +
-            "<!-- Live Log Console (Always Accessible) -->" +
-            "<div class=\"diag-console-section\">" +
-            "    <div class=\"diag-console-header\">" +
-            "        <span>Live Activity Console (<span id=\"diag-log-count\">0</span>)</span>" +
-            "        <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">" + SVG_ICONS.trash + " Clear</button>" +
+            "    <!-- Live Log Console -->" +
+            "    <div class=\"diag-console-section\">" +
+            "        <div class=\"diag-console-header\">" +
+            "            <span>Live Activity Console (<span id=\"diag-log-count\">0</span>)</span>" +
+            "            <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">" + SVG_ICONS.trash + " Clear</button>" +
+            "        </div>" +
+            "        <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "    </div>" +
-            "    <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "</div>";
 
         doc.body.appendChild(modal);
@@ -754,7 +754,7 @@
 
             var probeMode = mode || "sampled";
             var resolvedAction = actionName || ((probeMode === "exhaustive") ? "run_exhaustive_probe" : "run_probe");
-            var maxPollCount = (resolvedAction === "run_exhaustive_probe" || resolvedAction === "run_stress_test" || probeMode === "exhaustive") ? 260 : 60;
+            var maxPollCount = (resolvedAction === "run_exhaustive_probe" || resolvedAction === "run_stress_test" || probeMode === "exhaustive") ? 260 : 120;
             var timeoutSec = Math.round(maxPollCount * 0.25);
 
             var stStatus = doc ? doc.getElementById("diag-stress-status") : null;

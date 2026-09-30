@@ -357,4 +357,18 @@ class VfsResourceInterceptorTest {
             }
         }
     }
+
+    @Test
+    fun testCaseInsensitiveHashResolutionWithoutLinearScan() {
+        val interceptor = VfsResourceInterceptor(
+            reader = null,
+            rpgMakerKey = null,
+            streamProvider = { path ->
+                if (path.lowercase() == "audio/se/jump1.ogg") ByteArrayInputStream("sound".toByteArray()) else null
+            }
+        )
+        val resp = interceptor.intercept("https://game.local/audio/se/Jump1.ogg")
+        assertNotNull(resp)
+        assertEquals("audio/ogg", resp?.mimeType)
+    }
 }

@@ -1475,7 +1475,6 @@ body.vpad-theme-retro #rp-floating-fps {
     z-index: 100003;
     box-sizing: border-box;
     pointer-events: auto !important;
-    touch-action: none !important;
     overflow: hidden;
 }
 
@@ -1661,6 +1660,7 @@ body.vpad-theme-retro #rp-floating-fps {
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-y !important;
 }
 
 .diag-tab-pane {
@@ -1823,7 +1823,7 @@ body.vpad-theme-retro #rp-floating-fps {
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    height: 135px;
+    height: 35px;
     max-height: 90px;
     overflow-y: auto;
     padding: 6px 8px;
@@ -1831,6 +1831,7 @@ body.vpad-theme-retro #rp-floating-fps {
     font-size: 10px;
     line-height: 1.45;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-y !important;
 }
 
 .diag-log-line {
@@ -2290,10 +2291,12 @@ body.vpad-theme-retro #rp-floating-fps {
 }
 
 /* Base Panel Constraints for Cheat & Diagnostic Overlays */
-#fnh-cheat-overlay,
-#rp-diag-modal {
+#fnh-cheat-overlay {
     pointer-events: auto !important;
     touch-action: none !important;
+}
+#rp-diag-modal {
+    pointer-events: auto !important;
 }
 #fnh-cheat-header,
 #rp-diag-header {

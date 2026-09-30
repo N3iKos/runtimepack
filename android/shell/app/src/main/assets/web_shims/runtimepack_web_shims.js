@@ -508,20 +508,30 @@
         return "";
     }
 
-    function syncExists(relPath) {
-        if (!relPath) return false;
+    function syncExists(p) {
+        if (!p) return false;
+        var cleanPath = String(p).replace(/\\/g, "/").replace(/^\.?\//, "");
+        if (cleanPath.endsWith("gameenv.iz")) {
+            return false;
+        }
+        var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative) || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+        if (nativeBridge && typeof nativeBridge.fileExists === "function") {
+            try {
+                return nativeBridge.fileExists(cleanPath);
+            } catch (e) {}
+        }
         if (typeof XMLHttpRequest === "undefined") return false;
         try {
-            var cleanPath = String(relPath).replace(/\\/g, '/');
-            cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+\//, '');
-            cleanPath = cleanPath.replace(/^\/+/, '');
-            while (cleanPath.startsWith("./")) {
-                cleanPath = cleanPath.substring(2);
+            var xhrPath = String(p).replace(/\\/g, '/');
+            xhrPath = xhrPath.replace(/^https?:\/\/[^\/]+\//, '');
+            xhrPath = xhrPath.replace(/^\/+/, '');
+            while (xhrPath.startsWith("./")) {
+                xhrPath = xhrPath.substring(2);
             }
-            if (cleanPath.endsWith("gameenv.iz")) {
+            if (xhrPath.endsWith("gameenv.iz")) {
                 return false;
             }
-            var url = "https://game.local/" + cleanPath;
+            var url = "https://game.local/" + xhrPath;
             var xhr = new XMLHttpRequest();
             xhr.open("GET", url, false);
             xhr.send(null);
@@ -541,11 +551,21 @@
         mkdirSync: function() {},
         writeFileSync: function() {},
         statSync: function(p) {
-            var exists = syncExists(p);
+            var cleanPath = String(p || "").replace(/\\/g, "/").replace(/^\.?\//, "");
+            var exists = syncExists(cleanPath);
+            var size = 0;
+            var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative) || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+            if (exists && nativeBridge && typeof nativeBridge.fileSize === "function") {
+                try {
+                    size = nativeBridge.fileSize(cleanPath);
+                } catch (e) {}
+            } else if (exists) {
+                size = (syncFetch(p) || "").length;
+            }
             return {
                 isFile: function() { return exists; },
                 isDirectory: function() { return false; },
-                size: exists ? (syncFetch(p) || "").length : 0
+                size: size
             };
         },
         readdirSync: function(dirPath) {

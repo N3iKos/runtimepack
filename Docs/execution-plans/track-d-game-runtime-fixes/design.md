@@ -70,7 +70,57 @@ Use the official Ren'Py Android Packaging Tool (RAPT) native runtime from the Re
 
 ---
 
-## 4. Global Constraints
+## 4. Track 3 — Ren'Py Overlay & Touch Routing Integration
+
+### 4.1 Context & Objective
+Mizuki And Me now boots to the title screen and plays in Ren'Py 8.3.7. However, the RuntimePack UI overlay (`vpad.js`, diagnostic suite, cheat overlay, feedback ripple/trail) is not yet attached to `RenpyActivity`.
+Objective: Attach `overlayWebView` on top of `mLayout`, provide the `RuntimePackVPad` JavascriptInterface, and implement selective touch pass-through so VN dialogue taps flow directly to `mSurface` while virtual buttons receive input.
+
+### 4.2 Architecture & Touch Flow
+1. **Overlay Attachment (`setupOverlayWebView`)**:
+   - Create a transparent WebView over `mLayout` pointing to `file:///android_asset/overlay/index.html`.
+   - Register `RuntimePackVPad` JavascriptInterface implementing:
+     - `updateControlHitboxes(json: String)` (stores active `ControlHitbox` bounds).
+     - `openCommunityLink()` (routes to `openUrl("https://linktr.ee/Veldra.Works")`).
+     - Virtual gamepad button injection to SDL via `onNativeKeyDown(keyCode)` and `onNativeKeyUp(keyCode)`.
+     - Modal and visibility state (`isOverlayModalOpen`, `isGamepadHidden`).
+2. **Precision Touch Routing (`dispatchTouchEvent`)**:
+   - When a touch lands on screen:
+     - If `isOverlayModalOpen == true`, all touches belong to `overlayWebView`.
+     - If touch is inside any active control hitbox or toolbar, dispatch to `overlayWebView`.
+     - If touch is outside all control hitboxes (the visual novel reading area), dispatch directly to `mSurface` so Ren'Py advances dialogue and handles choices.
+3. **Lifecycle Synchronization**:
+   - `overlayWebView?.onPause()`, `overlayWebView?.onResume()`, `overlayWebView?.destroy()` synced to `RenpyActivity` lifecycle.
+
+---
+
+## 5. Track 4 — 4 Pillars of Universal RPG Maker VFS Architecture
+
+### 5.1 Problem Statement
+In `Forestia.apk` (and potentially any complex RPG Maker MV/MZ game):
+1. Plugin code calls `fs.readdirSync("data")` to dynamically enumerate maps/files. In Android WebView, `runtimepack_web_shims.js` hardcodes `readdirSync: function() { return []; }`, corrupting `$globalMap._data` and throwing `TypeError: Cannot read properties of undefined (reading 'getRoadRegion')`.
+2. `fs.existsSync` and `fs.statSync` use synchronous `syncFetch`, downloading multi-megabyte audio files into RAM just to check existence.
+3. `VfsResourceInterceptor.kt` performs O(N) linear scans (`reader.entries.firstOrNull`) on every single asset request.
+4. `AssetProbeRunner.kt` only tests `File(gameDir, relPath).exists()`, failing all 1,158 assets in packed mode with false-positive `File not found`.
+5. Compiler path sanitization in `core/src/asset_audit/report.rs` strips `"js/"` when matching `"plugins"` via `rposition`.
+
+### 5.2 The 4 Pillars
+1. **Pilar 1: In-Memory Native VFS Bridge `readdirSync`**:
+   - Native method `RuntimePackNative.readdir(relPath: String): String` returns entries directly from `GpackStreamReader.fileIndexMap.keys` with disk fallback.
+   - `runtimepack_web_shims.js` calls `RuntimePackNative.readdir()` with dynamic `MapInfos.json` parsing as secondary fallback.
+2. **Pilar 2: Fast Stat and Exists Sync Bridge**:
+   - Native methods `RuntimePackNative.fileExists(relPath)` and `RuntimePackNative.fileSize(relPath)` return metadata in O(1) without HTTP downloads.
+   - `runtimepack_web_shims.js` delegates `fs.existsSync` and `fs.statSync` to these native methods.
+3. **Pilar 3: O(1) Case-Insensitive Hash Map Resolver**:
+   - In `VfsResourceInterceptor.kt`, replace `firstOrNull` linear scan with `reader.getEntry(canonical)` O(1) hash map lookup.
+   - Pre-index plugin script basenames in a lookup table for O(1) plugin script fallback.
+4. **Pilar 4: VFS-Aware Diagnostics & Fix Path Sanitizer Compiler**:
+   - In `AssetProbeRunner.kt`, probe files via `gpackReader?.hasFile(relPath) ?: file.exists()` and open streams via `gpackReader?.openStream(relPath)`.
+   - In `core/src/asset_audit/report.rs`, fix `sanitize_path_str()` to use first matching prefix or relative root instead of `rposition` on `WELL_KNOWN_DIRS`.
+
+---
+
+## 6. Global Constraints
 
 - Source games in `Raw-Game/` remain strictly 100% immutable.
 - All autonomous builds use `--flavor beta`.
