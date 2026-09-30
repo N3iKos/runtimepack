@@ -973,3 +973,84 @@ function createSandbox(initialStorageManager) {
 
     console.log("HalfMove Compat tests PASSED");
 }
+
+// ============================================================
+// Load Failure Diagnostics (fail-loud RT-LOAD-FAIL)
+// ============================================================
+{
+    const sb = createSandbox();
+    vm.runInContext(shimsCode, sb);
+    // Capture console.error
+    const errors = [];
+    vm.runInContext("this.__capturedErrors = [];", sb);
+    sb.console.error = (...args) => { errors.push(args.map(String).join(" ")); };
+    vm.runInContext(`
+        this.__origFailureCalled = false;
+        window.Scene_Load = function() {};
+        window.Scene_Load.prototype.onLoadFailure = function() {
+            window.__origFailureCalled = true;
+        };
+        if (typeof window.__runtimepackPollLoadDiagnostics === "function") {
+            window.__runtimepackPollLoadDiagnostics();
+        }
+    `, sb);
+    const result = vm.runInContext(`
+        var s = new window.Scene_Load();
+        s.onLoadFailure();
+        JSON.stringify({ orig: window.__origFailureCalled });
+    `, sb);
+    assert.strictEqual(JSON.parse(result).orig, true, "original onLoadFailure must still run");
+    assert(errors.some(e => e.indexOf("[RuntimePack] RT-LOAD-FAIL") !== -1),
+        "onLoadFailure must log [RuntimePack] RT-LOAD-FAIL via console.error");
+    assert(vm.runInContext("typeof window.__runtimepackShowLoadError === 'function'", sb) === true,
+        "fail-loud display helper must be exposed");
+
+    // Test DataManager.loadGame rejection logging and re-throw
+    vm.runInContext(`
+        window.DataManager = {
+            loadGame: function(id) {
+                return Promise.reject(new Error("corrupt save data"));
+            }
+        };
+        if (typeof window.__runtimepackPollLoadDiagnostics === "function") {
+            window.__runtimepackPollLoadDiagnostics();
+        }
+    `, sb);
+    const dmPromise = vm.runInContext("window.DataManager.loadGame(1)", sb);
+    let dmCaught = false;
+    dmPromise.catch((err) => {
+        dmCaught = true;
+        assert.strictEqual(err.message, "corrupt save data", "original error must be preserved on rethrow");
+    }).then(() => {
+        assert.strictEqual(dmCaught, true, "DataManager.loadGame rejection must be rethrown");
+        assert(errors.some(e => e.indexOf("[RuntimePack] RT-LOAD-FAIL loadGame rejection: corrupt save data") !== -1),
+            "DataManager.loadGame rejection must log [RuntimePack] RT-LOAD-FAIL loadGame rejection");
+    });
+
+    // Test __runtimepackShowLoadError with document overlay
+    const overlaySb = createSandbox();
+    overlaySb.console.error = () => {};
+    let appendedChild = null;
+    let removedChild = null;
+    overlaySb.document = {
+        createElement: (tag) => ({
+            tagName: tag,
+            style: {},
+            textContent: "",
+            parentNode: {
+                removeChild: (el) => { removedChild = el; }
+            }
+        }),
+        body: {
+            appendChild: (el) => { appendedChild = el; }
+        }
+    };
+    vm.runInContext(shimsCode, overlaySb);
+    overlaySb.window.__runtimepackShowLoadError("Overlay Test Error");
+    assert(appendedChild, "Overlay element must be appended to document.body");
+    assert.strictEqual(appendedChild.textContent, "Overlay Test Error");
+    assert(appendedChild.style.cssText.includes("position:fixed"), "Overlay must have fixed position style");
+
+    console.log("Load Failure Diagnostics tests PASSED");
+}
+

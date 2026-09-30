@@ -1290,20 +1290,9 @@
                         this._pressedTime = 0;
                         this._date = Date.now();
                         handled = true;
-                        if (buttonName === "ok") {
-                            try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " input ok pressed (keyCode=" + keyCode + ", code=" + code + ")");
-                            } catch (e) {}
-                        }
                     }
                     if (!handled) {
-                        var res = origOnKeyDown.call(this, event);
-                        if (this.keyMapper && this.keyMapper[keyCode] === "ok") {
-                            try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " input ok pressed (keyCode=" + keyCode + ", code=" + code + ")");
-                            } catch (e) {}
-                        }
-                        return res;
+                        return origOnKeyDown.call(this, event);
                     }
                 };
             }
@@ -1337,11 +1326,6 @@
                         I._latestButton = buttonName;
                         I._pressedTime = 0;
                         I._date = Date.now();
-                        if (buttonName === "ok") {
-                            try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " input ok pressed (RuntimePackInput)");
-                            } catch (e) {}
-                        }
                     }
                 },
                 release: function(buttonName) {
@@ -1368,242 +1352,66 @@
         }
     }
 
-    // [RP_LOAD_DEBUG] instrumentation start
-    var _debugSavefileProcessOk = null;
-    var _debugSavefileOnTouchSelect = null;
-    var _debugSavefileOnTouchOk = null;
-    var _debugSceneLoadOnSavefileOk = null;
-    var _debugSceneLoadIsLoadableSlot = null;
-    var _debugSceneLoadExecuteLoad = null;
-    var _debugSceneLoadOnLoadSuccess = null;
-    var _debugSceneLoadOnLoadFailure = null;
-    var _debugSceneLoadOnLoadInvalid = null;
-    var _debugDataManagerLoadGame = null;
-    var _debugStorageManagerLoadObject = null;
-    var _debugSceneManagerGoto = null;
-    var _debugSceneManagerPush = null;
-
-    function patchLoadDebug() {
+    function __runtimepackShowLoadError(msg) {
         try {
-            // 1, 2, 3: Window_SavefileList
-            if (root.Window_SavefileList && root.Window_SavefileList.prototype) {
-                var wProto = root.Window_SavefileList.prototype;
-
-                // 1. Window_SavefileList.prototype.processOk
-                if (wProto.processOk !== _debugSavefileProcessOk) {
-                    var origProcessOk = wProto.processOk;
-                    _debugSavefileProcessOk = function() {
+            console.error("[RuntimePack] RT-LOAD-FAIL " + msg);
+            if (typeof document !== "undefined" && document && document.body && typeof document.createElement === "function") {
+                var overlay = document.createElement("div");
+                overlay.style.cssText = "position:fixed; left:0; right:0; top:40%; background:rgba(150,0,0,0.85); color:#fff; font:bold 14px sans-serif; text-align:center; padding:12px; z-index:99999;";
+                overlay.textContent = String(msg);
+                document.body.appendChild(overlay);
+                if (typeof setTimeout !== "undefined") {
+                    setTimeout(function() {
                         try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " processOk idx=" + (typeof this.index === "function" ? this.index() : "unknown"));
+                            if (overlay && overlay.parentNode) {
+                                overlay.parentNode.removeChild(overlay);
+                            }
                         } catch (e) {}
-                        if (origProcessOk) return origProcessOk.apply(this, arguments);
-                    };
-                    wProto.processOk = _debugSavefileProcessOk;
-                }
-
-                // 2. Window_SavefileList.prototype.onTouchSelect
-                if (wProto.onTouchSelect !== _debugSavefileOnTouchSelect) {
-                    var origOnTouchSelect = wProto.onTouchSelect;
-                    _debugSavefileOnTouchSelect = function(trigger) {
-                        var hitIndex = "unknown";
-                        try {
-                            hitIndex = (typeof this.hitIndex === "function") ? this.hitIndex() : "unknown";
-                        } catch (e) {}
-                        var res;
-                        if (origOnTouchSelect) {
-                            res = origOnTouchSelect.apply(this, arguments);
-                        }
-                        try {
-                            var curIndex = (typeof this.index === "function") ? this.index() : "unknown";
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onTouchSelect trigger=" + trigger + " hitIndex=" + hitIndex + " index=" + curIndex);
-                        } catch (e) {}
-                        return res;
-                    };
-                    wProto.onTouchSelect = _debugSavefileOnTouchSelect;
-                }
-
-                // 3. Window_SavefileList.prototype.onTouchOk
-                if (wProto.onTouchOk !== _debugSavefileOnTouchOk) {
-                    var origOnTouchOk = wProto.onTouchOk;
-                    _debugSavefileOnTouchOk = function() {
-                        try {
-                            var touchOkEnabled = (typeof this.isTouchOkEnabled === "function") ? this.isTouchOkEnabled() : "unknown";
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onTouchOk touchOkEnabled=" + touchOkEnabled);
-                        } catch (e) {}
-                        if (origOnTouchOk) return origOnTouchOk.apply(this, arguments);
-                    };
-                    wProto.onTouchOk = _debugSavefileOnTouchOk;
+                    }, 8000);
                 }
             }
+        } catch (e) {}
+    }
+    root.__runtimepackShowLoadError = __runtimepackShowLoadError;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackShowLoadError = __runtimepackShowLoadError;
+    }
 
-            // 4, 5, 6, 7, 8, 9: Scene_Load
-            var sLoad = root.Scene_Load;
-            if (sLoad && sLoad.prototype) {
-                var sProto = sLoad.prototype;
-
-                // 4. Scene_Load.prototype.onSavefileOk
-                if (sProto.onSavefileOk !== _debugSceneLoadOnSavefileOk) {
-                    var origOnSavefileOk = sProto.onSavefileOk;
-                    _debugSceneLoadOnSavefileOk = function() {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onSavefileOk");
-                        } catch (e) {}
-                        if (origOnSavefileOk) return origOnSavefileOk.apply(this, arguments);
-                    };
-                    sProto.onSavefileOk = _debugSceneLoadOnSavefileOk;
-                }
-
-                // 5. Scene_Load.prototype.isLoadableSlot
-                if (typeof sProto.isLoadableSlot === "function" && sProto.isLoadableSlot !== _debugSceneLoadIsLoadableSlot) {
-                    var origIsLoadableSlot = sProto.isLoadableSlot;
-                    _debugSceneLoadIsLoadableSlot = function() {
-                        var res;
-                        if (origIsLoadableSlot) res = origIsLoadableSlot.apply(this, arguments);
-                        try {
-                            var savefile = arguments[0];
-                            var ts = JSON.stringify(savefile && savefile.globalInfo && savefile.globalInfo.timestamp);
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " isLoadableSlot res=" + res + " " + ts);
-                        } catch (e) {}
-                        return res;
-                    };
-                    sProto.isLoadableSlot = _debugSceneLoadIsLoadableSlot;
-                }
-
-                // 6. Scene_Load.prototype.executeLoad
-                if (sProto.executeLoad !== _debugSceneLoadExecuteLoad) {
-                    var origExecuteLoad = sProto.executeLoad;
-                    _debugSceneLoadExecuteLoad = function(savefileId) {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " executeLoad id=" + savefileId);
-                        } catch (e) {}
-                        if (origExecuteLoad) return origExecuteLoad.apply(this, arguments);
-                    };
-                    sProto.executeLoad = _debugSceneLoadExecuteLoad;
-                }
-
-                // 7. Scene_Load.prototype.onLoadSuccess
-                if (sProto.onLoadSuccess !== _debugSceneLoadOnLoadSuccess) {
-                    var origOnLoadSuccess = sProto.onLoadSuccess;
-                    _debugSceneLoadOnLoadSuccess = function() {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onLoadSuccess");
-                        } catch (e) {}
-                        if (origOnLoadSuccess) return origOnLoadSuccess.apply(this, arguments);
-                    };
-                    sProto.onLoadSuccess = _debugSceneLoadOnLoadSuccess;
-                }
-
-                // 8. Scene_Load.prototype.onLoadFailure
-                if (sProto.onLoadFailure !== _debugSceneLoadOnLoadFailure) {
-                    var origOnLoadFailure = sProto.onLoadFailure;
-                    _debugSceneLoadOnLoadFailure = function() {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onLoadFailure");
-                        } catch (e) {}
-                        if (origOnLoadFailure) return origOnLoadFailure.apply(this, arguments);
-                    };
-                    sProto.onLoadFailure = _debugSceneLoadOnLoadFailure;
-                }
-
-                // 9. Scene_Load.prototype.onLoadInvalid
-                if (typeof sProto.onLoadInvalid === "function" && sProto.onLoadInvalid !== _debugSceneLoadOnLoadInvalid) {
-                    var origOnLoadInvalid = sProto.onLoadInvalid;
-                    _debugSceneLoadOnLoadInvalid = function() {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " onLoadInvalid");
-                        } catch (e) {}
-                        if (origOnLoadInvalid) return origOnLoadInvalid.apply(this, arguments);
-                    };
-                    sProto.onLoadInvalid = _debugSceneLoadOnLoadInvalid;
-                }
-            }
-
-            // 10. DataManager.loadGame
-            if (root.DataManager && typeof root.DataManager.loadGame === "function" && root.DataManager.loadGame !== _debugDataManagerLoadGame) {
-                var origLoadGame = root.DataManager.loadGame;
-                _debugDataManagerLoadGame = function(savefileId) {
+    function patchLoadDiagnostics() {
+        try {
+            var sLoad = root.Scene_Load || (typeof window !== "undefined" && window.Scene_Load);
+            if (sLoad && sLoad.prototype && !sLoad.prototype.__runtimepack_load_diag_patched) {
+                var origOnLoadFailure = sLoad.prototype.onLoadFailure;
+                sLoad.prototype.onLoadFailure = function() {
                     try {
-                        console.log("[RP_LOAD_DEBUG] " + Date.now() + " DataManager.loadGame savefileId=" + savefileId);
+                        __runtimepackShowLoadError("Load game gagal \u2014 cek logcat [GameConsole] untuk detail (RT-LOAD-FAIL)");
                     } catch (e) {}
+                    if (typeof origOnLoadFailure === "function") {
+                        return origOnLoadFailure.apply(this, arguments);
+                    }
+                };
+                sLoad.prototype.__runtimepack_load_diag_patched = true;
+                root.__runtimepack_load_diag_patched = true;
+            }
+
+            var dataMgr = root.DataManager || (typeof window !== "undefined" && window.DataManager);
+            if (dataMgr && typeof dataMgr.loadGame === "function" && !dataMgr.__runtimepack_loadgame_diag_patched) {
+                var origLoadGame = dataMgr.loadGame;
+                dataMgr.loadGame = function(savefileId) {
                     var p = origLoadGame.apply(this, arguments);
-                    if (p && typeof p.then === "function") {
-                        return p.then(function(val) {
+                    if (p && typeof p.then === "function" && typeof p.catch === "function") {
+                        return p.catch(function(err) {
                             try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " loadGame resolved");
-                            } catch (e) {}
-                            return val;
-                        }).catch(function(err) {
-                            try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " loadGame rejected " + (err && err.message ? err.message : err));
+                                console.error("[RuntimePack] RT-LOAD-FAIL loadGame rejection:", err && err.message ? err.message : err);
                             } catch (e) {}
                             throw err;
                         });
                     }
                     return p;
                 };
-                root.DataManager.loadGame = _debugDataManagerLoadGame;
+                dataMgr.__runtimepack_loadgame_diag_patched = true;
             }
-
-            // 11. StorageManager.loadObject
-            if (root.StorageManager && typeof root.StorageManager.loadObject === "function" && root.StorageManager.loadObject !== _debugStorageManagerLoadObject) {
-                var origLoadObject = root.StorageManager.loadObject;
-                _debugStorageManagerLoadObject = function(saveName) {
-                    try {
-                        console.log("[RP_LOAD_DEBUG] " + Date.now() + " StorageManager.loadObject saveName=" + saveName);
-                    } catch (e) {}
-                    var p = origLoadObject.apply(this, arguments);
-                    if (p && typeof p.then === "function") {
-                        return p.then(function(val) {
-                            try {
-                                var valType = typeof val;
-                                var valLen = (val && typeof val === "object") ? Object.keys(val).length : (val && val.length !== undefined ? val.length : "N/A");
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " StorageManager.loadObject resolved saveName=" + saveName + " type=" + valType + " length=" + valLen);
-                            } catch (e) {}
-                            return val;
-                        }).catch(function(err) {
-                            try {
-                                console.log("[RP_LOAD_DEBUG] " + Date.now() + " StorageManager.loadObject rejected saveName=" + saveName + " reason=" + (err && err.message ? err.message : err));
-                            } catch (e) {}
-                            throw err;
-                        });
-                    }
-                    return p;
-                };
-                root.StorageManager.loadObject = _debugStorageManagerLoadObject;
-            }
-
-            // 12 & 13. SceneManager.goto / push
-            if (root.SceneManager) {
-                if (typeof root.SceneManager.goto === "function" && root.SceneManager.goto !== _debugSceneManagerGoto) {
-                    var origGoto = root.SceneManager.goto;
-                    _debugSceneManagerGoto = function(sceneClass) {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " SceneManager.goto " + (sceneClass && sceneClass.name ? sceneClass.name : sceneClass));
-                        } catch (e) {}
-                        return origGoto.apply(this, arguments);
-                    };
-                    root.SceneManager.goto = _debugSceneManagerGoto;
-                }
-                if (typeof root.SceneManager.push === "function" && root.SceneManager.push !== _debugSceneManagerPush) {
-                    var origPush = root.SceneManager.push;
-                    _debugSceneManagerPush = function(sceneClass) {
-                        try {
-                            console.log("[RP_LOAD_DEBUG] " + Date.now() + " SceneManager.push " + (sceneClass && sceneClass.name ? sceneClass.name : sceneClass));
-                        } catch (e) {}
-                        return origPush.apply(this, arguments);
-                    };
-                    root.SceneManager.push = _debugSceneManagerPush;
-                }
-            }
-
-            if (root.Scene_Load && root.Window_SavefileList && root.DataManager && root.StorageManager && root.SceneManager) {
-                root.__runtimepack_load_debug_patched = true;
-            }
-        } catch (e) {
-            try {
-                console.log("[RP_LOAD_DEBUG] patchLoadDebug error: " + e);
-            } catch (err) {}
-        }
+        } catch (e) {}
     }
 
     var _compatDummyWindow = null;
@@ -1655,19 +1463,15 @@
             }
             return text;
         };
-
-        try {
-            console.log("[RP_LOAD_DEBUG] halfmove compat applied");
-        } catch (e) {}
     }
 
     root.__runtimepackPollEngineInput = patchEngineInput;
     if (typeof root.window !== "undefined") {
         root.window.__runtimepackPollEngineInput = patchEngineInput;
     }
-    root.__runtimepackPollLoadDebug = patchLoadDebug;
+    root.__runtimepackPollLoadDiagnostics = patchLoadDiagnostics;
     if (typeof root.window !== "undefined") {
-        root.window.__runtimepackPollLoadDebug = patchLoadDebug;
+        root.window.__runtimepackPollLoadDiagnostics = patchLoadDiagnostics;
     }
     root.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
     if (typeof root.window !== "undefined") {
@@ -1693,8 +1497,8 @@
         if (root.RuntimePackAssetAudit && typeof root.RuntimePackAssetAudit.installHooks === "function") {
             root.RuntimePackAssetAudit.installHooks(root);
         }
-        if (root.Scene_Load || root.Scene_File || root.Window_SavefileList || root.DataManager || root.StorageManager || root.SceneManager) {
-            patchLoadDebug();
+        if (root.Scene_Load || (typeof window !== "undefined" && window.Scene_Load) || root.DataManager || (typeof window !== "undefined" && window.DataManager)) {
+            patchLoadDiagnostics();
         }
         if (root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button)) {
             patchHalfMoveCompat();
