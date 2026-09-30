@@ -729,3 +729,14 @@ Keputusan:
 8. Ruling eksekusi: Task 6 (commit save-adapter) dikerjakan sebelum Task 3 (merge) karena file tracked modified memblokir pre-merge check.
 Alasan: probe dirancang rasional (80% nilai dari T1 tanpa kalibrasi per game); keputusan save/load injection ditunda karena kompleksitas prolog/naming/gacha-save tidak sebanding nilai awal; device-agnostic karena target rilis bisa ganti emulator.
 Dampak: untimepack probe + uild --probe tersedia; QA manual user berkurang drastis; 355 test workspace + 18 suite JS hijau; verifikasi device PASS penuh; final review APPROVED_FOR_MERGE (5 minor diterima dengan alasan tercatat).
+# Decisions Log
+
+## [2026-09-30] Penghapusan Seluruh Gerbang Legalitas Artifisial (TyranoScript First-Class)
+Keputusan:
+1. RuntimePack dikonfirmasi sebagai tool open-source komunitas non-komersial — gerbang legalitas korporat yang dipasang AI sebelumnya (TYRANO-LEGAL, TYR-101, LIC-101, LIC-310 fiktif, PROPRIETARY-GATED, SPIKE-TYRANO-LEGAL-001) dihapus total dari kode, registry runtime, dan seluruh dokumentasi aktif.
+2. TyranoScript kini first-class citizen: dievaluasi analyzer secara normal (tanpa hack Blocked/unblock kompensasi di scanner), runtime manifest berlisensi MIT, audit aset bersih tanpa injeksi finding TYR-101.
+3. CompatibilityStatus::Blocked enum tetap dipertahankan sebagai status teknis umum (bukan gate legal) — bisa dipakai untuk inkompatibilitas nyata di masa depan.
+4. Docs/AGENTS-old.md (arsip spec lama) dihapus karena sumber kebingungan; kontrak supervisor user di AGENTS.md bagian atas tetap utuh 100%.
+5. Artifak sejarah SDD di Docs/superpowers/ sengaja dibiarkan apa adanya (catatan eksekusi historis, bukan kontrak aktif).
+Alasan: Klausul pembatasan TyranoScript di README resminya menyasar produk konversi KOMERSIAL; tool open-source komunitas gratis tidak termasuk. Guardrail korporat over-paranoid tersebut tidak relevan dan menghambat.
+Dampak: 1.200 baris gate + arsip dihapus; 364 test workspace hijau 0 gagal; grep nol sisa di seluruh dokumen aktif; final review APPROVED_FOR_MERGE (0 issue semua level). Commit: 4ebfc72, 5fa856e, cf4bf28, merge e377f08.
