@@ -1,4 +1,5 @@
 mod audit_command;
+pub mod probe;
 
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -75,8 +76,31 @@ enum Commands {
     Audit(AuditArgs),
     /// Build standalone Android APK/AAB from a game
     Build(BuildArgs),
+    /// Automated APK smoke test on Android emulator or connected device (T1)
+    Probe(ProbeArgs),
     /// Display third-party notices and licenses
     Licenses,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ProbeArgs {
+    /// Path to game APK to probe
+    pub apk: Option<PathBuf>,
+    /// Device ID from config or raw address (e.g. 127.0.0.1:16384)
+    #[arg(long)]
+    pub device: Option<String>,
+    /// Number of DPAD down presses before Enter to select New Game
+    #[arg(long, default_value = "0")]
+    pub dpad_down: u32,
+    /// Path to output probe report JSON
+    #[arg(short, long, default_value = "dist/probe-report.json")]
+    pub report: PathBuf,
+    /// List discovered ADB devices and configured device profiles
+    #[arg(long)]
+    pub list_devices: bool,
+    /// Path to device profiles config
+    #[arg(long)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -1526,6 +1550,76 @@ pub fn derive_apk_filename(app_name: &str, output: &Path) -> String {
     }
 }
 
+fn cmd_probe(args: ProbeArgs) {
+    if args.list_devices {
+        probe::print_device_inventory(args.config.as_deref());
+        return;
+    }
+
+    let apk = match args.apk {
+        Some(path) => path,
+        None => {
+            eprintln!("[PROBE-001] Missing APK path. Usage: runtimepack probe <APK> or runtimepack probe --list-devices");
+            std::process::exit(1);
+        }
+    };
+
+    if !apk.is_file() {
+        eprintln!("[PROBE-002] APK file not found: {}", apk.display());
+        std::process::exit(1);
+    }
+
+    let address = match probe::resolve_device(args.device.as_deref(), args.config.as_deref()) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut target = probe::AdbTarget::new(&address);
+    let config = probe::ScenarioConfig {
+        dpad_down: args.dpad_down,
+        ..probe::ScenarioConfig::default()
+    };
+
+    println!("RuntimePack Probe — Universal T1 Smoke Test");
+    println!("Target Device: {}", address);
+    println!("APK:           {}", apk.display());
+
+    let report = match probe::run_scenario(&mut target, &apk, &config) {
+        Ok(rep) => rep,
+        Err(e) => {
+            eprintln!("Probe failure: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(parent) = args.report.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(json) = report.to_json_pretty() {
+        let _ = fs::write(&args.report, json);
+    }
+
+    println!("\nSteps:");
+    for step in &report.steps {
+        if step.status == "PASS" {
+            println!("  [PASS] {} ({}ms)", step.step, step.detail_ms);
+        } else {
+            let code_str = step.code.as_deref().unwrap_or("UNKNOWN");
+            let note_str = step.note.as_deref().unwrap_or("");
+            println!("  [FAIL] {} ({}ms) [{}: {}]", step.step, step.detail_ms, code_str, note_str);
+        }
+    }
+    println!("\nOverall: {}", report.overall);
+    println!("Report saved to: {}", args.report.display());
+
+    if report.overall != "PASS" {
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -1542,6 +1636,7 @@ fn main() {
         },
         Some(Commands::Audit(args)) => cmd_audit(args),
         Some(Commands::Build(args)) => cmd_build(args),
+        Some(Commands::Probe(args)) => cmd_probe(args),
         Some(Commands::Licenses) => cmd_licenses(),
         None => {
             println!("runtimepack 0.1.0");
