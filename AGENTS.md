@@ -720,6 +720,8 @@ process restart
 load
 ```
 
+Runtime validation is available via `runtimepack probe` (T1).
+
 ---
 
 ## 17. Security rules

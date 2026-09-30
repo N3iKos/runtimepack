@@ -36,10 +36,21 @@ pub fn default_config_path() -> PathBuf {
     PathBuf::from("probe-profiles/devices.toml")
 }
 
-pub fn resolve_device(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceResolution {
+    Resolved(String),
+    NoneAvailable,
+    Ambiguous(String),
+}
+
+pub fn resolve_device_target<F>(
     cli_device: Option<&str>,
     config_path: Option<&Path>,
-) -> Result<String, ProbeError> {
+    scan_devices: F,
+) -> Result<DeviceResolution, ProbeError>
+where
+    F: FnOnce() -> Result<Vec<(String, String)>, ProbeError>,
+{
     let cfg_path = config_path
         .map(PathBuf::from)
         .unwrap_or_else(default_config_path);
@@ -48,23 +59,22 @@ pub fn resolve_device(
         if cfg_path.is_file() {
             if let Ok(cfg) = DevicesConfig::load_from_file(&cfg_path) {
                 if let Some(profile) = cfg.devices.get(dev) {
-                    return Ok(profile.address.clone());
+                    return Ok(DeviceResolution::Resolved(profile.address.clone()));
                 }
             }
         }
-        return Ok(dev.to_string());
+        return Ok(DeviceResolution::Resolved(dev.to_string()));
     }
 
-    // --device was not provided
     if cfg_path.is_file() {
         if let Ok(cfg) = DevicesConfig::load_from_file(&cfg_path) {
             if cfg.devices.len() == 1 {
                 let single_addr = cfg.devices.values().next().unwrap().address.clone();
-                return Ok(single_addr);
+                return Ok(DeviceResolution::Resolved(single_addr));
             } else if cfg.devices.len() > 1 {
                 let keys: Vec<&String> = cfg.devices.keys().collect();
-                return Err(ProbeError::DeviceUnavailable(format!(
-                    "Multiple devices defined in '{}' ({:?}). Please specify one using --device <id>.",
+                return Ok(DeviceResolution::Ambiguous(format!(
+                    "Multiple devices defined in '{}' ({:?}). Please specify target using --device or --probe-device <id>.",
                     cfg_path.display(),
                     keys
                 )));
@@ -72,25 +82,39 @@ pub fn resolve_device(
         }
     }
 
-    // Config file not present or empty: scan adb devices
-    let connected = AdbTarget::scan_connected_devices()?;
+    let connected = match scan_devices() {
+        Ok(devices) => devices,
+        Err(_) => return Ok(DeviceResolution::NoneAvailable),
+    };
+
     let ready_devices: Vec<_> = connected
-        .iter()
+        .into_iter()
         .filter(|(_, state)| state == "device")
         .collect();
 
     match ready_devices.len() {
-        1 => Ok(ready_devices[0].0.clone()),
-        0 => Err(ProbeError::DeviceUnavailable(
-            "No connected ADB devices found. Ensure device/emulator is running or configure probe-profiles/devices.toml.".to_string(),
-        )),
+        1 => Ok(DeviceResolution::Resolved(ready_devices[0].0.clone())),
+        0 => Ok(DeviceResolution::NoneAvailable),
         _ => {
-            let names: Vec<&str> = ready_devices.iter().map(|(id, _)| id.as_str()).collect();
-            Err(ProbeError::DeviceUnavailable(format!(
-                "Multiple ADB devices connected ({}). Please specify target with --device <address>.",
+            let names: Vec<String> = ready_devices.into_iter().map(|(id, _)| id).collect();
+            Ok(DeviceResolution::Ambiguous(format!(
+                "Multiple ADB devices connected ({}). Please specify target using --device or --probe-device <address>.",
                 names.join(", ")
             )))
         }
+    }
+}
+
+pub fn resolve_device(
+    cli_device: Option<&str>,
+    config_path: Option<&Path>,
+) -> Result<String, ProbeError> {
+    match resolve_device_target(cli_device, config_path, AdbTarget::scan_connected_devices)? {
+        DeviceResolution::Resolved(addr) => Ok(addr),
+        DeviceResolution::NoneAvailable => Err(ProbeError::DeviceUnavailable(
+            "No connected ADB devices found. Ensure device/emulator is running or configure probe-profiles/devices.toml.".to_string(),
+        )),
+        DeviceResolution::Ambiguous(msg) => Err(ProbeError::DeviceUnavailable(msg)),
     }
 }
 

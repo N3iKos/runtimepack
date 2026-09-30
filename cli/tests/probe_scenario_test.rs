@@ -328,6 +328,120 @@ address = "127.0.0.1:5555"
 }
 
 #[test]
+fn test_resolve_device_target_precedence_and_pure_scan() {
+    use probe::config::{resolve_device_target, DeviceResolution};
+    let dir = std::env::temp_dir().join("probe_test_precedence_scan");
+    let _ = std::fs::create_dir_all(&dir);
+    let cfg_file = dir.join("devices.toml");
+
+    let content = r#"
+[devices.primary]
+address = "127.0.0.1:5555"
+
+[devices.secondary]
+address = "127.0.0.1:5557"
+"#;
+    std::fs::write(&cfg_file, content).unwrap();
+
+    let res = resolve_device_target(
+        Some("primary"),
+        Some(&cfg_file),
+        || Ok(vec![("127.0.0.1:9999".to_string(), "device".to_string())]),
+    )
+    .unwrap();
+    assert_eq!(
+        res,
+        DeviceResolution::Resolved("127.0.0.1:5555".to_string())
+    );
+
+    let res = resolve_device_target(
+        Some("192.168.1.50:5555"),
+        Some(&cfg_file),
+        || Ok(vec![("127.0.0.1:9999".to_string(), "device".to_string())]),
+    )
+    .unwrap();
+    assert_eq!(
+        res,
+        DeviceResolution::Resolved("192.168.1.50:5555".to_string())
+    );
+
+    let res = resolve_device_target(
+        None,
+        Some(&cfg_file),
+        || Ok(vec![("127.0.0.1:9999".to_string(), "device".to_string())]),
+    )
+    .unwrap();
+    assert!(matches!(res, DeviceResolution::Ambiguous(_)));
+
+    let single_content = r#"
+[devices.only_one]
+address = "127.0.0.1:16384"
+"#;
+    std::fs::write(&cfg_file, single_content).unwrap();
+    let res = resolve_device_target(
+        None,
+        Some(&cfg_file),
+        || Ok(vec![]),
+    )
+    .unwrap();
+    assert_eq!(
+        res,
+        DeviceResolution::Resolved("127.0.0.1:16384".to_string())
+    );
+
+    let nonexistent_cfg = dir.join("nonexistent.toml");
+    let res = resolve_device_target(
+        None,
+        Some(&nonexistent_cfg),
+        || Ok(vec![("emulator-5554".to_string(), "device".to_string())]),
+    )
+    .unwrap();
+    assert_eq!(
+        res,
+        DeviceResolution::Resolved("emulator-5554".to_string())
+    );
+
+    let res = resolve_device_target(
+        None,
+        Some(&nonexistent_cfg),
+        || Ok(vec![]),
+    )
+    .unwrap();
+    assert_eq!(res, DeviceResolution::NoneAvailable);
+
+    let res = resolve_device_target(
+        None,
+        Some(&nonexistent_cfg),
+        || Ok(vec![("emulator-5554".to_string(), "offline".to_string())]),
+    )
+    .unwrap();
+    assert_eq!(res, DeviceResolution::NoneAvailable);
+
+    let res = resolve_device_target(
+        None,
+        Some(&nonexistent_cfg),
+        || {
+            Ok(vec![
+                ("emulator-5554".to_string(), "device".to_string()),
+                ("emulator-5556".to_string(), "device".to_string()),
+            ])
+        },
+    )
+    .unwrap();
+    assert!(matches!(res, DeviceResolution::Ambiguous(_)));
+
+    let res = resolve_device_target(
+        None,
+        Some(&nonexistent_cfg),
+        || Err(probe::target::ProbeError::Io("adb not installed".to_string())),
+    )
+    .unwrap();
+    assert_eq!(res, DeviceResolution::NoneAvailable);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_report_json_serialization() {
     use probe::report::{ProbeReport, StepResult};
     let mut report = ProbeReport::new("127.0.0.1:5555", "dist/game.apk", "io.runtimepack.game");

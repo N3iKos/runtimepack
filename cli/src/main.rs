@@ -170,6 +170,12 @@ pub struct BuildArgs {
     /// Output directory
     #[arg(short, long, default_value = "./dist")]
     pub output: PathBuf,
+    /// Run T1 smoke probe on built APK (exits non-zero if probe fails; skips gracefully if no device available)
+    #[arg(long)]
+    pub probe: bool,
+    /// Target ADB device address or profile ID for post-build probe
+    #[arg(long)]
+    pub probe_device: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -1259,6 +1265,7 @@ fn cmd_build(args: BuildArgs) {
 
     // 9. Invoke Gradle compiler if toolchains are present
     let mut apk_hash = None;
+    let mut produced_apk = None;
     let sanitized_apk_name = derive_apk_filename(&app_name, output);
     if args.no_compile || std::env::var("RUNTIMEPACK_SKIP_GRADLE").is_ok() {
         println!(
@@ -1301,6 +1308,7 @@ fn cmd_build(args: BuildArgs) {
                 if apk_source.exists() {
                     let dest_apk = output.join(&sanitized_apk_name);
                     if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
+                        produced_apk = Some(dest_apk.clone());
                         if sanitized_apk_name.contains('\'') {
                             let alt_name = sanitized_apk_name.replace('\'', "");
                             let alt_apk = output.join(&alt_name);
@@ -1392,6 +1400,52 @@ fn cmd_build(args: BuildArgs) {
         notices_dir.join("NOTICES.txt").display()
     );
     println!("\n[SUCCESS] Standalone Android packaging complete!");
+
+    if args.probe {
+        if let Some(apk_path) = produced_apk {
+            println!("\n--- Runtime Verification (T1 Probe) ---");
+            let probe_report_path = output.join("probe-report.json");
+            match probe::resolve_device_target(
+                args.probe_device.as_deref(),
+                None,
+                probe::AdbTarget::scan_connected_devices,
+            ) {
+                Ok(probe::DeviceResolution::Resolved(device)) => {
+                    match probe::run_probe(&apk_path, &device, &probe_report_path) {
+                        Ok(probe_report) => {
+                            if probe_report.overall != "PASS" {
+                                eprintln!("\n[probe] FAILED — see {}", probe_report_path.display());
+                                std::process::exit(1);
+                            } else {
+                                println!("\n[probe] PASSED — runtime verification succeeded");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("\n[probe] FAILED: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Ok(probe::DeviceResolution::NoneAvailable) => {
+                    println!("[probe] no device available — skipping runtime verification");
+                }
+                Ok(probe::DeviceResolution::Ambiguous(msg)) => {
+                    println!(
+                        "[probe] multiple devices available — skipping runtime verification ({})",
+                        msg
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "[probe] no device available ({}) — skipping runtime verification",
+                        e
+                    );
+                }
+            }
+        } else {
+            println!("[probe] skipping runtime verification — no APK was produced by build");
+        }
+    }
 }
 
 fn cmd_licenses() {
@@ -1577,43 +1631,23 @@ fn cmd_probe(args: ProbeArgs) {
         }
     };
 
-    let mut target = probe::AdbTarget::new(&address);
-    let config = probe::ScenarioConfig {
-        dpad_down: args.dpad_down,
-        ..probe::ScenarioConfig::default()
+    let report = if args.dpad_down == 0 {
+        probe::run_probe(&apk, &address, &args.report)
+    } else {
+        let config = probe::ScenarioConfig {
+            dpad_down: args.dpad_down,
+            ..probe::ScenarioConfig::default()
+        };
+        probe::run_probe_with_config(&apk, &address, &args.report, &config)
     };
 
-    println!("RuntimePack Probe — Universal T1 Smoke Test");
-    println!("Target Device: {}", address);
-    println!("APK:           {}", apk.display());
-
-    let report = match probe::run_scenario(&mut target, &apk, &config) {
+    let report = match report {
         Ok(rep) => rep,
         Err(e) => {
             eprintln!("Probe failure: {}", e);
             std::process::exit(1);
         }
     };
-
-    if let Some(parent) = args.report.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(json) = report.to_json_pretty() {
-        let _ = fs::write(&args.report, json);
-    }
-
-    println!("\nSteps:");
-    for step in &report.steps {
-        if step.status == "PASS" {
-            println!("  [PASS] {} ({}ms)", step.step, step.detail_ms);
-        } else {
-            let code_str = step.code.as_deref().unwrap_or("UNKNOWN");
-            let note_str = step.note.as_deref().unwrap_or("");
-            println!("  [FAIL] {} ({}ms) [{}: {}]", step.step, step.detail_ms, code_str, note_str);
-        }
-    }
-    println!("\nOverall: {}", report.overall);
-    println!("Report saved to: {}", args.report.display());
 
     if report.overall != "PASS" {
         std::process::exit(1);

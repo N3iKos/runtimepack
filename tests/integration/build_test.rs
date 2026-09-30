@@ -3253,3 +3253,64 @@ fn test_cli_build_rejects_missing_default_theme() {
     let _ = std::fs::remove_dir_all(&fixture);
     let _ = std::fs::remove_dir_all(&out_dir);
 }
+
+#[test]
+fn test_cli_build_with_probe_flag_graceful_skip() {
+    let fixture = test_temp_dir("probe-build-fixture");
+    let out_dir = test_temp_dir("probe-build-out");
+
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Probe Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .arg("--probe")
+        .output()
+        .expect("Must run runtimepack build with --probe");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Build with --probe must succeed when compilation is skipped.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("[probe] skipping runtime verification — no APK was produced by build"),
+        "STDOUT must report probe skipped when no APK is built:\n{stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_cli_build_help_mentions_probe_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg("--help")
+        .output()
+        .expect("Must run runtimepack build --help");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--probe"), "Help must contain --probe");
+    assert!(
+        stdout.contains("--probe-device"),
+        "Help must contain --probe-device"
+    );
+}
