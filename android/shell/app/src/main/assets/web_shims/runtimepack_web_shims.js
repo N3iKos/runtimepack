@@ -1,4 +1,5 @@
 (function(root) {
+    // [CAP-WEB-012] Global unhandled error and rejection listeners
     if (typeof root.window !== "undefined" && typeof root.window.addEventListener === "function") {
         root.window.addEventListener("error", function(e) {
             if (root.console && typeof root.console.error === "function") {
@@ -12,6 +13,7 @@
         });
     }
 
+    // [CAP-WEB-008] StorageManager.isLocalMode virtualization
     function patchStorageManager(sm) {
         if (!sm) return;
         try {
@@ -35,6 +37,7 @@
         }
     }
 
+    // [CAP-WEB-002] RPG Maker MZ universal storage adapter
     function patchMzStorage(sm) {
         if (!sm || sm.__runtimepack_mz_save_patched) return;
         sm.__runtimepack_mz_save_patched = true;
@@ -154,6 +157,7 @@
         sm.updateForageKeys();
     }
 
+    // [CAP-WEB-003] RPG Maker MV universal webstorage adapter
     function patchMvStorage(sm) {
         if (!sm || sm.__runtimepack_mv_save_patched) return;
         sm.__runtimepack_mv_save_patched = true;
@@ -284,6 +288,7 @@
         };
     }
 
+    // [CAP-WEB-015] In-game cheat, state dump, and diagnostic command bridge
     function executeCheatCmd(cmd) {
         if (!cmd || typeof cmd !== "object") return;
         var action = cmd.action || cmd.type;
@@ -573,6 +578,7 @@
     }
     root.__runtimepack_shims_installed = true;
 
+    // [CAP-WEB-009] Desktop shell, Node.js built-ins, and Steamworks mocks
     function normalizePath(p) {
         if (typeof p !== "string") return "";
         var isAbs = p.charCodeAt(0) === 47;
@@ -804,6 +810,7 @@
                 size: exists ? (syncFetch(p) || "").length : 0
             };
         },
+        // [CAP-WEB-001] fs.readdirSync native bridge and MapInfos fallback
         readdirSync: function(dirPath) {
             var clean = String(dirPath || "").replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/$/, "");
             var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative) || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
@@ -882,6 +889,7 @@
         return {};
     };
 
+    // [CAP-WEB-014] TyranoBuilder engine compatibility hooks
     function setupTyranoHooks() {
         var w = (typeof root.window !== "undefined") ? root.window : root;
         var checkAndPatch = function() {
@@ -1128,6 +1136,7 @@
         });
     } catch (e) {}
 
+    // [CAP-WEB-011] AudioManager Web Audio format enforcement
     function patchAudioManager(am) {
         if (!am) return;
         if (!am.audioFileExt || !am.audioFileExt.__patched) {
@@ -1147,6 +1156,7 @@
         }
     }
 
+    // [CAP-WEB-010] Graphics canvas clearing and viewport stretch fit
     function patchGraphics(g) {
         if (!g) return;
         if (g._clearUpperCanvas && !g._clearUpperCanvas.__patched) {
@@ -1214,6 +1224,7 @@
         root.window.patchGraphics = patchGraphics;
     }
 
+    // [CAP-WEB-013] SceneManager caught exception diagnostics
     function patchSceneManager(sm) {
         if (!sm || !sm.catchException || sm.catchException.__patched) return;
         var origCatch = sm.catchException;
@@ -1226,6 +1237,7 @@
         sm.catchException.__patched = true;
     }
 
+    // [CAP-WEB-004] Touch input jitter tolerance and single-tap mobile OK
     function patchEngineInput() {
         var Input_ = root.Input;
         var TouchInput_ = root.TouchInput;
@@ -1263,6 +1275,7 @@
         // C. Input.codeMapper fallback: event.code W3C saat keyCode === 0
         //    (Chromium modern membuang keyCode dari KeyboardEventInit)
         // -------------------------------------------------------------
+        // [CAP-WEB-005] W3C Keyboard codeMapper and virtual gamepad input bridge
         if (Input_ && !Input_.__runtimepack_codemapper_patched) {
             Input_.codeMapper = {
                 "Enter": "ok", "NumpadEnter": "ok", "Space": "ok",
@@ -1352,6 +1365,7 @@
         }
     }
 
+    // [CAP-WEB-007] Fail-loud load failure diagnostics
     function __runtimepackShowLoadError(msg) {
         try {
             console.error("[RuntimePack] RT-LOAD-FAIL " + msg);
@@ -1415,6 +1429,7 @@
     }
 
     var _compatDummyWindow = null;
+    // [CAP-WEB-006] HalfMove plugin Sprite_Button escape character delegation
     function patchHalfMoveCompat() {
         if (root.__runtimepack_halfmove_compat_patched) return;
         var Sprite_Button = root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button);
@@ -1478,6 +1493,7 @@
         root.window.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
     }
 
+    // [CAP-WEB-016] Late-binding polling and lifecycle coordinator
     function pollPatches() {
         if (root.StorageManager) {
             patchStorageManager(root.StorageManager);
