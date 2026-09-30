@@ -107,7 +107,7 @@ impl EvidenceRegistry {
                 url: "https://github.com/ShikemokuMK/tyranoscript".to_string(),
                 claims: vec![
                     "HTML/JavaScript visual novel engine".to_string(),
-                    "Redistribution restrictions apply; creates TYRANO-LEGAL gate".to_string(),
+                    "TyranoScript official repository (HTML/JavaScript engine)".to_string(),
                 ],
             },
             EvidenceItem {

@@ -293,11 +293,11 @@ impl RuntimeRegistry {
             }),
         });
 
-        // Tyrano Web Adapter (Technical adapter; blocked by TYRANO-LEGAL gate)
+        // Tyrano Web Adapter
         self.register(RuntimeManifest {
             manifest_version: 1,
             id: "tyrano-web".to_string(),
-            name: "RuntimePack Tyrano Web Adapter (Subject to TYRANO-LEGAL gate)".to_string(),
+            name: "RuntimePack Tyrano Web Adapter".to_string(),
             version: "0.1.0".to_string(),
             runtime_api: 1,
             family: RuntimeFamily::TyranoWeb,
@@ -320,7 +320,7 @@ impl RuntimeRegistry {
                 "web.javascript".to_string(),
             ],
             licenses: Some(RuntimeLicenses {
-                license_id: Some("PROPRIETARY-GATED".to_string()),
+                license_id: Some("MIT".to_string()),
                 notice_bundle: Some("licenses/tyrano".to_string()),
             }),
         });
