@@ -270,6 +270,7 @@ open class WebActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!RuntimeIntegrity.checkOrShowCorrupted(this)) return
 
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         window.setFlags(

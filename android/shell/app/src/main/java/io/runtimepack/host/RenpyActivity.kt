@@ -201,6 +201,7 @@ open class RenpyActivity : PythonSDLActivity() {
         // SuperNotCalledException. Content is mounted beforehand by
         // RenpyBootstrapActivity, so SDL can initialize immediately here.
         super.onCreate(savedInstanceState)
+        if (!RuntimeIntegrity.checkOrShowCorrupted(this)) return
 
         val root = gameRoot(filesDir)
         if (!isContentMounted(root)) {

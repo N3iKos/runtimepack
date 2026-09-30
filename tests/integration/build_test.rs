@@ -3580,3 +3580,228 @@ fn test_release_gpack_contains_overlay_and_shim_entries() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+#[test]
+fn test_compute_runtime_integrity_hash_from_entries_vectors() {
+    use runtimepack_core::build_plan::compute_runtime_integrity_hash_from_entries;
+
+    let v1 = vec![("overlay/test.txt".to_string(), b"hello".to_vec())];
+    let h1 = compute_runtime_integrity_hash_from_entries(&v1);
+    assert_eq!(
+        h1, "b3d9db26cfb28fa5d189b914eb404c61b995a743b9c2e583d155bc1dfcbfaa88",
+        "Single-entry test vector must match Kotlin host exactly"
+    );
+
+    let v2_reverse = vec![
+        ("overlay/b.js".to_string(), b"test".to_vec()),
+        ("fonts/a.ttf".to_string(), b"world".to_vec()),
+    ];
+    let h2 = compute_runtime_integrity_hash_from_entries(&v2_reverse);
+    assert_eq!(
+        h2, "f5f5a7000e20110ccac51637f556b04558263117b9eb36b5db6cb50504bac4a0",
+        "Multi-entry sorted test vector must match Kotlin host exactly"
+    );
+
+    let v2_normalized = vec![
+        ("\\fonts\\a.ttf".to_string(), b"world".to_vec()),
+        ("/overlay/b.js".to_string(), b"test".to_vec()),
+    ];
+    let h2_norm = compute_runtime_integrity_hash_from_entries(&v2_normalized);
+    assert_eq!(h2, h2_norm, "Path normalization must produce identical hash");
+}
+
+#[test]
+fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
+    let temp_dir = test_temp_dir("runtime-build-info-release");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Build Info Release Test".to_string(),
+            package: "io.runtimepack.test.buildinfo".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    assert!(
+        build_info_path.exists(),
+        "RuntimeBuildInfo.kt must be emitted to generated host java sources"
+    );
+
+    let content = std::fs::read_to_string(&build_info_path).unwrap();
+    assert!(
+        content.contains("var BUILD_FLAVOR: String = \"release\""),
+        "BUILD_FLAVOR must be release, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("var RUNTIME_INTEGRITY_SHA256: String = \""),
+        "RUNTIME_INTEGRITY_SHA256 must be emitted, got:\n{}",
+        content
+    );
+
+    // Extract hash from RuntimeBuildInfo.kt
+    let prefix = "var RUNTIME_INTEGRITY_SHA256: String = \"";
+    let start = content.find(prefix).expect("prefix found") + prefix.len();
+    let end = content[start..].find('"').expect("closing quote") + start;
+    let hash_in_code = &content[start..end];
+    assert_eq!(
+        hash_in_code.len(),
+        64,
+        "Integrity hash must be a 64-char hex string: {}",
+        hash_in_code
+    );
+
+    // Verify manifest JSON also contains runtime_integrity_sha256
+    let manifest_path = project_dir.join("app/src/main/assets/build-manifest.json");
+    let manifest_raw = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest_val: serde_json::Value = serde_json::from_str(&manifest_raw).unwrap();
+    assert_eq!(
+        manifest_val.get("runtime_integrity_sha256").and_then(|v| v.as_str()),
+        Some(hash_in_code),
+        "build-manifest.json must contain identical runtime_integrity_sha256"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_emit_project_beta_flavor_runtime_build_info() {
+    let temp_dir = test_temp_dir("runtime-build-info-beta");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Build Info Beta Test".to_string(),
+            package: "io.runtimepack.test.buildinfo.beta".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+    )
+    .unwrap();
+
+    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    let content = std::fs::read_to_string(&build_info_path).unwrap();
+    assert!(
+        content.contains("var BUILD_FLAVOR: String = \"beta\""),
+        "BUILD_FLAVOR must be beta, got:\n{}",
+        content
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+

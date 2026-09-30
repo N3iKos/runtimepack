@@ -1,6 +1,7 @@
 use crate::build_plan::BuildManifest;
 use crate::diagnostics::{DiagnosticCode, DiagnosticError};
 use crate::ingest::{GameSourceIndex, IndexedFile};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -638,8 +639,31 @@ include(":app")
         );
         fs::write(app_dir.join("build.gradle.kts"), gradle_kts)?;
 
+        let effective_flavor = flavor
+            .or(manifest.flavor.as_deref())
+            .or(manifest.provenance.flavor.as_deref())
+            .unwrap_or("beta");
+        let is_release = effective_flavor.eq_ignore_ascii_case("release");
+
+        let overlay_src = Self::find_overlay_src()
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+        let shims_src = Self::find_template_file("android/shell/app/src/main/assets/web_shims")
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/web_shims"));
+        let fonts_src = Self::find_template_file("android/shell/app/src/main/assets/fonts");
+
+        let integrity_hash = Self::compute_runtime_integrity_hash(
+            &overlay_src,
+            &shims_src,
+            fonts_src.as_deref(),
+        ).unwrap_or_default();
+
         // Write build-manifest.json to assets
-        let manifest_json = serde_json::to_string_pretty(manifest)
+        let mut manifest_val = serde_json::to_value(manifest)
+            .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+        if !integrity_hash.is_empty() {
+            manifest_val["runtime_integrity_sha256"] = serde_json::Value::String(integrity_hash.clone());
+        }
+        let manifest_json = serde_json::to_string_pretty(&manifest_val)
             .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         fs::write(assets_dir.join("build-manifest.json"), &manifest_json)?;
 
@@ -683,6 +707,24 @@ include(":app")
             copy_dir_all(&host_java_src, &src_dir)?;
         }
 
+        // Emit generated RuntimeBuildInfo.kt with computed integrity hash and flavor
+        let runtime_build_info_content = format!(
+            r#"package io.runtimepack.host
+
+object RuntimeBuildInfo {{
+    @Volatile
+    var RUNTIME_INTEGRITY_SHA256: String = "{}"
+
+    @Volatile
+    var BUILD_FLAVOR: String = "{}"
+}}
+"#,
+            integrity_hash, effective_flavor
+        );
+        let host_pkg_dir = src_dir.join("io/runtimepack/host");
+        fs::create_dir_all(&host_pkg_dir)?;
+        fs::write(host_pkg_dir.join("RuntimeBuildInfo.kt"), runtime_build_info_content)?;
+
         // Copy native jniLibs
         if let Some(jni_src) = Self::find_template_file("android/shell/app/src/main/jniLibs") {
             let jni_dst = app_dir.join("src/main/jniLibs");
@@ -698,17 +740,9 @@ include(":app")
             }
         }
 
-        let effective_flavor = flavor
-            .or(manifest.flavor.as_deref())
-            .or(manifest.provenance.flavor.as_deref())
-            .unwrap_or("beta");
-        let is_release = effective_flavor.eq_ignore_ascii_case("release");
-
         // Copy overlay assets (vpad.js, cheat_menu.js, index.html) only if not release
         let overlay_dst = assets_dir.join("overlay");
         if !is_release {
-            let overlay_src = Self::find_overlay_src()
-                .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
             if overlay_src.exists() {
                 copy_dir_all(&overlay_src, &overlay_dst)?;
             }
@@ -987,6 +1021,71 @@ kotlin.code.style=official
 
         Ok(())
     }
+
+    pub fn compute_runtime_integrity_hash_from_entries<B: AsRef<[u8]>>(
+        entries: &[(String, B)],
+    ) -> String {
+        let mut sorted = entries
+            .iter()
+            .map(|(p, b)| {
+                let norm_path = p.replace('\\', "/").trim_start_matches('/').to_lowercase();
+                (norm_path, b.as_ref())
+            })
+            .collect::<Vec<_>>();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut hasher = Sha256::new();
+        for (path, bytes) in sorted {
+            hasher.update(path.as_bytes());
+            hasher.update(&[0u8]);
+            hasher.update(bytes);
+            hasher.update(&[0u8]);
+        }
+        let digest = hasher.finalize();
+        digest.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    pub fn compute_runtime_integrity_hash(
+        overlay_src: &Path,
+        shims_src: &Path,
+        fonts_src: Option<&Path>,
+    ) -> Result<String, std::io::Error> {
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+
+        let mut add_dir = |dir: &Path, prefix: &str| -> Result<(), std::io::Error> {
+            if !dir.exists() {
+                return Ok(());
+            }
+            for entry in walkdir::WalkDir::new(dir).follow_links(true) {
+                let entry = entry.map_err(|e| {
+                    let err_str = e.to_string();
+                    e.into_io_error().unwrap_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::Other, err_str)
+                    })
+                })?;
+                if entry.file_type().is_file() {
+                    let path = entry.path();
+                    let rel_path = path.strip_prefix(dir).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
+                    let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+                    let rel_trimmed = rel_str.trim_start_matches('/');
+                    let logical_path = format!("{}/{}", prefix, rel_trimmed);
+                    let bytes = fs::read(path)?;
+                    entries.push((logical_path, bytes));
+                }
+            }
+            Ok(())
+        };
+
+        add_dir(overlay_src, "overlay")?;
+        add_dir(shims_src, "web_shims")?;
+        if let Some(fonts_dir) = fonts_src {
+            add_dir(fonts_dir, "fonts")?;
+        }
+
+        Ok(Self::compute_runtime_integrity_hash_from_entries(&entries))
+    }
 }
 
 pub fn append_runtime_overlay_assets(
@@ -996,6 +1095,20 @@ pub fn append_runtime_overlay_assets(
     fonts_src: Option<&Path>,
 ) -> Result<(), std::io::Error> {
     AndroidProjectGenerator::append_runtime_overlay_assets(index, overlay_src, shims_src, fonts_src)
+}
+
+pub fn compute_runtime_integrity_hash(
+    overlay_src: &Path,
+    shims_src: &Path,
+    fonts_src: Option<&Path>,
+) -> Result<String, std::io::Error> {
+    AndroidProjectGenerator::compute_runtime_integrity_hash(overlay_src, shims_src, fonts_src)
+}
+
+pub fn compute_runtime_integrity_hash_from_entries<B: AsRef<[u8]>>(
+    entries: &[(String, B)],
+) -> String {
+    AndroidProjectGenerator::compute_runtime_integrity_hash_from_entries(entries)
 }
 
 pub fn sanitize_gradle_project_name(name: &str) -> String {

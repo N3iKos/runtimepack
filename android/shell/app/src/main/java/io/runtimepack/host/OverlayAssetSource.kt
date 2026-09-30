@@ -5,12 +5,39 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.io.File
 import java.io.InputStream
 import java.net.URLDecoder
 
 object OverlayAssetSource {
     @Volatile
     var gpackReader: GpackStreamReader? = null
+
+    fun ensureInitialized(context: Context) {
+        if (gpackReader != null) return
+        val candidates = listOf(
+            File(File(context.filesDir, "game"), "game.pack"),
+            File(context.filesDir, "game.pack")
+        )
+        for (f in candidates) {
+            if (f.exists()) {
+                try {
+                    gpackReader = GpackStreamReader.open(f)
+                    return
+                } catch (_: Exception) {}
+            }
+        }
+        try {
+            val afd = context.assets.openFd("game.pack")
+            gpackReader = GpackStreamReader.open(afd)
+            return
+        } catch (_: Exception) {}
+        try {
+            val stream = context.assets.open("game.pack")
+            gpackReader = GpackStreamReader.open(stream)
+            return
+        } catch (_: Exception) {}
+    }
 
     fun exists(path: String, context: Context? = null): Boolean {
         val clean = path.replace('\\', '/').trimStart('/')
