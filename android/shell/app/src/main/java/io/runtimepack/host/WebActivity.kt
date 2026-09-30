@@ -380,6 +380,7 @@ open class WebActivity : Activity() {
         if (packFile.exists()) {
             try {
                 gpackReader = GpackStreamReader.open(packFile)
+                OverlayAssetSource.gpackReader = gpackReader
                 Log.i(TAG, "Opened game.pack from gameDir: ${packFile.absolutePath}")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not open packFile: ${e.message}")
@@ -389,10 +390,19 @@ open class WebActivity : Activity() {
             try {
                 val afd = assets.openFd("game.pack")
                 gpackReader = GpackStreamReader.open(afd)
+                OverlayAssetSource.gpackReader = gpackReader
                 Log.i(TAG, "Opened game.pack from APK assets (${afd.length} bytes, totalFiles=${gpackReader?.totalFiles})")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not open game.pack from assets: ${e.message}")
             }
+        }
+        if (gpackReader == null) {
+            try {
+                val stream = assets.open("game.pack")
+                gpackReader = GpackStreamReader.open(stream)
+                OverlayAssetSource.gpackReader = gpackReader
+                Log.i(TAG, "Opened game.pack stream from APK assets (totalFiles=${gpackReader?.totalFiles})")
+            } catch (_: Exception) {}
         }
 
         var rpgMakerKey: String? = null
@@ -610,6 +620,8 @@ open class WebActivity : Activity() {
             }
         }
 
+        wv.webViewClient = OverlayAssetSource.createOverlayWebViewClient(this)
+
         wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
 
         wv.loadUrl("file:///android_asset/overlay/index.html")
@@ -736,13 +748,11 @@ open class WebActivity : Activity() {
     fun loadWebShims() {
         if (webShimsScript.isNotEmpty()) return
         webShimsScript = try {
-            val shims = assets.open("web_shims/runtimepack_web_shims.js").bufferedReader().use { it.readText() }
-            val audit = try {
-                assets.open("web_shims/runtimepack_asset_audit.js").bufferedReader().use { it.readText() }
-            } catch (_: Exception) { "" }
+            val shims = OverlayAssetSource.read("web_shims/runtimepack_web_shims.js", this)?.toString(Charsets.UTF_8) ?: ""
+            val audit = OverlayAssetSource.read("web_shims/runtimepack_asset_audit.js", this)?.toString(Charsets.UTF_8) ?: ""
             if (audit.isNotEmpty()) "$shims\n\n$audit" else shims
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load web shims from assets: ${e.message}", e)
+            Log.e(TAG, "Failed to load web shims: ${e.message}", e)
             ""
         }
     }
@@ -935,6 +945,7 @@ open class WebActivity : Activity() {
         }
         try {
             gpackReader?.close()
+            OverlayAssetSource.gpackReader = null
         } catch (_: Exception) {}
         gameWebView?.destroy()
         overlayWebView?.destroy()

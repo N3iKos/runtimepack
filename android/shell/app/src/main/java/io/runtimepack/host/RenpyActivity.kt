@@ -209,6 +209,7 @@ open class RenpyActivity : PythonSDLActivity() {
             Log.e(TAG, "RenpyActivity started without mounted content at ${root.absolutePath}")
             showMountError(root, extractionSucceeded = false)
         }
+        initOverlayAssetSource()
     }
 
     override fun onStart() {
@@ -329,12 +330,51 @@ open class RenpyActivity : PythonSDLActivity() {
                 }
             }, "RuntimePackVPad")
 
+            wv.webViewClient = OverlayAssetSource.createOverlayWebViewClient(this)
             wv.loadUrl("file:///android_asset/overlay/index.html")
             mLayout.addView(wv)
             overlayWebView = wv
             mSurface?.requestFocus()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to attach overlay: ${e.message}", e)
+        }
+    }
+
+    private fun initOverlayAssetSource() {
+        if (OverlayAssetSource.gpackReader != null) return
+        val root = gameRoot(filesDir)
+        val packFile = File(root, "game.pack")
+        if (packFile.exists()) {
+            try {
+                OverlayAssetSource.gpackReader = GpackStreamReader.open(packFile)
+                Log.i(TAG, "Opened game.pack from gameDir for OverlayAssetSource: ${packFile.absolutePath}")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not open packFile for OverlayAssetSource: ${e.message}")
+            }
+        }
+        val packFilesDir = File(filesDir, "game.pack")
+        if (packFilesDir.exists()) {
+            try {
+                OverlayAssetSource.gpackReader = GpackStreamReader.open(packFilesDir)
+                Log.i(TAG, "Opened game.pack from filesDir for OverlayAssetSource: ${packFilesDir.absolutePath}")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not open packFilesDir for OverlayAssetSource: ${e.message}")
+            }
+        }
+        try {
+            val afd = assets.openFd("game.pack")
+            OverlayAssetSource.gpackReader = GpackStreamReader.open(afd)
+            Log.i(TAG, "Opened game.pack from APK assets for OverlayAssetSource")
+            return
+        } catch (_: Exception) {}
+        try {
+            val stream = assets.open("game.pack")
+            OverlayAssetSource.gpackReader = GpackStreamReader.open(stream)
+            Log.i(TAG, "Opened game.pack stream from APK assets for OverlayAssetSource")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not open game.pack from assets for OverlayAssetSource: ${e.message}")
         }
     }
 
@@ -393,6 +433,10 @@ open class RenpyActivity : PythonSDLActivity() {
         super.onDestroy()
         overlayWebView?.destroy()
         overlayWebView = null
+        try {
+            OverlayAssetSource.gpackReader?.close()
+            OverlayAssetSource.gpackReader = null
+        } catch (_: Exception) {}
     }
 
     @JavascriptInterface

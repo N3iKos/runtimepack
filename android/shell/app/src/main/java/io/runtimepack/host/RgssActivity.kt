@@ -458,6 +458,7 @@ open class RgssActivity : SDLActivity() {
             }
         }
         GpackExtractor.installRuntimeFiles(this, gameDir)
+        initOverlayAssetSource(gameDir)
 
         GAME_PATH = gameDir.absolutePath
         Log.i(TAG, "Initialized RGSS GAME_PATH: $GAME_PATH")
@@ -508,11 +509,7 @@ open class RgssActivity : SDLActivity() {
             // VPad Bridge
             wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
 
-            wv.webViewClient = object : android.webkit.WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                }
-            }
+            wv.webViewClient = OverlayAssetSource.createOverlayWebViewClient(this)
 
             wv.loadUrl("file:///android_asset/overlay/index.html")
             mLayout.addView(wv)
@@ -524,6 +521,33 @@ open class RgssActivity : SDLActivity() {
             Log.i(TAG, "Virtual Gamepad & Cheat Engine overlay attached successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to attach overlay: ${e.message}", e)
+        }
+    }
+
+    private fun initOverlayAssetSource(gameDir: File) {
+        if (OverlayAssetSource.gpackReader != null) return
+        val packFile = File(gameDir, "game.pack")
+        if (packFile.exists()) {
+            try {
+                OverlayAssetSource.gpackReader = GpackStreamReader.open(packFile)
+                Log.i(TAG, "Opened game.pack from gameDir for OverlayAssetSource: ${packFile.absolutePath}")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not open packFile for OverlayAssetSource: ${e.message}")
+            }
+        }
+        try {
+            val afd = assets.openFd("game.pack")
+            OverlayAssetSource.gpackReader = GpackStreamReader.open(afd)
+            Log.i(TAG, "Opened game.pack from APK assets for OverlayAssetSource")
+            return
+        } catch (_: Exception) {}
+        try {
+            val stream = assets.open("game.pack")
+            OverlayAssetSource.gpackReader = GpackStreamReader.open(stream)
+            Log.i(TAG, "Opened game.pack stream from APK assets for OverlayAssetSource")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not open game.pack from assets for OverlayAssetSource: ${e.message}")
         }
     }
 
@@ -942,6 +966,10 @@ open class RgssActivity : SDLActivity() {
         try {
             unregisterReceiver(evalReceiver)
         } catch (ignored: Exception) {}
+        try {
+            OverlayAssetSource.gpackReader?.close()
+            OverlayAssetSource.gpackReader = null
+        } catch (_: Exception) {}
         super.onDestroy()
         System.exit(0)
     }
