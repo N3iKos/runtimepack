@@ -6,7 +6,7 @@ mod probe;
 use probe::scenario::{run_scenario, ScenarioConfig};
 use probe::target::{
     ProbeError, ProbeTarget, RT_BOOT_TIMEOUT, RT_CONSOLE_ERROR, RT_DEVICE_UNAVAILABLE,
-    RT_NEWGAME_STALL, RT_PROCESS_CRASH,
+    RT_LAUNCH_NO_PROCESS, RT_NEWGAME_STALL, RT_PROCESS_CRASH,
 };
 
 struct MockTarget {
@@ -358,4 +358,57 @@ fn test_screen_diff_heuristics() {
     assert!(!screen_differs(b"same_frame", b"same_frame"));
     assert!(screen_differs(b"frame_1", b"frame_2"));
     assert!(screen_differs_substantially(b"frame_title", b"frame_map"));
+}
+
+#[test]
+fn probe_reports_no_process_when_app_never_spawns() {
+    let mut target = MockTarget::new();
+    target.default_pid_alive = false;
+
+    let config = ScenarioConfig::test_fast();
+    let apk_path = Path::new("dummy.apk");
+
+    let report = run_scenario(&mut target, apk_path, &config).expect("Scenario should return report on failure");
+
+    assert_eq!(report.overall, "FAIL");
+    let boot_step = report.steps.iter().find(|s| s.step == "boot").expect("boot step must exist");
+    assert_eq!(boot_step.status, "FAIL");
+    assert_eq!(boot_step.code.as_deref(), Some(RT_LAUNCH_NO_PROCESS));
+    assert_ne!(boot_step.code.as_deref(), Some(RT_PROCESS_CRASH));
+    assert!(
+        boot_step.note.as_deref().unwrap_or("").contains("Process did not appear"),
+        "expected note to contain 'Process did not appear', got {:?}",
+        boot_step.note
+    );
+}
+
+#[test]
+fn probe_waits_for_slow_process_spawn() {
+    let mut target = MockTarget::new();
+    // Simulate delay where pid_alive returns false for first 3 checks, then true
+    target.pid_alive_values = vec![false, false, false, true];
+    target.default_pid_alive = true;
+
+    // Frames: black initially, then splash, then stable title
+    target.screenshots = vec![
+        b"black".to_vec(),
+        b"black".to_vec(),
+        b"frame_splash".to_vec(),
+        b"frame_title_screen".to_vec(),
+        b"frame_title_screen".to_vec(),
+        b"frame_title_screen".to_vec(),
+        b"frame_in_game_map".to_vec(),
+    ];
+    target.logcat_lines = vec![
+        "I WebActivity: [GameConsole] Game initialized".into(),
+        "I WebActivity: [GameConsole] Scene_Map loaded".into(),
+    ];
+
+    let config = ScenarioConfig::test_fast();
+    let apk_path = Path::new("dummy.apk");
+
+    let report = run_scenario(&mut target, apk_path, &config).expect("Scenario should complete");
+
+    let boot_step = report.steps.iter().find(|s| s.step == "boot").expect("boot step must exist");
+    assert_eq!(boot_step.status, "PASS");
 }

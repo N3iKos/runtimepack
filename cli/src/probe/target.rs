@@ -4,6 +4,7 @@ pub const RT_BOOT_TIMEOUT: &str = "RT-BOOT-TIMEOUT";
 pub const RT_NEWGAME_STALL: &str = "RT-NEWGAME-STALL";
 pub const RT_CONSOLE_ERROR: &str = "RT-CONSOLE-ERROR";
 pub const RT_PROCESS_CRASH: &str = "RT-PROCESS-CRASH";
+pub const RT_LAUNCH_NO_PROCESS: &str = "RT-LAUNCH-NO-PROCESS";
 pub const RT_DEVICE_UNAVAILABLE: &str = "RT-DEVICE-UNAVAILABLE";
 
 #[allow(dead_code)]

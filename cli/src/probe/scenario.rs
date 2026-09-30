@@ -6,7 +6,7 @@ use image::GenericImageView;
 use crate::probe::report::{ProbeReport, StepResult};
 use crate::probe::target::{
     ProbeError, ProbeTarget, RT_BOOT_TIMEOUT, RT_CONSOLE_ERROR, RT_DEVICE_UNAVAILABLE,
-    RT_NEWGAME_STALL, RT_PROCESS_CRASH,
+    RT_LAUNCH_NO_PROCESS, RT_NEWGAME_STALL, RT_PROCESS_CRASH,
 };
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,7 @@ pub struct ScenarioConfig {
     pub stability_delay_ms: u64,
     pub newgame_timeout_ms: u64,
     pub input_delay_ms: u64,
+    pub process_appear_timeout_ms: u64,
 }
 
 impl Default for ScenarioConfig {
@@ -28,6 +29,7 @@ impl Default for ScenarioConfig {
             stability_delay_ms: 3000,
             newgame_timeout_ms: 60000,
             input_delay_ms: 3000,
+            process_appear_timeout_ms: 8000,
         }
     }
 }
@@ -41,6 +43,7 @@ impl ScenarioConfig {
             stability_delay_ms: 1,
             newgame_timeout_ms: 30,
             input_delay_ms: 1,
+            process_appear_timeout_ms: 30,
         }
     }
 }
@@ -196,6 +199,34 @@ pub fn run_scenario<T: ProbeTarget>(
         return Ok(report);
     }
 
+    // Process appear grace period
+    let appear_start = Instant::now();
+    let appear_timeout = Duration::from_millis(config.process_appear_timeout_ms);
+    let appear_poll = Duration::from_millis(config.poll_interval_ms.min(500).max(1));
+    let mut process_seen = false;
+
+    loop {
+        if target.pid_alive(&package)? {
+            process_seen = true;
+            break;
+        }
+        if appear_start.elapsed() >= appear_timeout {
+            break;
+        }
+        thread::sleep(appear_poll);
+    }
+
+    if !process_seen {
+        let timeout_secs = (config.process_appear_timeout_ms / 1000).max(1);
+        report.add_step(StepResult::fail(
+            "boot",
+            RT_LAUNCH_NO_PROCESS,
+            appear_start.elapsed().as_millis() as u64,
+            format!("Process did not appear within {}s after launch", timeout_secs),
+        ));
+        return Ok(report);
+    }
+
     // Step 1: Boot + Title Stable
     let boot_start = Instant::now();
     let mut prev_frame: Option<Vec<u8>> = None;
@@ -204,11 +235,16 @@ pub fn run_scenario<T: ProbeTarget>(
 
     while boot_start.elapsed() < Duration::from_millis(config.boot_timeout_ms) {
         if !target.pid_alive(&package)? {
+            let (code, msg) = if process_seen {
+                (RT_PROCESS_CRASH, "Process died during boot phase")
+            } else {
+                (RT_LAUNCH_NO_PROCESS, "Process did not appear after launch")
+            };
             report.add_step(StepResult::fail(
                 "boot",
-                RT_PROCESS_CRASH,
+                code,
                 boot_start.elapsed().as_millis() as u64,
-                "Process died during boot phase",
+                msg,
             ));
             return Ok(report);
         }
