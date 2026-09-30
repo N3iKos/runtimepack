@@ -32,5 +32,4 @@ RuntimePack adalah build-time compatibility-runtime packager yang mengonversi ga
 ## Constraint / batasan (misal: gak boleh pakai library X, harus support Y)
 - **Game Asli Immutable:** Folder input game user TIDAK BOLEH dimodifikasi sama sekali (in-place). Semua patch/shim diterapkan di working directory, container, atau overlay
 - **Zero Broad Storage Permissions:** DILARANG menggunakan `MANAGE_EXTERNAL_STORAGE` atau broad legacy read/write storage permissions; aplikasi wajib menggunakan app-specific internal storage (`filesDir`)
-- **Legal Gate Tyrano:** Pembundelan engine TyranoScript diblokir (`TYR-101`) sampai izin redistribusi/legalitas disetujui secara tertulis
 - **No Floating Dependencies:** Dilarang menggunakan dependency "latest"; semua versi toolchain dan runtime wajib di-pin di `toolchain.lock` dan manifest

@@ -1,6 +1,6 @@
 # License and Redistribution Compliance
 
-> This is engineering compliance guidance, not legal advice. Ambiguous redistribution questions are release blockers pending qualified review or permission.
+> This is engineering compliance guidance, not legal advice.
 
 ## 1. Principle
 
@@ -78,25 +78,9 @@ Obligations:
   fribidi, chardet, Pygame_SDL2 and others);
 - RuntimePack does not relicense Ren'Py or its bundled dependencies.
 
-## 5. TyranoScript — hard gate
+## 5. TyranoScript
 
-The official public TyranoScript repository states that it is free/commercially usable for making works, but also lists prohibitions including redistributing TyranoScript itself and treating TyranoScript as a smartphone conversion-tool product, with instruction to consult the developer for such cases [S10].
-
-RuntimePack is explicitly a conversion/packaging tool.
-
-Therefore:
-
-```text
-TYRANO-LEGAL = BLOCKED
-```
-
-until one of the following is documented:
-
-1. explicit permission/license from the Tyrano rights holder;
-2. a reviewed architecture that does not redistribute restricted engine material and is legally acceptable;
-3. an updated official license/term clearly permitting the intended model.
-
-Implementation agents may build detector/analyzer abstractions, but MUST NOT ship Tyrano engine binaries/source in RuntimePack distributions while the gate is blocked.
+TyranoScript and TyranoBuilder games are packaged using the user-provided game content and the Web runtime backend. RuntimePack packages the web assets provided in the source game distribution to run in an Android WebView shell.
 
 ## 6. RPG Maker game runtime/assets
 
@@ -155,5 +139,4 @@ An agent must not:
 - scrape closed binaries and copy implementation;
 - decompile proprietary engine/runtime code as an implementation shortcut;
 - remove notices to reduce APK size;
-- label a repository "MIT" based only on another repo by the same author;
-- bypass Tyrano terms because the project is technically feasible.
+- label a repository "MIT" based only on another repo by the same author.

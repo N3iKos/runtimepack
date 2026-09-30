@@ -134,7 +134,7 @@ studio_api
 NW-specific patterns
 ```
 
-Technical status may be compatible while release status remains BLOCKED due to licensing.
+Technical status and packaging proceed via the Web runtime backend.
 
 ## 7. Compatibility database
 
@@ -180,7 +180,7 @@ unknown high-risk requirement -> UNKNOWN
 all requirements provided, shims non-empty -> COMPATIBLE_WITH_SHIMS
 all requirements provided, no shims -> COMPATIBLE
 known behavior loss -> DEGRADED
-license/policy gate -> BLOCKED
+policy violation -> BLOCKED
 ```
 
 ## 10. No fake scores
@@ -235,10 +235,9 @@ If future versions introduce a score, its formula and benchmark must be document
 
   **Non-Bypassable Hard Blockers:** Neither `--accept-audit-fail` nor `--accept-audit-unknown` can ever bypass:
   1. Security violations or container corruption (`CNT-*`);
-  2. Tyrano legal gate (`TYR-101`);
-  3. Ambiguous engine detection (`DET-AMBIGUOUS`);
-  4. Unresolved runtime version (`RUNTIME_VERSION_UNRESOLVED`);
-  5. Unsupported native binary dependencies (`CMP-102` PE DLL / `.node` / `.pyd`).
+  2. Ambiguous engine detection (`DET-AMBIGUOUS`);
+  3. Unresolved runtime version (`RUNTIME_VERSION_UNRESOLVED`);
+  4. Unsupported native binary dependencies (`CMP-102` PE DLL / `.node` / `.pyd`).
 
   Every applied override is immutably recorded:
   - In `asset-audit-report.json`: recorded as `AuditOverride` objects (`flag`, `rationale`).

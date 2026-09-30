@@ -51,7 +51,7 @@ This repository specification is written for implementation by autonomous/agenti
 - "Supported" means the engine family is in scope and a backend exists. It does **not** mean every game made with that engine will run.
 - Do not claim Windows emulation. RuntimePack does not implement a general Windows or x86 emulator in v1.
 - RPG Maker 2000/2003 and RPG Maker Unite are **out of scope for v1**.
-- Tyrano support is technically designed but is subject to a **license/redistribution gate** before any TyranoScript engine code is redistributed.
+- Tyrano support is provided via the Web runtime backend for browser-compatible projects.
 - RuntimePack may use open-source upstream runtimes when licensing is compatible, but the project core must not depend on proprietary JoiPlay source.
 - JoiPlay is a behavioral/architectural reference and source of public implementation evidence, not a binary dependency.
 - Every generated APK must contain a build manifest that records the exact runtime/backend/toolchain versions used.
@@ -66,7 +66,7 @@ runtimepack/
 │   ├── rgss/
 │   ├── web/
 │   ├── renpy/
-│   └── tyrano/        # adapter; distribution gated
+│   └── tyrano/        # adapter over web runtime
 ├── android/
 ├── compatibility-db/
 ├── schemas/

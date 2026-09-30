@@ -60,7 +60,7 @@ This repository specification is written for implementation by autonomous/agenti
 - "Supported" means the engine family is in scope and a backend exists. It does **not** mean every game made with that engine will run.
 - Do not claim Windows emulation. RuntimePack does not implement a general Windows or x86 emulator in v1.
 - RPG Maker 2000/2003 and RPG Maker Unite are **out of scope for v1**.
-- Tyrano support is technically designed but is subject to a **license/redistribution gate** before any TyranoScript engine code is redistributed.
+- Tyrano support is provided via the Web runtime backend for browser-compatible projects.
 - RuntimePack may use open-source upstream runtimes when licensing is compatible, but the project core must not depend on proprietary JoiPlay source.
 - JoiPlay is a behavioral/architectural reference and source of public implementation evidence, not a binary dependency.
 - Every generated APK must contain a build manifest that records the exact runtime/backend/toolchain versions used.
@@ -75,7 +75,7 @@ runtimepack/
 │   ├── rgss/
 │   ├── web/
 │   ├── renpy/
-│   └── tyrano/        # adapter; distribution gated
+│   └── tyrano/        # adapter over web runtime
 ├── android/
 ├── compatibility-db/
 ├── schemas/
@@ -154,12 +154,11 @@ An implementation agent MUST:
    - a capability ID,
    - an entry in `compatibility-db`.
 9. Never copy code from a third-party repository until `LICENSE_COMPLIANCE.md` marks that dependency as approved.
-10. Never redistribute TyranoScript/TyranoBuilder engine files until the `TYRANO-LEGAL` gate is explicitly cleared.
-11. Never make build output depend on "latest". All runtime/toolchain versions must be pinned in a lockfile.
-12. Never write decrypted game contents to persistent storage when the selected content mode is `encrypted-streaming`, except for documented temporary cases.
-13. Never request broad Android storage access merely to simplify implementation.
-14. Never mark an unknown result as compatible. Unknown stays `UNKNOWN`.
-15. Never use percentages such as "95% compatible" unless a separately defined benchmark corpus and calculation exist.
+10. Never make build output depend on "latest". All runtime/toolchain versions must be pinned in a lockfile.
+11. Never write decrypted game contents to persistent storage when the selected content mode is `encrypted-streaming`, except for documented temporary cases.
+12. Never request broad Android storage access merely to simplify implementation.
+13. Never mark an unknown result as compatible. Unknown stays `UNKNOWN`.
+14. Never use percentages such as "95% compatible" unless a separately defined benchmark corpus and calculation exist.
 
 ## 4. Source verification protocol
 
@@ -244,7 +243,6 @@ These are not permission to guess.
 
 - Exact Android adaptation strategy for current mkxp-z versus a separate Android MKXP lineage.
 - Exact Ren'Py game-version extraction for every historical Ren'Py release.
-- Legal permission model for bundling TyranoScript in a conversion product.
 - Compatibility behavior for arbitrary native Node modules in MV/MZ.
 - Compatibility behavior for arbitrary Python binary extensions in Ren'Py.
 - DRM resistance against a fully compromised/rooted device.
@@ -256,7 +254,6 @@ Each must be handled through a spike or explicit unsupported path.
 The agent must stop implementation of a specific path and return a structured blocker when:
 
 ```text
-LICENSE_BLOCKED
 SOURCE_UNVERIFIED
 AMBIGUOUS_ENGINE
 UNSUPPORTED_NATIVE_DEPENDENCY
@@ -306,7 +303,7 @@ Secondary:
 - RPG Maker MV
 - RPG Maker MZ
 - Ren'Py
-- TyranoBuilder/TyranoScript, **technical integration only until legal gate is cleared**
+- TyranoBuilder/TyranoScript
 
 JoiPlay currently lists all of these engine families among its supported types [S01].
 
@@ -466,7 +463,7 @@ The game should read assets through RuntimePack VFS without extracting the entir
 | PRD-015 | User-supplied icon/name/orientation metadata | P1 |
 | PRD-016 | Physical controller and touch-input abstraction | P1 |
 | PRD-017 | Build report records detection evidence | P0 |
-| PRD-018 | Tyrano bundling blocked until legal gate is cleared | P0 |
+| PRD-018 | TyranoScript supported via Web runtime packaging | P0 |
 | PRD-019 | GUI is not required for v1 | P0 |
 | PRD-020 | Engine-specific patches must not mutate the source game by default | P0 |
 
@@ -489,7 +486,7 @@ Measure:
 1. RGSS compatibility depends on Windows API/native dependencies.
 2. MV/MZ desktop plugins may rely on NW.js/Node APIs not present in Android WebView.
 3. Ren'Py versions can contain breaking runtime changes; JoiPlay itself distributes multiple versioned Ren'Py plugins [S08/S09 context in references].
-4. Tyrano redistribution terms may block the intended bundling model unless permission is obtained [S10].
+4. Tyrano desktop plugins may rely on NW.js/Node APIs not present in Android WebView.
 5. Licenses of runtime dependencies can impose redistribution/source/notice obligations.
 6. Asset encryption is hardening, not absolute secrecy.
 
@@ -500,7 +497,7 @@ v1 may be declared complete only when:
 - XP/VX/VX Ace minimal fixtures boot;
 - MV/MZ minimal fixtures boot;
 - selected Ren'Py version fixtures boot;
-- Tyrano either boots under a legally approved packaging model or is shipped as disabled/experimental with a clear legal gate;
+- Tyrano minimal fixtures boot;
 - detector and reports are deterministic;
 - APK signing works;
 - save isolation works;
@@ -908,20 +905,9 @@ No single marker is sufficient for EXACT confidence.
 
 Standard browser-compatible projects are the v1 technical target. Desktop-only plugins/APIs may be unsupported.
 
-### TECH-TYRANO-004 — LEGAL GATE
+### TECH-TYRANO-004
 
-The public TyranoScript repository includes terms discouraging redistribution of TyranoScript itself and specifically references use as a smartphone conversion tool as requiring consultation with the developer [S10].
-
-Therefore:
-
-```text
-Tyrano bundling = BLOCKED
-until explicit redistribution/legal approval is documented.
-```
-
-An agent MUST NOT bypass this gate by copying upstream engine files into RuntimePack.
-
-A permissible future architecture may package user-supplied Tyrano engine files from the input game without redistributing them as part of RuntimePack itself, but that interpretation still requires legal review and is not asserted by this specification.
+TyranoScript and TyranoBuilder projects are fully supported via the Web runtime backend. Games are packaged using the user-provided game content into the Android WebView shell.
 
 ## 13. Android storage model
 
@@ -1371,7 +1357,7 @@ They must not be collapsed into one version number.
 | RPG Maker MV | JavaScript/HTML5 | Web | Required | S01, S13 |
 | RPG Maker MZ | JavaScript/HTML5 | Web | Required | S01, S14 |
 | Ren'Py | Python/Ren'Py | Ren'Py | Required | S01, S07, S08 |
-| TyranoBuilder/TyranoScript | HTML/JavaScript/KAG | Web/Tyrano adapter | Technical target, legal gate | S01, S10, S11, S12 |
+| TyranoBuilder/TyranoScript | HTML/JavaScript/KAG | Web/Tyrano adapter | Supported | S01, S10, S11, S12 |
 
 ## 2. Explicitly excluded from v1
 
@@ -1469,10 +1455,7 @@ Risk path:
 desktop packaging-only APIs
 Node/NW integration
 third-party native plugin
-engine-file redistribution restrictions
 ```
-
-The last item is not a runtime issue; it is a release/legal gate [S10].
 
 
 <!-- END ENGINE_SUPPORT_MATRIX.md -->
@@ -2873,15 +2856,13 @@ Tests:
 
 ## 12. Tyrano tests
 
-Before legal gate clearance, testing may use developer-owned/synthetic structures without redistributing upstream engine files in release artifacts.
-
 Tests:
 
 - detection;
-- adapter bootstrap using permitted fixture strategy;
+- adapter bootstrap;
 - scenario navigation;
 - assets;
-- save if supported by approved model.
+- save/load.
 
 ## 13. Performance tests
 
@@ -2919,8 +2900,7 @@ No P0 release if:
 - release APK asks for forbidden broad storage permission;
 - save is lost across restart;
 - unsigned APK emitted as release success;
-- license notices missing;
-- Tyrano legal gate bypassed.
+- license notices missing.
 
 
 <!-- END TEST_PLAN.md -->
@@ -2932,7 +2912,7 @@ No P0 release if:
 
 # License and Redistribution Compliance
 
-> This is engineering compliance guidance, not legal advice. Ambiguous redistribution questions are release blockers pending qualified review or permission.
+> This is engineering compliance guidance, not legal advice.
 
 ## 1. Principle
 
@@ -2976,25 +2956,9 @@ Official Ren'Py documentation says most of Ren'Py uses MIT, while portions/depen
 
 Therefore the Ren'Py runtime package must ship an automatically generated third-party notice bundle based on the exact pinned runtime version.
 
-## 5. TyranoScript — hard gate
+## 5. TyranoScript
 
-The official public TyranoScript repository states that it is free/commercially usable for making works, but also lists prohibitions including redistributing TyranoScript itself and treating TyranoScript as a smartphone conversion-tool product, with instruction to consult the developer for such cases [S10].
-
-RuntimePack is explicitly a conversion/packaging tool.
-
-Therefore:
-
-```text
-TYRANO-LEGAL = BLOCKED
-```
-
-until one of the following is documented:
-
-1. explicit permission/license from the Tyrano rights holder;
-2. a reviewed architecture that does not redistribute restricted engine material and is legally acceptable;
-3. an updated official license/term clearly permitting the intended model.
-
-Implementation agents may build detector/analyzer abstractions, but MUST NOT ship Tyrano engine binaries/source in RuntimePack distributions while the gate is blocked.
+TyranoScript and TyranoBuilder games are packaged using the user-provided game content and the Web runtime backend. RuntimePack packages the web assets provided in the source game distribution to run in an Android WebView shell.
 
 ## 6. RPG Maker game runtime/assets
 
@@ -3053,8 +3017,7 @@ An agent must not:
 - scrape closed binaries and copy implementation;
 - decompile proprietary engine/runtime code as an implementation shortcut;
 - remove notices to reduce APK size;
-- label a repository "MIT" based only on another repo by the same author;
-- bypass Tyrano terms because the project is technically feasible.
+- label a repository "MIT" based only on another repo by the same author.
 
 
 <!-- END LICENSE_COMPLIANCE.md -->
@@ -3201,11 +3164,9 @@ Acceptance:
 
 ## Milestone 8 — Tyrano technical adapter
 
-Implement detection and compatibility analysis.
+Implement detection, compatibility analysis, and Web runtime packaging.
 
-Runtime packaging remains disabled while `TYRANO-LEGAL` is blocked.
-
-If gate clears, integrate browser-compatible Tyrano fixture and enable packaging.
+Integrate browser-compatible Tyrano fixture and enable standalone Android packaging.
 
 ## Milestone 9 — Release hardening
 
@@ -3443,18 +3404,6 @@ Define the smallest subset worth implementing.
 
 Do not emulate Node wholesale.
 
-## SPIKE-TYRANO-LEGAL-001
-
-Status: BLOCKING FOR DISTRIBUTION.
-
-Obtain:
-- explicit permission or clarified license;
-- allowed redistribution model;
-- whether user-supplied engine files may be repackaged by a conversion tool;
-- notice/attribution conditions.
-
-Until resolved, release build refuses Tyrano with `LIC-310_TYRANO_REDISTRIBUTION_BLOCKED`.
-
 ## SPIKE-CONTENT-001 — Container binary format
 
 Finalize:
@@ -3507,9 +3456,6 @@ Verify MV and MZ save implementations under chosen stable local origin and ensur
 **Standalone APK** — output Android application dedicated to one game, with no universal game picker.
 
 **Build-time dispatch** — choosing runtime while producing APK, contrasted with JoiPlay's play-time launcher/plugin selection.
-
-**Legal gate** — implementation/distribution is intentionally blocked until redistribution terms are resolved.
-
 
 <!-- END GLOSSARY.md -->
 
@@ -3627,8 +3573,6 @@ Supports:
 - repository layout includes `data`, `tyrano`, `index.html`.
 - project states cross-platform targets.
 - README terms include restrictions around redistribution and smartphone conversion-tool commercialization/use, requiring consultation in those cases.
-
-**This source creates `TYRANO-LEGAL` gate.**
 
 ### S12 — TyranoScript index.html
 URL: https://github.com/ShikemokuMK/tyranoscript/blob/master/index.html

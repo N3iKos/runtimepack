@@ -391,20 +391,9 @@ No single marker is sufficient for EXACT confidence.
 
 Standard browser-compatible projects are the v1 technical target. Desktop-only plugins/APIs may be unsupported.
 
-### TECH-TYRANO-004 — LEGAL GATE
+### TECH-TYRANO-004
 
-The public TyranoScript repository includes terms discouraging redistribution of TyranoScript itself and specifically references use as a smartphone conversion tool as requiring consultation with the developer [S10].
-
-Therefore:
-
-```text
-Tyrano bundling = BLOCKED
-until explicit redistribution/legal approval is documented.
-```
-
-An agent MUST NOT bypass this gate by copying upstream engine files into RuntimePack.
-
-A permissible future architecture may package user-supplied Tyrano engine files from the input game without redistributing them as part of RuntimePack itself, but that interpretation still requires legal review and is not asserted by this specification.
+TyranoScript and TyranoBuilder projects are fully supported via the Web runtime backend. Games are packaged using the user-provided game content into the Android WebView shell.
 
 ## 13. Android storage model
 

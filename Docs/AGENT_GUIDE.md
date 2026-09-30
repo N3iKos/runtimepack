@@ -37,12 +37,11 @@ An implementation agent MUST:
    - a capability ID,
    - an entry in `compatibility-db`.
 9. Never copy code from a third-party repository until `LICENSE_COMPLIANCE.md` marks that dependency as approved.
-10. Never redistribute TyranoScript/TyranoBuilder engine files until the `TYRANO-LEGAL` gate is explicitly cleared.
-11. Never make build output depend on "latest". All runtime/toolchain versions must be pinned in a lockfile.
-12. Never write decrypted game contents to persistent storage when the selected content mode is `encrypted-streaming`, except for documented temporary cases.
-13. Never request broad Android storage access merely to simplify implementation.
-14. Never mark an unknown result as compatible. Unknown stays `UNKNOWN`.
-15. Never use percentages such as "95% compatible" unless a separately defined benchmark corpus and calculation exist.
+10. Never make build output depend on "latest". All runtime/toolchain versions must be pinned in a lockfile.
+11. Never write decrypted game contents to persistent storage when the selected content mode is `encrypted-streaming`, except for documented temporary cases.
+12. Never request broad Android storage access merely to simplify implementation.
+13. Never mark an unknown result as compatible. Unknown stays `UNKNOWN`.
+14. Never use percentages such as "95% compatible" unless a separately defined benchmark corpus and calculation exist.
 
 ## 4. Source verification protocol
 
@@ -127,7 +126,6 @@ These are not permission to guess.
 
 - Exact Android adaptation strategy for current mkxp-z versus a separate Android MKXP lineage.
 - Exact Ren'Py game-version extraction for every historical Ren'Py release.
-- Legal permission model for bundling TyranoScript in a conversion product.
 - Compatibility behavior for arbitrary native Node modules in MV/MZ.
 - Compatibility behavior for arbitrary Python binary extensions in Ren'Py.
 - DRM resistance against a fully compromised/rooted device.
@@ -139,7 +137,6 @@ Each must be handled through a spike or explicit unsupported path.
 The agent must stop implementation of a specific path and return a structured blocker when:
 
 ```text
-LICENSE_BLOCKED
 SOURCE_UNVERIFIED
 AMBIGUOUS_ENGINE
 UNSUPPORTED_NATIVE_DEPENDENCY

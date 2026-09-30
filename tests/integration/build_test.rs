@@ -161,24 +161,6 @@ fn audit_policy_never_bypasses_hard_blockers() {
 }
 
 #[test]
-fn test_audit_policy_tyrano_legal_gate_not_hard_blocker() {
-    let tyrano_blocker = Diagnostic::error(
-        DiagnosticCode::TYR_LEGAL_GATE_BLOCKED,
-        "Tyrano packaging remains blocked by the TYRANO-LEGAL gate",
-    );
-    let decision = evaluate_audit_policy(
-        &audit_report(AuditOutcome::Fail),
-        true,
-        false,
-        &[tyrano_blocker],
-    );
-    assert!(
-        decision.is_allowed(),
-        "TYR-101 must not act as a hard blocker when --accept-audit-fail is supplied"
-    );
-}
-
-#[test]
 fn test_audit_policy_case_mismatch_evaluates_to_allow_without_override() {
     let report = AssetAuditReport {
         schema_version: 1,

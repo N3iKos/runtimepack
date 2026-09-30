@@ -28,7 +28,6 @@ pub enum RemediationCategory {
     Toolchain,
     UnsupportedFeature,
     UserActionRequired,
-    LegalGate,
     Environment,
 }
 
@@ -78,7 +77,6 @@ impl DiagnosticCode {
     pub const RGS_UNSUPPORTED_SCRIPT: &'static str = "RGS-101";
     pub const WEB_MISSING_ENTRYPOINT: &'static str = "WEB-101";
     pub const RNP_RUNTIME_VERSION_UNRESOLVED: &'static str = "RNP-110";
-    pub const TYR_LEGAL_GATE_BLOCKED: &'static str = "TYR-101";
 
     pub const CNT_INVALID_PATH: &'static str = "CNT-101";
     pub const CNT_CORRUPTED_PACK: &'static str = "CNT-102";
@@ -93,7 +91,6 @@ impl DiagnosticCode {
     pub const BLD_AUDIT_POLICY_BLOCKED: &'static str = "BLD-104";
 
     pub const SIG_KEYSTORE_NOT_FOUND: &'static str = "SIG-101";
-    pub const LIC_REDISTRIBUTION_BLOCKED: &'static str = "LIC-101";
 
     pub const THM_SCHEMA_INVALID: &'static str = "THM-001";
     pub const THM_API_INCOMPATIBLE: &'static str = "THM-002";

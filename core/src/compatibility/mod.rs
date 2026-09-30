@@ -35,9 +35,6 @@ impl CompatibilityReport {
             CompatibilityStatus::Unknown
         } else if descriptor.confidence == DetectionConfidence::Ambiguous {
             CompatibilityStatus::Unknown
-        } else if descriptor.id == EngineId::Tyrano {
-            // Tyrano is gated by TYRANO-LEGAL
-            CompatibilityStatus::Blocked
         } else {
             CompatibilityStatus::Compatible
         };

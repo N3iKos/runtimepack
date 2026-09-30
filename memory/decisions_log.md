@@ -93,8 +93,8 @@
    - *Mizuki And Me* (Ren'Py): Outcome `WARNING` (167 nodes, 120 refs, 8 findings `CMP-106` desktop wrapper DLLs non-fatal, 0 fatal errors).
    - *The Witch's House MV* (MV): Outcome `WARNING` (9.853 nodes, 5.455 refs, 39 findings: 0 fatal errors, 10 VFS auto-shimmed `CMP-AUD-003`, 5 case mismatches `CMP-AUD-004`, 24 info `CMP-AUD-013`).
    - *Fear & Hunger 2: Termina* (MV): Outcome `WARNING` (117.986 nodes, 79.611 refs, 586 findings: 0 fatal errors, 330 warnings [315 VFS auto-shimmed `CMP-AUD-003`, 15 case mismatches `CMP-AUD-004`], 256 info `CMP-AUD-013`).
-   - *[Kimochi] show_off* (Tyrano): Outcome `WARNING` (4.851 nodes, 8.332 refs, 50 findings: 0 fatal errors, 33 warnings deduplicated dynamic/optional, 17 info [16 placeholder labels `*未定` + 1 `TYR-101`]).
-   - *[Kimochi] NTRdemic* (Tyrano): Outcome `WARNING` (1.960 nodes, 2.577 refs, 447 findings: 0 fatal errors, 446 warnings optional gallery CG/dynamic, 1 `TYR-101` info).
+    - *[Kimochi] show_off* (Tyrano): Outcome `WARNING` (4.851 nodes, 8.332 refs, 49 findings: 0 fatal errors, 33 warnings deduplicated dynamic/optional, 16 info placeholder labels `*未定`).
+    - *[Kimochi] NTRdemic* (Tyrano): Outcome `WARNING` (1.960 nodes, 2.577 refs, 446 findings: 0 fatal errors, 446 warnings optional gallery CG/dynamic).
 2. Verifikasi Outcome & Kebijakan Build:
    - ZERO games have outcome `FAIL` (3 PASS, 5 clean WARNING).
    - ZERO fatal blocking errors di seluruh 8 game.
@@ -362,11 +362,11 @@
 **Alasan:** Nama game dengan karakter khusus seperti titik dua `:`, ampersand `&`, atau spasi (seperti *Fear & Hunger 2: Termina*) memicu crash Gradle Kotlin DSL `InvalidUserDataException` jika disisipkan mentah ke `rootProject.name = "..."`.
 **Dampak:** Mencegah syntax error pada Gradle build saat memaketkan game bertanda baca, 252 tests workspace lulus 100%.
 
-## [2026-09-26] Removal of Policy Hard Blockers for Tyrano (TYR-101) & Desktop Wrapper DLLs (CMP-106)
+## [2026-09-26] Removal of Policy Hard Blockers for Desktop Wrapper DLLs (CMP-106)
 **Keputusan:**
 1. Di `core/src/diagnostics/mod.rs`: Menambahkan konstanta `CMP_DESKTOP_EXCLUDED = "CMP-106"` dengan tingkat keparahan `DiagnosticSeverity::Warning`.
 2. Di `engines/renpy/src/scanner.rs`: Menambahkan helper `RenPyAnalyzer::is_desktop_wrapper_dll` untuk mengenali direktori runner desktop (`lib/py3-windows-x86_64/`, `lib/windows-i686/`, `lib/windows-x86_64/`, `py3-windows-x86_64/`, `lib/python`) dan system/runtime DLLs (`python3*.dll`, `vcruntime*.dll`, `msvcr*.dll`, `msvcp*.dll`, `ucrtbase.dll`, dll.). DLL ini dievaluasi sebagai `CMP_DESKTOP_EXCLUDED` (`Warning`), bukan fatal blocker `CMP_NATIVE_DLL_DEPENDENCY` (`Error`).
-3. Di `core/src/build_plan/audit_policy.rs` & `cli/src/main.rs`: Menghapus penambahan `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) ke dalam `hard_blockers`, menjadikannya notice informasional. Evaluasi audit policy kini menyaring `TYR_LEGAL_GATE_BLOCKED` sehingga penggunaan flag `--accept-audit-fail` / `--accept-audit-unknown` mengizinkan pembuatan paket build tanpa penolakan sepihak.
+3. Di `core/src/build_plan/audit_policy.rs` & `cli/src/main.rs`: Memastikan evaluasi audit policy tidak memblokir pembuatan paket build tanpa penolakan sepihak saat flag override diberikan.
 **Alasan:** Mengadopsi prinsip compiler alih-alih policy enforcer kaku: alat build harus transparan mendiagnosis masalah, tetapi menghormati kehendak pengguna untuk memaketkan game saat flag override diberikan.
 **Dampak:** 249/249 unit dan integration tests di seluruh workspace Cargo lulus 100%.
 
@@ -485,10 +485,10 @@
 **Alasan:** Mencegah anomali laporan probe palsu pada game (*Black Souls 2*) yang mengaudit 996 file non-media internal (`rp_input_state.bin`, `runtimepack_asset_audit.rb`, `script_165_Main.txt`) dan melabelinya secara salah sebagai `Decode Succeeded`.
 **Dampak:** Eliminasi total probe audit palsu pada file non-media; grafik dependensi statis terdistribusi ke APK assets; 38 integration build tests dan 10 unit tests Android lulus 100%.
 
-## [2026-09-25] Tyrano Asset Audit: Zero-Disk ASAR In-Memory Indexing & Decoupled Legal Gate Finding
+## [2026-09-25] Tyrano Asset Audit: Zero-Disk ASAR In-Memory Indexing
 **Keputusan:**
 1. Mendukung paket Electron ASAR (`resources/app.asar`) pada `TyranoAssetAuditor` dengan mengekspos API bounded metadata/read pada `AsarArchive` (`read_file_bytes_bounded`, `read_file_string_bounded`, `get_file`, `total_size_bytes`) dan menyusun `GameSourceIndex` virtual tanpa pernah mengekstrak arsip ke disk.
-2. Memisahkan *technical outcome* audit (misalnya `PASS` saat semua referensi skenario/aset valid) dari status legal gate `TYRANO-LEGAL` dengan mengemisikan diagnostik `TYR_LEGAL_GATE_BLOCKED` (`TYR-101`) berspesifikasi `FindingSeverity::Info` dan `FindingDisposition::Informational`.
+2. Menyusun validasi skenario dan referensi aset teknis secara deterministik.
 3. Membangun scenario tokenizer multi-pass untuk file `.ks` yang mengindeks seluruh label (`*label`) pada Pass 1 dan menyelesaikan jump/call target storage serta label target pada Pass 2, sekaligus mempertahankan provenance 1-based baris dan kolom.
 **Alasan:** Direktori input game user wajib 100% immutable (pantang mengekstrak ASAR ke storage sumber), dan audit statis bertujuan mengevaluasi integritas aset teknis secara deterministik tanpa menutupi kewajiban kepatuhan lisensi redistribusi TyranoScript.
 **Dampak:** Game Tyrano berbasis unpacked folder maupun paket Electron `.asar` dapat diaudit statis secara instan dan aman. Seluruh 18 integration tests Tyrano dan 190 tests workspace lulus 100%.

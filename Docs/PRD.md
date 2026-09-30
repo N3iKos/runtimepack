@@ -30,7 +30,7 @@ Secondary:
 - RPG Maker MV
 - RPG Maker MZ
 - Ren'Py
-- TyranoBuilder/TyranoScript, **technical integration only until legal gate is cleared**
+- TyranoBuilder/TyranoScript
 
 JoiPlay currently lists all of these engine families among its supported types [S01].
 
@@ -190,7 +190,7 @@ The game should read assets through RuntimePack VFS without extracting the entir
 | PRD-015 | User-supplied icon/name/orientation metadata | P1 |
 | PRD-016 | Physical controller and touch-input abstraction | P1 |
 | PRD-017 | Build report records detection evidence | P0 |
-| PRD-018 | Tyrano bundling blocked until legal gate is cleared | P0 |
+| PRD-018 | TyranoScript supported via Web runtime packaging | P0 |
 | PRD-019 | GUI is not required for v1 | P0 |
 | PRD-020 | Engine-specific patches must not mutate the source game by default | P0 |
 
@@ -213,7 +213,7 @@ Measure:
 1. RGSS compatibility depends on Windows API/native dependencies.
 2. MV/MZ desktop plugins may rely on NW.js/Node APIs not present in Android WebView.
 3. Ren'Py versions can contain breaking runtime changes; JoiPlay itself distributes multiple versioned Ren'Py plugins [S08/S09 context in references].
-4. Tyrano redistribution terms may block the intended bundling model unless permission is obtained [S10].
+4. Tyrano desktop plugins may rely on NW.js/Node APIs not present in Android WebView.
 5. Licenses of runtime dependencies can impose redistribution/source/notice obligations.
 6. Asset encryption is hardening, not absolute secrecy.
 
@@ -224,7 +224,7 @@ v1 may be declared complete only when:
 - XP/VX/VX Ace minimal fixtures boot;
 - MV/MZ minimal fixtures boot;
 - selected Ren'Py version fixtures boot;
-- Tyrano either boots under a legally approved packaging model or is shipped as disabled/experimental with a clear legal gate;
+- Tyrano minimal fixtures boot;
 - detector and reports are deterministic;
 - APK signing works;
 - save isolation works;

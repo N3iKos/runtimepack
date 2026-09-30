@@ -10,7 +10,7 @@
 | RPG Maker MV | JavaScript/HTML5 | Web | Required | S01, S13 |
 | RPG Maker MZ | JavaScript/HTML5 | Web | Required | S01, S14 |
 | Ren'Py | Python/Ren'Py | Ren'Py | Required | S01, S07, S08 |
-| TyranoBuilder/TyranoScript | HTML/JavaScript/KAG | Web/Tyrano adapter | Technical target, legal gate | S01, S10, S11, S12 |
+| TyranoBuilder/TyranoScript | HTML/JavaScript/KAG | Web/Tyrano adapter | Supported | S01, S10, S11, S12 |
 
 ## 2. Explicitly excluded from v1
 
@@ -108,7 +108,4 @@ Risk path:
 desktop packaging-only APIs
 Node/NW integration
 third-party native plugin
-engine-file redistribution restrictions
 ```
-
-The last item is not a runtime issue; it is a release/legal gate [S10].
