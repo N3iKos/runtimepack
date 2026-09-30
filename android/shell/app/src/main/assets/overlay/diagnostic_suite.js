@@ -1136,20 +1136,28 @@
 
             // Engine family detection
             var engineFamily = "unknown";
-            if (typeof globalObj.$gameMap !== "undefined" || typeof globalObj.SceneManager !== "undefined") {
-                if (typeof globalObj.Graphics !== "undefined" && typeof globalObj.Graphics.render === "function") {
-                    engineFamily = "RPG Maker MZ";
-                } else if (typeof globalObj.Utils !== "undefined" && typeof globalObj.Utils.RPGMAKER_NAME !== "undefined") {
-                    engineFamily = globalObj.Utils.RPGMAKER_NAME;
-                } else {
-                    engineFamily = "RPG Maker MV/MZ";
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getEngineFamily === "function") {
+                    var bridged = globalObj.RuntimePackVPad.getEngineFamily();
+                    if (bridged && typeof bridged === "string" && bridged.length > 0 && bridged !== "unknown") {
+                        engineFamily = bridged;
+                    }
                 }
-            } else if (typeof globalObj.TYRANO !== "undefined" || typeof globalObj.tyrano !== "undefined") {
-                engineFamily = "TyranoScript";
-            } else if (typeof globalObj.renpy !== "undefined") {
-                engineFamily = "Ren'Py";
-            } else if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.postCheatCmd === "function") {
-                engineFamily = "RGSS / mkxp-z";
+            } catch (e) {}
+            if (engineFamily === "unknown") {
+                if (typeof globalObj.$gameMap !== "undefined" || typeof globalObj.SceneManager !== "undefined") {
+                    if (typeof globalObj.Graphics !== "undefined" && typeof globalObj.Graphics.render === "function") {
+                        engineFamily = "RPG Maker MZ";
+                    } else if (typeof globalObj.Utils !== "undefined" && typeof globalObj.Utils.RPGMAKER_NAME !== "undefined") {
+                        engineFamily = globalObj.Utils.RPGMAKER_NAME;
+                    } else {
+                        engineFamily = "RPG Maker MV/MZ";
+                    }
+                } else if (typeof globalObj.TYRANO !== "undefined" || typeof globalObj.tyrano !== "undefined") {
+                    engineFamily = "TyranoScript";
+                } else if (typeof globalObj.renpy !== "undefined") {
+                    engineFamily = "Ren'Py";
+                }
             }
 
             // Game State extraction

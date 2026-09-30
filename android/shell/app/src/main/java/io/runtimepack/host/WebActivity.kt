@@ -720,6 +720,15 @@ open class WebActivity : Activity() {
         fun shareBugReport(jsonContent: String) {
             this@WebActivity.shareBugReport(jsonContent)
         }
+
+        @JavascriptInterface
+        fun getEngineFamily(): String {
+            return try {
+                AssetAuditService.currentEngine
+            } catch (e: Exception) {
+                "unknown"
+            }
+        }
     }
 
     fun createVPadBridge(): VPadBridge = VPadBridge()
