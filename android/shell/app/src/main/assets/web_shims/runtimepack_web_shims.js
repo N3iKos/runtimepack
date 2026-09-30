@@ -1,4 +1,5 @@
 (function(root) {
+    // [CAP-WEB-012] Global unhandled error and rejection listeners
     if (typeof root.window !== "undefined" && typeof root.window.addEventListener === "function") {
         root.window.addEventListener("error", function(e) {
             if (root.console && typeof root.console.error === "function") {
@@ -12,6 +13,7 @@
         });
     }
 
+    // [CAP-WEB-008] StorageManager.isLocalMode virtualization
     function patchStorageManager(sm) {
         if (!sm) return;
         try {
@@ -26,8 +28,267 @@
         } catch (e) {
             sm.isLocalMode = function() { return false; };
         }
+
+        if (typeof sm.saveToForage === "function" || typeof sm.loadFromForage === "function") {
+            patchMzStorage(sm);
+        }
+        if (typeof sm.saveToWebStorage === "function" || typeof sm.loadFromWebStorage === "function") {
+            patchMvStorage(sm);
+        }
     }
 
+    // [CAP-WEB-002] RPG Maker MZ universal storage adapter
+    function patchMzStorage(sm) {
+        if (!sm || sm.__runtimepack_mz_save_patched) return;
+        sm.__runtimepack_mz_save_patched = true;
+
+        sm._forageKeys = sm._forageKeys || [];
+        sm._forageKeysUpdated = false;
+
+        var encodeBase64 = function(str) {
+            try {
+                if (typeof root.btoa === "function") return root.btoa(str);
+                if (typeof window !== "undefined" && typeof window.btoa === "function") return window.btoa(str);
+                if (typeof Buffer !== "undefined") return Buffer.from(str, "binary").toString("base64");
+            } catch (e) {}
+            return str;
+        };
+
+        var decodeBase64 = function(b64) {
+            try {
+                if (typeof root.atob === "function") return root.atob(b64);
+                if (typeof window !== "undefined" && typeof window.atob === "function") return window.atob(b64);
+                if (typeof Buffer !== "undefined") return Buffer.from(b64, "base64").toString("binary");
+            } catch (e) {}
+            return b64;
+        };
+
+        sm.saveToForage = function(saveName, zip) {
+            return new Promise(function(resolve, reject) {
+                var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                    || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+                if (nativeBridge && typeof nativeBridge.saveSlot === "function") {
+                    var b64Payload = encodeBase64(zip);
+                    var ok = nativeBridge.saveSlot("mz", String(saveName), b64Payload);
+                    if (ok) {
+                        if (!sm._forageKeys.includes(saveName)) {
+                            sm._forageKeys.push(saveName);
+                        }
+                        resolve(0);
+                    } else {
+                        reject(new Error("[RuntimePack] Native save failed for slot: " + saveName));
+                    }
+                } else {
+                    reject(new Error("[RuntimePack] Native save bridge unavailable"));
+                }
+            });
+        };
+
+        sm.loadFromForage = function(saveName) {
+            return new Promise(function(resolve, reject) {
+                var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                    || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+                if (nativeBridge && typeof nativeBridge.loadSlot === "function") {
+                    var rawB64 = nativeBridge.loadSlot("mz", String(saveName));
+                    if (rawB64 !== null && rawB64 !== undefined) {
+                        var decodedZip = decodeBase64(rawB64);
+                        resolve(decodedZip);
+                    } else {
+                        resolve(null);
+                    }
+                } else {
+                    resolve(null);
+                }
+            });
+        };
+
+        sm.forageExists = function(saveName) {
+            var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+            if (sm._forageKeys && sm._forageKeys.includes(saveName)) {
+                return true;
+            }
+            if (nativeBridge && typeof nativeBridge.slotExists === "function") {
+                return nativeBridge.slotExists("mz", String(saveName));
+            }
+            return false;
+        };
+
+        sm.removeForage = function(saveName) {
+            return new Promise(function(resolve) {
+                var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                    || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+                if (nativeBridge && typeof nativeBridge.deleteSlot === "function") {
+                    nativeBridge.deleteSlot("mz", String(saveName));
+                }
+                var idx = sm._forageKeys.indexOf(saveName);
+                if (idx !== -1) {
+                    sm._forageKeys.splice(idx, 1);
+                }
+                resolve(0);
+            });
+        };
+
+        sm.updateForageKeys = function() {
+            sm._forageKeysUpdated = false;
+            return new Promise(function(resolve) {
+                var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                    || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
+                if (nativeBridge && typeof nativeBridge.listSlots === "function") {
+                    try {
+                        var listRaw = nativeBridge.listSlots("mz");
+                        var parsed = JSON.parse(listRaw);
+                        if (Array.isArray(parsed)) {
+                            sm._forageKeys = parsed;
+                        }
+                    } catch (e) {
+                        sm._forageKeys = [];
+                    }
+                }
+                sm._forageKeysUpdated = true;
+                resolve(0);
+            });
+        };
+
+        sm.forageKeysUpdated = function() {
+            return sm._forageKeysUpdated;
+        };
+
+        sm.updateForageKeys();
+    }
+
+    // [CAP-WEB-003] RPG Maker MV universal webstorage adapter
+    function patchMvStorage(sm) {
+        if (!sm || sm.__runtimepack_mv_save_patched) return;
+        sm.__runtimepack_mv_save_patched = true;
+
+        var getLZString = function() {
+            return (typeof root.LZString !== "undefined" && root.LZString)
+                || (typeof window !== "undefined" && window.LZString)
+                || (typeof LZString !== "undefined" ? LZString : null);
+        };
+
+        var getNativeBridge = function() {
+            return (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                || root.RuntimePackNative
+                || (typeof window !== "undefined" && window.RuntimePackNative);
+        };
+
+        var mapMvSlot = function(savefileId) {
+            if (typeof savefileId === "string") {
+                if (savefileId === "config" || savefileId === "global" || /^file\d+$/.test(savefileId)) {
+                    return savefileId;
+                }
+            }
+            if (savefileId < 0) return "config";
+            if (savefileId === 0) return "global";
+            return "file" + savefileId;
+        };
+
+        sm.saveToWebStorage = function(savefileId, json) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.saveSlot === "function") {
+                var lz = getLZString();
+                var data = (lz && typeof lz.compressToBase64 === "function") ? lz.compressToBase64(json) : json;
+                var slot = mapMvSlot(savefileId);
+                return nativeBridge.saveSlot("mv", slot, data);
+            }
+            return false;
+        };
+
+        sm.loadFromWebStorage = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.loadSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                var raw = nativeBridge.loadSlot("mv", slot);
+                if (raw !== null && raw !== undefined) {
+                    var lz = getLZString();
+                    return (lz && typeof lz.decompressFromBase64 === "function") ? lz.decompressFromBase64(raw) : raw;
+                }
+            }
+            return null;
+        };
+
+        sm.webStorageExists = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.slotExists === "function") {
+                var slot = mapMvSlot(savefileId);
+                return nativeBridge.slotExists("mv", slot);
+            }
+            return false;
+        };
+
+        sm.removeWebStorage = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.deleteSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                return nativeBridge.deleteSlot("mv", slot);
+            }
+            return false;
+        };
+
+        sm.backup = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.loadSlot === "function" && typeof nativeBridge.saveSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                var data = nativeBridge.loadSlot("mv", slot);
+                if (data !== null && data !== undefined) {
+                    return nativeBridge.saveSlot("mv", slot + ".bak", data);
+                }
+            }
+            return false;
+        };
+
+        sm.backupExists = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.slotExists === "function") {
+                var slot = mapMvSlot(savefileId);
+                return nativeBridge.slotExists("mv", slot + ".bak");
+            }
+            return false;
+        };
+        sm.webStorageBackupExists = sm.backupExists;
+
+        sm.cleanBackup = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.deleteSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                return nativeBridge.deleteSlot("mv", slot + ".bak");
+            }
+            return false;
+        };
+
+        sm.restoreBackup = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.loadSlot === "function" && typeof nativeBridge.saveSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                var data = nativeBridge.loadSlot("mv", slot + ".bak");
+                if (data !== null && data !== undefined) {
+                    var ok = nativeBridge.saveSlot("mv", slot, data);
+                    if (ok) {
+                        sm.cleanBackup(savefileId);
+                    }
+                    return ok;
+                }
+            }
+            return false;
+        };
+
+        sm.loadFromWebStorageBackup = function(savefileId) {
+            var nativeBridge = getNativeBridge();
+            if (nativeBridge && typeof nativeBridge.loadSlot === "function") {
+                var slot = mapMvSlot(savefileId);
+                var raw = nativeBridge.loadSlot("mv", slot + ".bak");
+                if (raw !== null && raw !== undefined) {
+                    var lz = getLZString();
+                    return (lz && typeof lz.decompressFromBase64 === "function") ? lz.decompressFromBase64(raw) : raw;
+                }
+            }
+            return null;
+        };
+    }
+
+    // [CAP-WEB-015] In-game cheat, state dump, and diagnostic command bridge
     function executeCheatCmd(cmd) {
         if (!cmd || typeof cmd !== "object") return;
         var action = cmd.action || cmd.type;
@@ -317,6 +578,7 @@
     }
     root.__runtimepack_shims_installed = true;
 
+    // [CAP-WEB-009] Desktop shell, Node.js built-ins, and Steamworks mocks
     function normalizePath(p) {
         if (typeof p !== "string") return "";
         var isAbs = p.charCodeAt(0) === 47;
@@ -568,6 +830,7 @@
                 size: size
             };
         },
+        // [CAP-WEB-001] fs.readdirSync native bridge and MapInfos fallback
         readdirSync: function(dirPath) {
             var clean = String(dirPath || "").replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/$/, "");
             var nativeBridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative) || root.RuntimePackNative || (typeof window !== "undefined" && window.RuntimePackNative);
@@ -646,6 +909,7 @@
         return {};
     };
 
+    // [CAP-WEB-014] TyranoBuilder engine compatibility hooks
     function setupTyranoHooks() {
         var w = (typeof root.window !== "undefined") ? root.window : root;
         var checkAndPatch = function() {
@@ -892,6 +1156,7 @@
         });
     } catch (e) {}
 
+    // [CAP-WEB-011] AudioManager Web Audio format enforcement
     function patchAudioManager(am) {
         if (!am) return;
         if (!am.audioFileExt || !am.audioFileExt.__patched) {
@@ -911,6 +1176,7 @@
         }
     }
 
+    // [CAP-WEB-010] Graphics canvas clearing and viewport stretch fit
     function patchGraphics(g) {
         if (!g) return;
         if (g._clearUpperCanvas && !g._clearUpperCanvas.__patched) {
@@ -978,6 +1244,7 @@
         root.window.patchGraphics = patchGraphics;
     }
 
+    // [CAP-WEB-013] SceneManager caught exception diagnostics
     function patchSceneManager(sm) {
         if (!sm || !sm.catchException || sm.catchException.__patched) return;
         var origCatch = sm.catchException;
@@ -990,6 +1257,263 @@
         sm.catchException.__patched = true;
     }
 
+    // [CAP-WEB-004] Touch input jitter tolerance and single-tap mobile OK
+    function patchEngineInput() {
+        var Input_ = root.Input;
+        var TouchInput_ = root.TouchInput;
+
+        // -------------------------------------------------------------
+        // A. Touch jitter tolerance: 10px terlalu sensitif di layar DPI tinggi
+        // -------------------------------------------------------------
+        if (TouchInput_ && TouchInput_.moveThreshold === 10) {
+            TouchInput_.moveThreshold = 24;
+        }
+
+        // -------------------------------------------------------------
+        // B. Single-tap OK pada seluruh window select (mode web/mobile)
+        // -------------------------------------------------------------
+        if (root.Window_SavefileList && root.Window_SavefileList.prototype &&
+            !root.Window_SavefileList.prototype.__runtimepack_touch_ok_patched) {
+            root.Window_SavefileList.prototype.isTouchOkEnabled = function() {
+                return this.isOkEnabled();
+            };
+            root.Window_SavefileList.prototype.__runtimepack_touch_ok_patched = true;
+        }
+
+        if (root.Window_Selectable && root.Window_Selectable.prototype &&
+            !root.Window_Selectable.prototype.__runtimepack_touch_ok_patched) {
+            var isNwjs = !!(root.Utils && typeof root.Utils.isNwjs === "function" && root.Utils.isNwjs());
+            if (!isNwjs) {
+                root.Window_Selectable.prototype.isTouchOkEnabled = function() {
+                    return this.isOkEnabled();
+                };
+            }
+            root.Window_Selectable.prototype.__runtimepack_touch_ok_patched = true;
+        }
+
+        // -------------------------------------------------------------
+        // C. Input.codeMapper fallback: event.code W3C saat keyCode === 0
+        //    (Chromium modern membuang keyCode dari KeyboardEventInit)
+        // -------------------------------------------------------------
+        // [CAP-WEB-005] W3C Keyboard codeMapper and virtual gamepad input bridge
+        if (Input_ && !Input_.__runtimepack_codemapper_patched) {
+            Input_.codeMapper = {
+                "Enter": "ok", "NumpadEnter": "ok", "Space": "ok",
+                "KeyZ": "ok", "KeyJ": "ok",
+                "Escape": "escape", "KeyX": "escape", "KeyK": "escape", "Numpad0": "escape",
+                "ShiftLeft": "shift", "ShiftRight": "shift",
+                "ArrowUp": "up", "KeyW": "up",
+                "ArrowDown": "down", "KeyS": "down",
+                "ArrowLeft": "left", "KeyA": "left",
+                "ArrowRight": "right", "KeyD": "right",
+                "PageUp": "pageup", "KeyQ": "pageup",
+                "PageDown": "pagedown", "KeyE": "pagedown",
+                "F9": "debug"
+            };
+            var origOnKeyDown = Input_._onKeyDown;
+            if (typeof origOnKeyDown === "function") {
+                Input_._onKeyDown = function(event) {
+                    var keyCode = event ? event.keyCode : 0;
+                    var code = event ? event.code : "";
+                    var handled = false;
+                    if (!keyCode && code && this.codeMapper && this.codeMapper[code]) {
+                        var buttonName = this.codeMapper[code];
+                        this._currentState[buttonName] = true;
+                        this._latestButton = buttonName;
+                        this._pressedTime = 0;
+                        this._date = Date.now();
+                        handled = true;
+                    }
+                    if (!handled) {
+                        return origOnKeyDown.call(this, event);
+                    }
+                };
+            }
+            var origOnKeyUp = Input_._onKeyUp;
+            if (typeof origOnKeyUp === "function") {
+                Input_._onKeyUp = function(event) {
+                    var keyCode = event.keyCode;
+                    var code = event.code;
+                    var handled = false;
+                    if (!keyCode && code && this.codeMapper && this.codeMapper[code]) {
+                        this._currentState[this.codeMapper[code]] = false;
+                        handled = true;
+                    }
+                    if (!handled) {
+                        return origOnKeyUp.call(this, event);
+                    }
+                };
+            }
+            Input_.__runtimepack_codemapper_patched = true;
+        }
+
+        // -------------------------------------------------------------
+        // D. API global untuk virtual gamepad Android (bypass DOM event)
+        // -------------------------------------------------------------
+        if (!root.RuntimePackInput) {
+            root.RuntimePackInput = {
+                press: function(buttonName) {
+                    var I = root.Input;
+                    if (I && I._currentState && buttonName) {
+                        I._currentState[buttonName] = true;
+                        I._latestButton = buttonName;
+                        I._pressedTime = 0;
+                        I._date = Date.now();
+                    }
+                },
+                release: function(buttonName) {
+                    var I = root.Input;
+                    if (I && I._currentState && buttonName) {
+                        I._currentState[buttonName] = false;
+                    }
+                },
+                trigger: function(buttonName) {
+                    this.press(buttonName);
+                    var I = root.Input;
+                    if (I && I._currentState) {
+                        I._currentState[buttonName] = false;
+                        setTimeout(function() {}, 0);
+                    }
+                },
+                isAvailable: function() {
+                    return !!(root.Input && root.Input._currentState);
+                }
+            };
+            if (typeof root.window !== "undefined") {
+                root.window.RuntimePackInput = root.RuntimePackInput;
+            }
+        }
+    }
+
+    // [CAP-WEB-007] Fail-loud load failure diagnostics
+    function __runtimepackShowLoadError(msg) {
+        try {
+            console.error("[RuntimePack] RT-LOAD-FAIL " + msg);
+            if (typeof document !== "undefined" && document && document.body && typeof document.createElement === "function") {
+                var overlay = document.createElement("div");
+                overlay.style.cssText = "position:fixed; left:0; right:0; top:40%; background:rgba(150,0,0,0.85); color:#fff; font:bold 14px sans-serif; text-align:center; padding:12px; z-index:99999;";
+                overlay.textContent = String(msg);
+                document.body.appendChild(overlay);
+                if (typeof setTimeout !== "undefined") {
+                    setTimeout(function() {
+                        try {
+                            if (overlay && overlay.parentNode) {
+                                overlay.parentNode.removeChild(overlay);
+                            }
+                        } catch (e) {}
+                    }, 8000);
+                }
+            }
+        } catch (e) {}
+    }
+    root.__runtimepackShowLoadError = __runtimepackShowLoadError;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackShowLoadError = __runtimepackShowLoadError;
+    }
+
+    function patchLoadDiagnostics() {
+        try {
+            var sLoad = root.Scene_Load || (typeof window !== "undefined" && window.Scene_Load);
+            if (sLoad && sLoad.prototype && !sLoad.prototype.__runtimepack_load_diag_patched) {
+                var origOnLoadFailure = sLoad.prototype.onLoadFailure;
+                sLoad.prototype.onLoadFailure = function() {
+                    try {
+                        __runtimepackShowLoadError("Load game gagal \u2014 cek logcat [GameConsole] untuk detail (RT-LOAD-FAIL)");
+                    } catch (e) {}
+                    if (typeof origOnLoadFailure === "function") {
+                        return origOnLoadFailure.apply(this, arguments);
+                    }
+                };
+                sLoad.prototype.__runtimepack_load_diag_patched = true;
+                root.__runtimepack_load_diag_patched = true;
+            }
+
+            var dataMgr = root.DataManager || (typeof window !== "undefined" && window.DataManager);
+            if (dataMgr && typeof dataMgr.loadGame === "function" && !dataMgr.__runtimepack_loadgame_diag_patched) {
+                var origLoadGame = dataMgr.loadGame;
+                dataMgr.loadGame = function(savefileId) {
+                    var p = origLoadGame.apply(this, arguments);
+                    if (p && typeof p.then === "function" && typeof p.catch === "function") {
+                        return p.catch(function(err) {
+                            try {
+                                console.error("[RuntimePack] RT-LOAD-FAIL loadGame rejection:", err && err.message ? err.message : err);
+                            } catch (e) {}
+                            throw err;
+                        });
+                    }
+                    return p;
+                };
+                dataMgr.__runtimepack_loadgame_diag_patched = true;
+            }
+        } catch (e) {}
+    }
+
+    var _compatDummyWindow = null;
+    // [CAP-WEB-006] HalfMove plugin Sprite_Button escape character delegation
+    function patchHalfMoveCompat() {
+        if (root.__runtimepack_halfmove_compat_patched) return;
+        var Sprite_Button = root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button);
+        if (!Sprite_Button || !Sprite_Button.prototype) return;
+
+        root.__runtimepack_halfmove_compat_patched = true;
+
+        Sprite_Button.prototype.convertEscapeCharacters = function(text) {
+            try {
+                var scene = (root.SceneManager && root.SceneManager._scene) ||
+                            (typeof window !== "undefined" && window.SceneManager && window.SceneManager._scene);
+                if (scene) {
+                    if (scene._helpWindow && typeof scene._helpWindow.convertEscapeCharacters === "function") {
+                        return scene._helpWindow.convertEscapeCharacters(text);
+                    }
+                    if (scene._windowLayer && Array.isArray(scene._windowLayer.children)) {
+                        for (var i = 0; i < scene._windowLayer.children.length; i++) {
+                            var child = scene._windowLayer.children[i];
+                            if (child && child !== this && typeof child.convertEscapeCharacters === "function") {
+                                return child.convertEscapeCharacters(text);
+                            }
+                        }
+                    }
+                }
+                var Window_Base = root.Window_Base || (typeof window !== "undefined" && window.Window_Base);
+                if (Window_Base && Window_Base.prototype && typeof Window_Base.prototype.convertEscapeCharacters === "function") {
+                    if (!_compatDummyWindow) {
+                        if (typeof root.Rectangle === "function") {
+                            try {
+                                _compatDummyWindow = new Window_Base(new root.Rectangle(0, 0, 0, 0));
+                            } catch (e) {}
+                        }
+                        if (!_compatDummyWindow) {
+                            _compatDummyWindow = Object.create(Window_Base.prototype);
+                        }
+                    }
+                    if (_compatDummyWindow && typeof _compatDummyWindow.convertEscapeCharacters === "function") {
+                        return _compatDummyWindow.convertEscapeCharacters(text);
+                    }
+                    return Window_Base.prototype.convertEscapeCharacters.call(this, text);
+                }
+            } catch (err) {
+                if (root.console && typeof root.console.warn === "function") {
+                    root.console.warn("[RuntimePack] Sprite_Button.convertEscapeCharacters delegation error:", err);
+                }
+            }
+            return text;
+        };
+    }
+
+    root.__runtimepackPollEngineInput = patchEngineInput;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollEngineInput = patchEngineInput;
+    }
+    root.__runtimepackPollLoadDiagnostics = patchLoadDiagnostics;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollLoadDiagnostics = patchLoadDiagnostics;
+    }
+    root.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
+    }
+
+    // [CAP-WEB-016] Late-binding polling and lifecycle coordinator
     function pollPatches() {
         if (root.StorageManager) {
             patchStorageManager(root.StorageManager);
@@ -1003,16 +1527,30 @@
         if (root.SceneManager) {
             patchSceneManager(root.SceneManager);
         }
+        if (root.Input || root.TouchInput || root.Window_Selectable) {
+            patchEngineInput();
+        }
         if (root.RuntimePackAssetAudit && typeof root.RuntimePackAssetAudit.installHooks === "function") {
             root.RuntimePackAssetAudit.installHooks(root);
+        }
+        if (root.Scene_Load || (typeof window !== "undefined" && window.Scene_Load) || root.DataManager || (typeof window !== "undefined" && window.DataManager)) {
+            patchLoadDiagnostics();
+        }
+        if (root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button)) {
+            patchHalfMoveCompat();
         }
     }
 
     pollPatches();
     if (typeof setInterval !== "undefined") {
+        var pollTicks = 0;
         var patchTimer = setInterval(function() {
             pollPatches();
-            if (root.StorageManager && root.AudioManager && root.Graphics && root.SceneManager) {
+            pollTicks++;
+            if (root.StorageManager && root.AudioManager && root.Graphics && root.SceneManager &&
+                root.Input && root.TouchInput && root.Scene_Load && root.Window_SavefileList && pollTicks > 300) {
+                clearInterval(patchTimer);
+            } else if (pollTicks > 1000) {
                 clearInterval(patchTimer);
             }
         }, 10);

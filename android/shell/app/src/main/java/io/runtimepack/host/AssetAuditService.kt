@@ -19,7 +19,8 @@ object AssetAuditService {
     private var cachedReport: RuntimeAuditReport? = null
 
     @Volatile
-    private var currentEngine: String = "unknown"
+    var currentEngine: String = "unknown"
+        private set
 
     @Volatile
     private var appContext: android.content.Context? = null

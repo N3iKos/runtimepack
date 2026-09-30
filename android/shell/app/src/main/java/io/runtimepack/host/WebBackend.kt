@@ -13,7 +13,49 @@ import java.io.File
 import java.io.InputStream
 import org.json.JSONArray
 
-class WebBridge(private val saveService: SaveService) {
+class WebBridge(private val saveService: SaveService, private val saveRepository: NativeSaveRepository? = null) {
+    private val repository: NativeSaveRepository by lazy {
+        saveRepository ?: run {
+            val baseDir = WebActivity.currentInstance?.filesDir
+                ?: WebActivity.currentInstance?.gameDirectory?.parentFile
+                ?: File(".")
+            NativeSaveRepository(File(baseDir, "saves"))
+        }
+    }
+
+    @JavascriptInterface
+    fun saveSlot(namespace: String, slot: String, payload: String): Boolean {
+        return repository.put(namespace, slot, payload)
+    }
+
+    @JavascriptInterface
+    fun loadSlot(namespace: String, slot: String): String? {
+        return repository.get(namespace, slot)
+    }
+
+    @JavascriptInterface
+    fun slotExists(namespace: String, slot: String): Boolean {
+        return repository.contains(namespace, slot)
+    }
+
+    @JavascriptInterface
+    fun deleteSlot(namespace: String, slot: String): Boolean {
+        return repository.remove(namespace, slot)
+    }
+
+    @JavascriptInterface
+    fun listSlots(namespace: String): String {
+        val keys = repository.keys(namespace)
+        val json = try {
+            org.json.JSONArray(keys).toString()
+        } catch (_: Throwable) {
+            null
+        }
+        return if (!json.isNullOrEmpty()) json else keys.joinToString(prefix = "[", postfix = "]", separator = ",") {
+            "\"" + it.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }
+    }
+
     @JavascriptInterface
     fun saveItem(key: String, value: String) {
         saveService.openWrite(key).use {

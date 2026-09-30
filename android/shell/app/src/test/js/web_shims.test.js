@@ -19,7 +19,9 @@ function createSandbox(initialStorageManager) {
             error: console.error,
             info: console.info
         },
-        _warned: warned
+        _warned: warned,
+        btoa: (str) => Buffer.from(str, "binary").toString("base64"),
+        atob: (b64) => Buffer.from(b64, "base64").toString("binary")
     };
     sandbox.window = sandbox;
     sandbox.global = sandbox;
@@ -636,6 +638,745 @@ function createSandbox(initialStorageManager) {
     assert.strictEqual(stat.isFile(), true);
     assert.strictEqual(stat.isDirectory(), false);
     assert.strictEqual(stat.size, 5242880);
+}
+
+{
+    // Test: RPG Maker MV Universal Save Adapter
+    const sb = createSandbox();
+    const mvSlots = {};
+
+    sb.RuntimePackNative = {
+        saveSlot: function(ns, slot, payload) {
+            if (ns !== "mv") return false;
+            mvSlots[slot] = payload;
+            return true;
+        },
+        loadSlot: function(ns, slot) {
+            if (ns !== "mv") return null;
+            return mvSlots[slot] !== undefined ? mvSlots[slot] : null;
+        },
+        slotExists: function(ns, slot) {
+            return ns === "mv" && mvSlots[slot] !== undefined;
+        },
+        deleteSlot: function(ns, slot) {
+            if (ns === "mv" && mvSlots[slot] !== undefined) {
+                delete mvSlots[slot];
+                return true;
+            }
+            return false;
+        },
+        listSlots: function(ns) {
+            if (ns !== "mv") return "[]";
+            return JSON.stringify(Object.keys(mvSlots));
+        }
+    };
+
+    // Minimal mock of LZString
+    sb.LZString = {
+        compressToBase64: function(s) { return "lzb64:" + s; },
+        decompressFromBase64: function(s) { return s && s.startsWith("lzb64:") ? s.substring(6) : s; }
+    };
+
+    // Mock MV StorageManager before shims initialization
+    sb.StorageManager = {
+        saveToWebStorage: function() {},
+        loadFromWebStorage: function() {},
+        webStorageExists: function() {},
+        removeWebStorage: function() {},
+        backup: function() {},
+        backupExists: function() {},
+        cleanBackup: function() {},
+        restoreBackup: function() {},
+        loadFromWebStorageBackup: function() {}
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    const sm = sb.StorageManager;
+
+    // 1. Save and Load slot 1
+    sm.saveToWebStorage(1, "{\"party\":[\"Actor1\"]}");
+    assert.strictEqual(sm.webStorageExists(1), true, "Slot 1 must exist");
+    const loadedJson = sm.loadFromWebStorage(1);
+    assert.strictEqual(loadedJson, "{\"party\":[\"Actor1\"]}", "Loaded slot 1 JSON must match original");
+
+    // Check underlying mapped slot in native repository
+    assert.strictEqual(mvSlots["file1"], "lzb64:{\"party\":[\"Actor1\"]}", "Native slot must be mapped to 'file1'");
+
+    // 2. Backup and restore
+    sm.backup(1);
+    assert.strictEqual(sm.backupExists(1), true, "Backup for slot 1 must exist");
+    assert.strictEqual(mvSlots["file1.bak"], "lzb64:{\"party\":[\"Actor1\"]}", "Backup must be saved as file1.bak");
+
+    // Overwrite slot 1 with corrupt data
+    sm.saveToWebStorage(1, "corrupt");
+    assert.strictEqual(sm.loadFromWebStorage(1), "corrupt");
+
+    // Restore backup
+    sm.restoreBackup(1);
+    assert.strictEqual(sm.loadFromWebStorage(1), "{\"party\":[\"Actor1\"]}", "Restored slot 1 must match backup");
+    assert.strictEqual(sm.backupExists(1), false, "Backup must be cleaned up after restore");
+
+    // 3. Config and Global slots
+    sm.saveToWebStorage(-1, "{\"volume\":80}");
+    sm.saveToWebStorage(0, "[null,\"info1\"]");
+    assert.strictEqual(mvSlots["config"], "lzb64:{\"volume\":80}");
+    assert.strictEqual(mvSlots["global"], "lzb64:[null,\"info1\"]");
+    assert.strictEqual(sm.loadFromWebStorage(-1), "{\"volume\":80}");
+    assert.strictEqual(sm.loadFromWebStorage(0), "[null,\"info1\"]");
+}
+
+{
+    // Test: RPG Maker MZ Universal Save Adapter
+    const sb = createSandbox();
+    const storedSlots = {};
+
+    sb.RuntimePackNative = {
+        saveSlot: function(ns, slot, payload) {
+            if (ns !== "mz") return false;
+            storedSlots[slot] = payload;
+            return true;
+        },
+        loadSlot: function(ns, slot) {
+            if (ns !== "mz") return null;
+            return storedSlots[slot] !== undefined ? storedSlots[slot] : null;
+        },
+        slotExists: function(ns, slot) {
+            return ns === "mz" && storedSlots[slot] !== undefined;
+        },
+        deleteSlot: function(ns, slot) {
+            if (ns === "mz" && storedSlots[slot] !== undefined) {
+                delete storedSlots[slot];
+                return true;
+            }
+            return false;
+        },
+        listSlots: function(ns) {
+            if (ns !== "mz") return "[]";
+            return JSON.stringify(Object.keys(storedSlots));
+        }
+    };
+
+    // Mock MZ StorageManager before shims initialization
+    sb.StorageManager = {
+        _forageKeys: [],
+        _forageKeysUpdated: false,
+        forageKey: function(name) { return "rmmzsave.test." + name; },
+        forageTestKey: function() { return "rmmzsave.test"; },
+        saveToForage: function() {},
+        loadFromForage: function() {},
+        forageExists: function(name) { return this._forageKeys.includes(this.forageKey(name)); },
+        removeForage: function() {},
+        updateForageKeys: function() {},
+        forageKeysUpdated: function() { return this._forageKeysUpdated; }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    // 1. Verify updateForageKeys queries native listSlots
+    storedSlots["global"] = Buffer.from("mz_global_data").toString("base64");
+    storedSlots["file1"] = Buffer.from("mz_binary_\x00\x80\xFF_data", "binary").toString("base64");
+
+    const sm = sb.StorageManager;
+    sm.updateForageKeys().then(function() {
+        assert.strictEqual(sm.forageKeysUpdated(), true, "forageKeysUpdated must be true after update");
+        assert.strictEqual(sm.forageExists("global"), true, "forageExists('global') must be true");
+        assert.strictEqual(sm.forageExists("file1"), true, "forageExists('file1') must be true");
+        assert.strictEqual(sm.forageExists("file2"), false, "forageExists('file2') must be false");
+
+        // 2. Verify loadFromForage decodes Base64 preserving binary bytes
+        return sm.loadFromForage("file1");
+    }).then(function(rawZip) {
+        assert.strictEqual(rawZip, "mz_binary_\x00\x80\xFF_data", "loadFromForage must decode raw binary string exactly");
+
+        // 3. Verify saveToForage encodes binary to Base64 and persists to native
+        return sm.saveToForage("file2", "new_save_\x01\x02\xFE");
+    }).then(function() {
+        assert(storedSlots["file2"], "file2 must be stored in native bridge");
+        const decoded = Buffer.from(storedSlots["file2"], "base64").toString("binary");
+        assert.strictEqual(decoded, "new_save_\x01\x02\xFE", "Persisted payload must match original binary bytes");
+        assert.strictEqual(sm.forageExists("file2"), true, "forageExists must report true for newly saved slot");
+
+        // 4. Verify binary strings with UTF-8 lookalike bytes maintain byte length and equality without being mutated
+        const binaryPayload = "mz_save_\xC2\xA0\x00\x80\xFF_bytes";
+        return sm.saveToForage("file3", binaryPayload).then(function() {
+            return sm.loadFromForage("file3");
+        }).then(function(loadedPayload) {
+            assert.strictEqual(loadedPayload.length, binaryPayload.length, "Binary payload length must remain identical");
+            assert.strictEqual(loadedPayload, binaryPayload, "Binary payload with UTF-8 lookalike bytes must not be mutated");
+            return sm.removeForage("file3");
+        });
+    }).then(function() {
+        // 5. Verify removeForage removes from native
+        return sm.removeForage("file2");
+    }).then(function() {
+        assert.strictEqual(storedSlots["file2"], undefined, "file2 must be deleted from native repository");
+        assert.strictEqual(sm.forageExists("file2"), false, "forageExists must be false after deletion");
+        console.log("All Mobile Web Shims tests passed successfully!");
+    }).catch(function(err) {
+        console.error("Test failed in MZ storage promise chain:", err);
+        process.exit(1);
+    });
+}
+
+// ============================================================
+// Engine Input Patch (Touch Ok + moveThreshold + codeMapper + RuntimePackInput)
+// ============================================================
+{
+    const sb = createSandbox();
+    // Mock engine MZ yang dimuat SETELAH shim dieksekusi (late binding)
+    vm.runInContext(shimsCode, sb);
+
+    vm.runInContext(`
+        window.Input = {
+            keyMapper: { 90: "ok", 13: "ok", 27: "escape", 37: "left", 38: "up" },
+            _currentState: {},
+            _latestButton: null,
+            _pressedTime: -1,
+            _date: 0,
+            _onKeyDown: function(event) {
+                var buttonName = this.keyMapper[event.keyCode];
+                if (!buttonName && event.code && this.codeMapper) {
+                    buttonName = this.codeMapper[event.code];
+                }
+                if (buttonName) {
+                    this._currentState[buttonName] = true;
+                }
+            },
+            _onKeyUp: function(event) {
+                var buttonName = this.keyMapper[event.keyCode];
+                if (!buttonName && event.code && this.codeMapper) {
+                    buttonName = this.codeMapper[event.code];
+                }
+                if (buttonName) {
+                    this._currentState[buttonName] = false;
+                }
+            }
+        };
+        window.TouchInput = { moveThreshold: 10 };
+        function Window_SelectableMock() { this._doubleTouch = false; }
+        Window_SelectableMock.prototype.isOkEnabled = function() { return true; };
+        Window_SelectableMock.prototype.isTouchOkEnabled = function() {
+            return this.isOkEnabled() && (this._doubleTouch);
+        };
+        window.Window_Selectable = Window_SelectableMock;
+        function Window_SavefileListMock() { this._doubleTouch = false; }
+        Window_SavefileListMock.prototype = Object.create(Window_SelectableMock.prototype);
+        Window_SavefileListMock.prototype.constructor = Window_SavefileListMock;
+        window.Window_SavefileList = Window_SavefileListMock;
+        // Trigger pollPatches ulang manual (meniru interval di WebView)
+        if (typeof window.__runtimepackPollEngineInput === "function") {
+            window.__runtimepackPollEngineInput();
+        }
+    `, sb);
+
+    // 1. moveThreshold dinaikkan dari 10 -> 24
+    const threshold = vm.runInContext("window.TouchInput.moveThreshold", sb);
+    assert.strictEqual(threshold, 24, "TouchInput.moveThreshold must be raised to 24");
+
+    // 2. Single-tap OK: isTouchOkEnabled harus true TANPA _doubleTouch
+    const touchOk = vm.runInContext(
+        "var w = new Window_SavefileList(); w.isTouchOkEnabled()", sb
+    );
+    assert.strictEqual(touchOk, true,
+        "Window_SavefileList.isTouchOkEnabled must return true on single tap (no doubleTouch)");
+
+    // 3. Window_Selectable umum juga single-tap (mode non-NWjs/mobile)
+    const genericOk = vm.runInContext(
+        "var g = new Window_Selectable(); g.isTouchOkEnabled()", sb
+    );
+    assert.strictEqual(genericOk, true,
+        "Window_Selectable.isTouchOkEnabled must return true in non-NWjs (mobile) environment");
+
+    // 4. Input.codeMapper fallback: event keyCode 0 + code 'KeyZ' -> action 'ok'
+    vm.runInContext(`
+        var fakeEvent = { keyCode: 0, code: "KeyZ" };
+        window.Input._onKeyDown(fakeEvent);
+    `, sb);
+    const okState = vm.runInContext("window.Input._currentState['ok']", sb);
+    assert.strictEqual(okState, true,
+        "Input._onKeyDown must map event.code 'KeyZ' to action 'ok' when keyCode is 0");
+
+    vm.runInContext(`
+        var fakeUp = { keyCode: 0, code: "KeyZ" };
+        window.Input._onKeyUp(fakeUp);
+    `, sb);
+    const okStateAfter = vm.runInContext("window.Input._currentState['ok']", sb);
+    assert.strictEqual(okStateAfter, false,
+        "Input._onKeyUp must release action 'ok' via event.code mapping");
+
+    // 5. RuntimePackInput API
+    assert(vm.runInContext("typeof window.RuntimePackInput === 'object'", sb),
+        "window.RuntimePackInput must be defined");
+    vm.runInContext("window.RuntimePackInput.press('escape')", sb);
+    assert.strictEqual(vm.runInContext("window.Input._currentState['escape']", sb), true,
+        "RuntimePackInput.press('escape') must set Input._currentState.escape = true");
+    vm.runInContext("window.RuntimePackInput.release('escape')", sb);
+    assert.strictEqual(vm.runInContext("window.Input._currentState['escape']", sb), false,
+        "RuntimePackInput.release('escape') must set Input._currentState.escape = false");
+    assert.strictEqual(vm.runInContext("window.RuntimePackInput.isAvailable()", sb), true,
+        "RuntimePackInput.isAvailable() must return true when Input is present");
+
+    console.log("Engine Input Patch tests PASSED");
+}
+
+{
+    const sb = createSandbox();
+    vm.runInContext(shimsCode, sb);
+
+    vm.runInContext(`
+        function Window_BaseMock() {}
+        Window_BaseMock.prototype.convertEscapeCharacters = function(text) {
+            return text.replace(/\\\\V\\[1\\]/g, "Var1Value");
+        };
+        window.Window_Base = Window_BaseMock;
+
+        function Sprite_ButtonMock() {}
+        window.Sprite_Button = Sprite_ButtonMock;
+
+        if (typeof window.__runtimepackPollHalfMoveCompat === "function") {
+            window.__runtimepackPollHalfMoveCompat();
+        }
+    `, sb);
+
+    assert(vm.runInContext("typeof window.Sprite_Button.prototype.convertEscapeCharacters === 'function'", sb),
+        "Sprite_Button.prototype.convertEscapeCharacters must be a function after patch");
+
+    vm.runInContext(`
+        var button1 = new window.Sprite_Button();
+        var helpWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _helpWindow: helpWin,
+                _windowLayer: { children: [button1, helpWin] }
+            }
+        };
+    `, sb);
+
+    const resHelp = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resHelp, "Var1Value", "convertEscapeCharacters on children[0] (Sprite_Button) must delegate to _helpWindow");
+
+    vm.runInContext(`
+        var button2 = new window.Sprite_Button();
+        var listWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _helpWindow: null,
+                _windowLayer: { children: [button2, listWin] }
+            }
+        };
+    `, sb);
+
+    const resLayer = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resLayer, "Var1Value", "convertEscapeCharacters on children[0] must delegate to first Window_Base child when _helpWindow is null");
+
+    vm.runInContext(`
+        var button3 = new window.Sprite_Button();
+        window.SceneManager = { _scene: null };
+    `, sb);
+
+    const resFallback = vm.runInContext("button3.convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resFallback, "Var1Value", "convertEscapeCharacters on Sprite_Button must fall back to Window_Base prototype when scene has no windows");
+
+    vm.runInContext(`
+        var pcWin = new window.Window_Base();
+        window.SceneManager = {
+            _scene: {
+                _windowLayer: { children: [pcWin] }
+            }
+        };
+    `, sb);
+
+    const resPc = vm.runInContext("window.SceneManager._scene._windowLayer.children[0].convertEscapeCharacters('\\\\V[1]')", sb);
+    assert.strictEqual(resPc, "Var1Value", "convertEscapeCharacters on Window_Base children[0] must function unmodified for PC parity");
+
+    console.log("HalfMove Compat tests PASSED");
+}
+
+// ============================================================
+// Load Failure Diagnostics (fail-loud RT-LOAD-FAIL)
+// ============================================================
+{
+    const sb = createSandbox();
+    vm.runInContext(shimsCode, sb);
+    // Capture console.error
+    const errors = [];
+    vm.runInContext("this.__capturedErrors = [];", sb);
+    sb.console.error = (...args) => { errors.push(args.map(String).join(" ")); };
+    vm.runInContext(`
+        this.__origFailureCalled = false;
+        window.Scene_Load = function() {};
+        window.Scene_Load.prototype.onLoadFailure = function() {
+            window.__origFailureCalled = true;
+        };
+        if (typeof window.__runtimepackPollLoadDiagnostics === "function") {
+            window.__runtimepackPollLoadDiagnostics();
+        }
+    `, sb);
+    const result = vm.runInContext(`
+        var s = new window.Scene_Load();
+        s.onLoadFailure();
+        JSON.stringify({ orig: window.__origFailureCalled });
+    `, sb);
+    assert.strictEqual(JSON.parse(result).orig, true, "original onLoadFailure must still run");
+    assert(errors.some(e => e.indexOf("[RuntimePack] RT-LOAD-FAIL") !== -1),
+        "onLoadFailure must log [RuntimePack] RT-LOAD-FAIL via console.error");
+    assert(vm.runInContext("typeof window.__runtimepackShowLoadError === 'function'", sb) === true,
+        "fail-loud display helper must be exposed");
+
+    // Test DataManager.loadGame rejection logging and re-throw
+    vm.runInContext(`
+        window.DataManager = {
+            loadGame: function(id) {
+                return Promise.reject(new Error("corrupt save data"));
+            }
+        };
+        if (typeof window.__runtimepackPollLoadDiagnostics === "function") {
+            window.__runtimepackPollLoadDiagnostics();
+        }
+    `, sb);
+    const dmPromise = vm.runInContext("window.DataManager.loadGame(1)", sb);
+    let dmCaught = false;
+    dmPromise.catch((err) => {
+        dmCaught = true;
+        assert.strictEqual(err.message, "corrupt save data", "original error must be preserved on rethrow");
+    }).then(() => {
+        assert.strictEqual(dmCaught, true, "DataManager.loadGame rejection must be rethrown");
+        assert(errors.some(e => e.indexOf("[RuntimePack] RT-LOAD-FAIL loadGame rejection: corrupt save data") !== -1),
+            "DataManager.loadGame rejection must log [RuntimePack] RT-LOAD-FAIL loadGame rejection");
+    });
+
+    // Test __runtimepackShowLoadError with document overlay
+    const overlaySb = createSandbox();
+    overlaySb.console.error = () => {};
+    let appendedChild = null;
+    let removedChild = null;
+    overlaySb.document = {
+        createElement: (tag) => ({
+            tagName: tag,
+            style: {},
+            textContent: "",
+            parentNode: {
+                removeChild: (el) => { removedChild = el; }
+            }
+        }),
+        body: {
+            appendChild: (el) => { appendedChild = el; }
+        }
+    };
+    vm.runInContext(shimsCode, overlaySb);
+    overlaySb.window.__runtimepackShowLoadError("Overlay Test Error");
+    assert(appendedChild, "Overlay element must be appended to document.body");
+    assert.strictEqual(appendedChild.textContent, "Overlay Test Error");
+    assert(appendedChild.style.cssText.includes("position:fixed"), "Overlay must have fixed position style");
+
+    console.log("Load Failure Diagnostics tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-012] Global Error & Unhandled Rejection Logger
+// ============================================================
+{
+    const sb = createSandbox();
+    const eventListeners = {};
+    sb.window.addEventListener = function(event, handler) {
+        eventListeners[event] = handler;
+    };
+    const errorsCaptured = [];
+    sb.console.error = function(...args) {
+        errorsCaptured.push(args.map(String).join(" "));
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(typeof eventListeners.error === "function", "window 'error' listener must be registered");
+    assert(typeof eventListeners.unhandledrejection === "function", "window 'unhandledrejection' listener must be registered");
+
+    // 1. Trigger global script error
+    eventListeners.error({
+        message: "Uncaught ReferenceError: foo is not defined",
+        filename: "js/plugins/TestPlugin.js",
+        lineno: 42,
+        colno: 15,
+        error: { stack: "ReferenceError: foo is not defined\n at js/plugins/TestPlugin.js:42:15" }
+    });
+
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Global Error]") && e.includes("Uncaught ReferenceError")),
+        "Error listener must log [RuntimePack Global Error] with message and details");
+
+    // 2. Trigger unhandled rejection
+    eventListeners.unhandledrejection({
+        reason: new Error("Network save timed out")
+    });
+
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Unhandled Rejection]") && e.includes("Network save timed out")),
+        "Unhandledrejection listener must log [RuntimePack Unhandled Rejection] with reason");
+
+    console.log("Global Error & Rejection Logger tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-011] AudioManager Web Audio format enforcement
+// ============================================================
+{
+    const sb = createSandbox();
+    sb.AudioManager = {
+        audioFileExt: function() { return ".m4a"; }
+    };
+    sb.Utils = {
+        canPlayOgg: function() { return true; }
+    };
+    sb.WebAudio = {
+        canPlayOgg: function() { return true; }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.AudioManager.audioFileExt.__patched, "AudioManager.audioFileExt should be marked as __patched");
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager.audioFileExt must return '.ogg' when canPlayOgg is true");
+
+    // Fallback when canPlayOgg returns false
+    sb.Utils.canPlayOgg = function() { return false; };
+    sb.WebAudio.canPlayOgg = function() { return false; };
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager.audioFileExt must still enforce '.ogg' as default mobile format");
+
+    console.log("AudioManager audioFileExt tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-013] SceneManager caught exception diagnostics
+// ============================================================
+{
+    const sb = createSandbox();
+    let origHandlerInvoked = false;
+    let forwardedError = null;
+    const errorsCaptured = [];
+    sb.console.error = function(...args) {
+        errorsCaptured.push(args.map(String).join(" "));
+    };
+
+    sb.SceneManager = {
+        catchException: function(e) {
+            origHandlerInvoked = true;
+            forwardedError = e;
+            return "orig_handled";
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.SceneManager.catchException.__patched, "SceneManager.catchException must be marked as __patched");
+
+    const testErr = new Error("Scene render failure");
+    testErr.stack = "Error: Scene render failure\n at Scene_Map.update";
+    const retVal = sb.SceneManager.catchException(testErr);
+
+    assert.strictEqual(origHandlerInvoked, true, "Original SceneManager.catchException must be called");
+    assert.strictEqual(forwardedError, testErr, "Original error must be passed to original handler");
+    assert.strictEqual(retVal, "orig_handled", "Return value from original catchException must be preserved");
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Caught Error]") && e.includes("Scene render failure")),
+        "catchException wrapper must log [RuntimePack Caught Error] with stack");
+
+    console.log("SceneManager.catchException tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-010] Graphics._clearUpperCanvas safety
+// ============================================================
+{
+    const sb = createSandbox();
+    let origClearInvoked = false;
+
+    sb.Graphics = {
+        _upperCanvas: null,
+        _clearUpperCanvas: function() {
+            origClearInvoked = true;
+            return this._upperCanvas.getContext("2d");
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.Graphics._clearUpperCanvas.__patched, "Graphics._clearUpperCanvas must be marked as __patched");
+
+    // Calling with _upperCanvas == null must safely no-op without TypeError
+    assert.doesNotThrow(() => {
+        sb.Graphics._clearUpperCanvas();
+    }, "Graphics._clearUpperCanvas must not throw when _upperCanvas is null");
+    assert.strictEqual(origClearInvoked, false, "Original _clearUpperCanvas must not be called when _upperCanvas is null");
+
+    // Calling with valid _upperCanvas must invoke original method
+    sb.Graphics._upperCanvas = {
+        getContext: function() { return "ctx2d"; }
+    };
+    const res = sb.Graphics._clearUpperCanvas();
+    assert.strictEqual(origClearInvoked, true, "Original _clearUpperCanvas must be called when _upperCanvas is defined");
+    assert.strictEqual(res, "ctx2d", "Original return value must be preserved");
+
+    console.log("Graphics._clearUpperCanvas safety tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-001] fs.readdirSync MapInfos fallback (no native bridge)
+// ============================================================
+{
+    const sb = createSandbox();
+    // Simulate XMLHttpRequest returning MapInfos.json
+    sb.XMLHttpRequest = function() {
+        this._url = null;
+        this.status = 0;
+        this.responseText = "";
+        this.open = function(method, url, async) {
+            this._url = url;
+        };
+        this.send = function() {
+            if (this._url && this._url.includes("data/MapInfos.json")) {
+                this.status = 200;
+                this.responseText = JSON.stringify([
+                    null,
+                    { id: 1, name: "Intro Map" },
+                    { id: 5, name: "Castle" },
+                    { id: 12, name: "Dungeon" }
+                ]);
+            } else {
+                this.status = 404;
+                this.responseText = "";
+            }
+        };
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    const fsMod = vm.runInContext("require('fs')", sb);
+    const dataFiles = fsMod.readdirSync("data");
+
+    assert(Array.isArray(dataFiles), "readdirSync fallback must return an array");
+    assert(dataFiles.includes("System.json"), "Fallback list must include System.json");
+    assert(dataFiles.includes("Actors.json"), "Fallback list must include Actors.json");
+    assert(dataFiles.includes("MapInfos.json"), "Fallback list must include MapInfos.json");
+    assert(dataFiles.includes("Map001.json"), "Fallback list must include Map001.json from MapInfos");
+    assert(dataFiles.includes("Map005.json"), "Fallback list must include Map005.json from MapInfos");
+    assert(dataFiles.includes("Map012.json"), "Fallback list must include Map012.json from MapInfos");
+
+    console.log("readdirSync MapInfos fallback tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-014] TyranoBuilder extended hooks (desktop flags & storage & jump)
+// ============================================================
+{
+    const sb = createSandbox();
+    let webStorageSaved = null;
+    let webStorageRequested = null;
+    let nextOrderInvoked = false;
+
+    sb.$ = {
+        isNWJS: function() { return true; },
+        isElectron: function() { return true; },
+        isNeedClickAudio: function() { return true; },
+        setStorage: function(key, val, type) { return "disk_saved"; },
+        getStorage: function(key, type) { return "disk_loaded"; },
+        setStorageWeb: function(key, val) {
+            webStorageSaved = { key: key, val: val };
+            return true;
+        },
+        getStorageWeb: function(key) {
+            webStorageRequested = key;
+            return "web_data_for_" + key;
+        }
+    };
+
+    sb.TYRANO = {
+        kag: {
+            tmp: {},
+            stat: { current_scenario: "scene1.ks" },
+            cache_scenario: {
+                "scene1.ks": {
+                    map_label: { "real_label": { index: 0, label_name: "real_label" } }
+                }
+            },
+            ftag: {
+                startTag: function(tag_name, pm) {
+                    return "orig_tag_executed";
+                },
+                nextOrder: function() {
+                    nextOrderInvoked = true;
+                    return "order_advanced";
+                }
+            }
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    // 1. Verify desktop flags forced to false
+    assert.strictEqual(sb.$.isNWJS(), false, "$.isNWJS must return false");
+    assert.strictEqual(sb.$.isElectron(), false, "$.isElectron must return false");
+    assert.strictEqual(sb.$.isNeedClickAudio(), false, "$.isNeedClickAudio must return false");
+
+    // 2. Verify storage redirected to web storage when type === 'file'
+    sb.$.setStorage("slot_1", "payload_abc", "file");
+    assert.deepStrictEqual(webStorageSaved, { key: "slot_1", val: "payload_abc" },
+        "setStorage with type 'file' must redirect to setStorageWeb");
+
+    const loadedVal = sb.$.getStorage("slot_1", "file");
+    assert.strictEqual(loadedVal, "web_data_for_slot_1",
+        "getStorage with type 'file' must redirect to getStorageWeb");
+
+    // 3. Verify placeholder jump target safety
+    assert.strictEqual(sb.TYRANO.kag.tmp.ready_audio, true, "ready_audio must be true");
+
+    sb.TYRANO.kag.ftag.startTag("jump", { target: "*未定" });
+    assert.strictEqual(nextOrderInvoked, true, "Placeholder jump '*未定' must safely advance via nextOrder");
+
+    nextOrderInvoked = false;
+    sb.TYRANO.kag.ftag.startTag("jump", { target: "*todo" });
+    assert.strictEqual(nextOrderInvoked, true, "Placeholder jump '*todo' must safely advance via nextOrder");
+
+    // Real jump label should call origStartTag
+    const realJump = sb.TYRANO.kag.ftag.startTag("jump", { target: "*real_label" });
+    assert.strictEqual(realJump, "orig_tag_executed", "Existing target label must invoke original startTag");
+
+    console.log("TyranoBuilder extended hooks tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-016] Late-binding polling and lifecycle coordinator
+// ============================================================
+{
+    const sb = createSandbox();
+    let capturedIntervalFn = null;
+    let capturedTimerId = 99;
+    let timerCleared = false;
+
+    sb.setInterval = function(fn, ms) {
+        capturedIntervalFn = fn;
+        return capturedTimerId;
+    };
+    sb.clearInterval = function(id) {
+        if (id === capturedTimerId) timerCleared = true;
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(typeof capturedIntervalFn === "function", "pollPatches interval should be registered");
+
+    // Late-inject unpatched game managers
+    sb.StorageManager = { isLocalMode: function() { return true; } };
+    sb.AudioManager = { audioFileExt: function() { return ".m4a"; } };
+    sb.Graphics = { _clearUpperCanvas: function() {} };
+    sb.SceneManager = { catchException: function() {} };
+
+    // Trigger polling step
+    capturedIntervalFn();
+
+    // Verify all late-injected managers were patched by the coordinator
+    assert.strictEqual(sb.StorageManager.isLocalMode(), false, "StorageManager must be patched by polling coordinator");
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager must be patched by polling coordinator");
+    assert(sb.Graphics._clearUpperCanvas.__patched, "Graphics must be patched by polling coordinator");
+    assert(sb.SceneManager.catchException.__patched, "SceneManager must be patched by polling coordinator");
+
+    console.log("Late-binding polling coordinator tests PASSED");
 }
 
 console.log("All Mobile Web Shims tests passed successfully!");
