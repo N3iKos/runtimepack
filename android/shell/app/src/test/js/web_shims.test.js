@@ -1054,3 +1054,310 @@ function createSandbox(initialStorageManager) {
     console.log("Load Failure Diagnostics tests PASSED");
 }
 
+// ============================================================
+// [CAP-WEB-012] Global Error & Unhandled Rejection Logger
+// ============================================================
+{
+    const sb = createSandbox();
+    const eventListeners = {};
+    sb.window.addEventListener = function(event, handler) {
+        eventListeners[event] = handler;
+    };
+    const errorsCaptured = [];
+    sb.console.error = function(...args) {
+        errorsCaptured.push(args.map(String).join(" "));
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(typeof eventListeners.error === "function", "window 'error' listener must be registered");
+    assert(typeof eventListeners.unhandledrejection === "function", "window 'unhandledrejection' listener must be registered");
+
+    // 1. Trigger global script error
+    eventListeners.error({
+        message: "Uncaught ReferenceError: foo is not defined",
+        filename: "js/plugins/TestPlugin.js",
+        lineno: 42,
+        colno: 15,
+        error: { stack: "ReferenceError: foo is not defined\n at js/plugins/TestPlugin.js:42:15" }
+    });
+
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Global Error]") && e.includes("Uncaught ReferenceError")),
+        "Error listener must log [RuntimePack Global Error] with message and details");
+
+    // 2. Trigger unhandled rejection
+    eventListeners.unhandledrejection({
+        reason: new Error("Network save timed out")
+    });
+
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Unhandled Rejection]") && e.includes("Network save timed out")),
+        "Unhandledrejection listener must log [RuntimePack Unhandled Rejection] with reason");
+
+    console.log("Global Error & Rejection Logger tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-011] AudioManager Web Audio format enforcement
+// ============================================================
+{
+    const sb = createSandbox();
+    sb.AudioManager = {
+        audioFileExt: function() { return ".m4a"; }
+    };
+    sb.Utils = {
+        canPlayOgg: function() { return true; }
+    };
+    sb.WebAudio = {
+        canPlayOgg: function() { return true; }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.AudioManager.audioFileExt.__patched, "AudioManager.audioFileExt should be marked as __patched");
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager.audioFileExt must return '.ogg' when canPlayOgg is true");
+
+    // Fallback when canPlayOgg returns false
+    sb.Utils.canPlayOgg = function() { return false; };
+    sb.WebAudio.canPlayOgg = function() { return false; };
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager.audioFileExt must still enforce '.ogg' as default mobile format");
+
+    console.log("AudioManager audioFileExt tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-013] SceneManager caught exception diagnostics
+// ============================================================
+{
+    const sb = createSandbox();
+    let origHandlerInvoked = false;
+    let forwardedError = null;
+    const errorsCaptured = [];
+    sb.console.error = function(...args) {
+        errorsCaptured.push(args.map(String).join(" "));
+    };
+
+    sb.SceneManager = {
+        catchException: function(e) {
+            origHandlerInvoked = true;
+            forwardedError = e;
+            return "orig_handled";
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.SceneManager.catchException.__patched, "SceneManager.catchException must be marked as __patched");
+
+    const testErr = new Error("Scene render failure");
+    testErr.stack = "Error: Scene render failure\n at Scene_Map.update";
+    const retVal = sb.SceneManager.catchException(testErr);
+
+    assert.strictEqual(origHandlerInvoked, true, "Original SceneManager.catchException must be called");
+    assert.strictEqual(forwardedError, testErr, "Original error must be passed to original handler");
+    assert.strictEqual(retVal, "orig_handled", "Return value from original catchException must be preserved");
+    assert(errorsCaptured.some(e => e.includes("[RuntimePack Caught Error]") && e.includes("Scene render failure")),
+        "catchException wrapper must log [RuntimePack Caught Error] with stack");
+
+    console.log("SceneManager.catchException tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-010] Graphics._clearUpperCanvas safety
+// ============================================================
+{
+    const sb = createSandbox();
+    let origClearInvoked = false;
+
+    sb.Graphics = {
+        _upperCanvas: null,
+        _clearUpperCanvas: function() {
+            origClearInvoked = true;
+            return this._upperCanvas.getContext("2d");
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(sb.Graphics._clearUpperCanvas.__patched, "Graphics._clearUpperCanvas must be marked as __patched");
+
+    // Calling with _upperCanvas == null must safely no-op without TypeError
+    assert.doesNotThrow(() => {
+        sb.Graphics._clearUpperCanvas();
+    }, "Graphics._clearUpperCanvas must not throw when _upperCanvas is null");
+    assert.strictEqual(origClearInvoked, false, "Original _clearUpperCanvas must not be called when _upperCanvas is null");
+
+    // Calling with valid _upperCanvas must invoke original method
+    sb.Graphics._upperCanvas = {
+        getContext: function() { return "ctx2d"; }
+    };
+    const res = sb.Graphics._clearUpperCanvas();
+    assert.strictEqual(origClearInvoked, true, "Original _clearUpperCanvas must be called when _upperCanvas is defined");
+    assert.strictEqual(res, "ctx2d", "Original return value must be preserved");
+
+    console.log("Graphics._clearUpperCanvas safety tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-001] fs.readdirSync MapInfos fallback (no native bridge)
+// ============================================================
+{
+    const sb = createSandbox();
+    // Simulate XMLHttpRequest returning MapInfos.json
+    sb.XMLHttpRequest = function() {
+        this._url = null;
+        this.status = 0;
+        this.responseText = "";
+        this.open = function(method, url, async) {
+            this._url = url;
+        };
+        this.send = function() {
+            if (this._url && this._url.includes("data/MapInfos.json")) {
+                this.status = 200;
+                this.responseText = JSON.stringify([
+                    null,
+                    { id: 1, name: "Intro Map" },
+                    { id: 5, name: "Castle" },
+                    { id: 12, name: "Dungeon" }
+                ]);
+            } else {
+                this.status = 404;
+                this.responseText = "";
+            }
+        };
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    const fsMod = vm.runInContext("require('fs')", sb);
+    const dataFiles = fsMod.readdirSync("data");
+
+    assert(Array.isArray(dataFiles), "readdirSync fallback must return an array");
+    assert(dataFiles.includes("System.json"), "Fallback list must include System.json");
+    assert(dataFiles.includes("Actors.json"), "Fallback list must include Actors.json");
+    assert(dataFiles.includes("MapInfos.json"), "Fallback list must include MapInfos.json");
+    assert(dataFiles.includes("Map001.json"), "Fallback list must include Map001.json from MapInfos");
+    assert(dataFiles.includes("Map005.json"), "Fallback list must include Map005.json from MapInfos");
+    assert(dataFiles.includes("Map012.json"), "Fallback list must include Map012.json from MapInfos");
+
+    console.log("readdirSync MapInfos fallback tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-014] TyranoBuilder extended hooks (desktop flags & storage & jump)
+// ============================================================
+{
+    const sb = createSandbox();
+    let webStorageSaved = null;
+    let webStorageRequested = null;
+    let nextOrderInvoked = false;
+
+    sb.$ = {
+        isNWJS: function() { return true; },
+        isElectron: function() { return true; },
+        isNeedClickAudio: function() { return true; },
+        setStorage: function(key, val, type) { return "disk_saved"; },
+        getStorage: function(key, type) { return "disk_loaded"; },
+        setStorageWeb: function(key, val) {
+            webStorageSaved = { key: key, val: val };
+            return true;
+        },
+        getStorageWeb: function(key) {
+            webStorageRequested = key;
+            return "web_data_for_" + key;
+        }
+    };
+
+    sb.TYRANO = {
+        kag: {
+            tmp: {},
+            stat: { current_scenario: "scene1.ks" },
+            cache_scenario: {
+                "scene1.ks": {
+                    map_label: { "real_label": { index: 0, label_name: "real_label" } }
+                }
+            },
+            ftag: {
+                startTag: function(tag_name, pm) {
+                    return "orig_tag_executed";
+                },
+                nextOrder: function() {
+                    nextOrderInvoked = true;
+                    return "order_advanced";
+                }
+            }
+        }
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    // 1. Verify desktop flags forced to false
+    assert.strictEqual(sb.$.isNWJS(), false, "$.isNWJS must return false");
+    assert.strictEqual(sb.$.isElectron(), false, "$.isElectron must return false");
+    assert.strictEqual(sb.$.isNeedClickAudio(), false, "$.isNeedClickAudio must return false");
+
+    // 2. Verify storage redirected to web storage when type === 'file'
+    sb.$.setStorage("slot_1", "payload_abc", "file");
+    assert.deepStrictEqual(webStorageSaved, { key: "slot_1", val: "payload_abc" },
+        "setStorage with type 'file' must redirect to setStorageWeb");
+
+    const loadedVal = sb.$.getStorage("slot_1", "file");
+    assert.strictEqual(loadedVal, "web_data_for_slot_1",
+        "getStorage with type 'file' must redirect to getStorageWeb");
+
+    // 3. Verify placeholder jump target safety
+    assert.strictEqual(sb.TYRANO.kag.tmp.ready_audio, true, "ready_audio must be true");
+
+    sb.TYRANO.kag.ftag.startTag("jump", { target: "*未定" });
+    assert.strictEqual(nextOrderInvoked, true, "Placeholder jump '*未定' must safely advance via nextOrder");
+
+    nextOrderInvoked = false;
+    sb.TYRANO.kag.ftag.startTag("jump", { target: "*todo" });
+    assert.strictEqual(nextOrderInvoked, true, "Placeholder jump '*todo' must safely advance via nextOrder");
+
+    // Real jump label should call origStartTag
+    const realJump = sb.TYRANO.kag.ftag.startTag("jump", { target: "*real_label" });
+    assert.strictEqual(realJump, "orig_tag_executed", "Existing target label must invoke original startTag");
+
+    console.log("TyranoBuilder extended hooks tests PASSED");
+}
+
+// ============================================================
+// [CAP-WEB-016] Late-binding polling and lifecycle coordinator
+// ============================================================
+{
+    const sb = createSandbox();
+    let capturedIntervalFn = null;
+    let capturedTimerId = 99;
+    let timerCleared = false;
+
+    sb.setInterval = function(fn, ms) {
+        capturedIntervalFn = fn;
+        return capturedTimerId;
+    };
+    sb.clearInterval = function(id) {
+        if (id === capturedTimerId) timerCleared = true;
+    };
+
+    vm.runInContext(shimsCode, sb);
+
+    assert(typeof capturedIntervalFn === "function", "pollPatches interval should be registered");
+
+    // Late-inject unpatched game managers
+    sb.StorageManager = { isLocalMode: function() { return true; } };
+    sb.AudioManager = { audioFileExt: function() { return ".m4a"; } };
+    sb.Graphics = { _clearUpperCanvas: function() {} };
+    sb.SceneManager = { catchException: function() {} };
+
+    // Trigger polling step
+    capturedIntervalFn();
+
+    // Verify all late-injected managers were patched by the coordinator
+    assert.strictEqual(sb.StorageManager.isLocalMode(), false, "StorageManager must be patched by polling coordinator");
+    assert.strictEqual(sb.AudioManager.audioFileExt(), ".ogg", "AudioManager must be patched by polling coordinator");
+    assert(sb.Graphics._clearUpperCanvas.__patched, "Graphics must be patched by polling coordinator");
+    assert(sb.SceneManager.catchException.__patched, "SceneManager must be patched by polling coordinator");
+
+    console.log("Late-binding polling coordinator tests PASSED");
+}
+
+
