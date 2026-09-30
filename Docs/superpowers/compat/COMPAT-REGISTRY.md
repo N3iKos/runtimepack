@@ -163,3 +163,28 @@
 - Evidence: Mendukung game RPG Maker MV/MZ baik yang menggunakan script tag standar maupun modular/asynchronous loading
 - Regression test: `web_shims.test.js` suite `pollPatches lifecycle`
 - Diagnostic: Terpasangnya penanda `__runtimepack_*_patched` pada objek engine global
+
+---
+
+# Runtime Hardening & Asset Lockdown Specifications
+
+> Spesifikasi proteksi aset dan hardening runtime untuk mencegah pencurian tata letak, modifikasi tidak sah (repack), dan inspeksi aset plaintext pada rilis produksi.
+
+## 1. Mekanisme Proteksi Berjenjang (B + C + D)
+- **Containerization (B)**: Pada build `--flavor release`, file `overlay/*`, `web_shims/*`, dan `fonts/*` dikemas ke dalam biner terenkripsi `game.pack` (GPACK) dengan algoritma AEAD ChaCha20-Poly1305. File-file tersebut **100% dihilangkan** dari direktori `assets/` APK. Host Android (`OverlayAssetSource`) memuat aset runtime langsung dari stream GPACK terdekripsi dalam memori.
+- **Startup Integrity Verification (C)**: Generator build menghitung hash SHA-256 deterministik dari seluruh aset runtime dan menyematkannya ke dalam kode sumber Kotlin terkompilasi (`RuntimeBuildInfo.kt`). Pada `onCreate`, `RuntimeIntegrity` memvalidasi payload sebelum WebView dimuat. Jika terdapat modifikasi atau penghapusan aset, aplikasi menampilkan layar `APPLICATION CORRUPTED` dan keluar secara rapi.
+- **DEX Hardening / R8 (D)**: Mengaktifkan R8 minification (`isMinifyEnabled = true`) dengan aturan `-keep` komprehensif pada `@android.webkit.JavascriptInterface`, Activity, dan metode native JNI.
+
+## 2. Definisi Hash Deterministik
+Hash dihitung dari daftar entri runtime yang diurutkan secara alfabetis (case-insensitive lowercase):
+- Setiap entri: `SHA256.update(canonical_path) -> update(0x00) -> update(file_bytes) -> update(0x00)`
+- Digest: String heksadesimal lowercase 64 karakter.
+
+## 3. Taksonomi Kode Diagnostik
+- `AND-401`: Runtime asset integrity mismatch (hash aktual tidak sesuai hash build).
+- `AND-402`: Runtime overlay assets missing from container (container kosong pada mode release).
+- `AND-403`: Expected integrity hash missing in release build / GPACK unreadable.
+
+## 4. Batas Keamanan Nyata (Threat Model)
+Hardening ini melindungi dari 99% upaya ekstraksi statis (unzip APK, penyalinan layout, pengubahan watermark atau cheat profile oleh pihak ketiga). Pada perangkat yang di-root penuh dengan instrumentasi dinamis tingkat lanjut (Frida/Xposed) atau dump memori WebView runtime, aset pada akhirnya berada dalam memori dalam bentuk terdekripsi. Sesuai AGENTS.md §17, sistem ini dirancang sebagai *asset hardening & encrypted content protection*, bukan klaim proteksi mutlak yang mustahil ditembus.
+
