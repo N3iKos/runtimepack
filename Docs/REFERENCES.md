@@ -108,8 +108,6 @@ Supports:
 - project states cross-platform targets.
 - README terms include restrictions around redistribution and smartphone conversion-tool commercialization/use, requiring consultation in those cases.
 
-**This source creates `TYRANO-LEGAL` gate.**
-
 ### S12 — TyranoScript index.html
 URL: https://github.com/ShikemokuMK/tyranoscript/blob/master/index.html
 

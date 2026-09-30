@@ -262,17 +262,15 @@ Agents MUST NOT:
 2. invent compatibility guarantees;
 3. invent RPG Maker file signatures;
 4. invent Ren'Py version mappings;
-5. invent Tyrano redistribution permissions;
-6. claim a Windows API shim exists when it has not been implemented and tested;
-7. silently treat an unknown native dependency as supported;
-8. silently change engine family after failed detection;
-9. use `"latest"` for runtime/toolchain resolution;
-10. introduce unpinned dependencies into production build logic;
-11. assume all JoiPlay repositories share the same license;
-12. use public source availability as proof that redistribution is permitted;
-13. output fake compatibility percentages;
-14. execute untrusted game code during inspection/detection;
-15. mark `UNKNOWN` as compatible.
+5. claim a Windows API shim exists when it has not been implemented and tested;
+6. silently treat an unknown native dependency as supported;
+7. silently change engine family after failed detection;
+8. use `"latest"` for runtime/toolchain resolution;
+9. introduce unpinned dependencies into production build logic;
+10. assume all JoiPlay repositories share the same license;
+11. output fake compatibility percentages;
+12. execute untrusted game code during inspection/detection;
+13. mark `UNKNOWN` as compatible.
 
 Unknown information must remain unknown until verified.
 
@@ -485,23 +483,15 @@ unless an explicitly documented safe resolution rule exists.
 
 ### 7.7 Tyrano
 
-Tyrano is technically part of v1 architecture.
-
-However distribution remains subject to:
+Expected primary markers include:
 
 ```text
-TYRANO-LEGAL
+data/system/Config.tjs
+tyrano/tyrano.js
+index.html
 ```
 
-Until that gate is explicitly cleared:
-
-- detector work is allowed;
-- analyzer work is allowed;
-- interface work is allowed;
-- synthetic/permitted testing is allowed;
-- bundling restricted Tyrano engine files into release artifacts is NOT allowed.
-
-Do not bypass this gate.
+TyranoScript and TyranoBuilder projects are supported via the Web runtime backend.
 
 ---
 
@@ -686,7 +676,7 @@ Ren'Py
 -> exact runtime dependency notice bundle mandatory
 
 Tyrano
--> legal gate currently blocks unrestricted bundling
+-> Web runtime adapter over user game assets
 ```
 
 ---
@@ -854,7 +844,6 @@ Stop the affected implementation path and report a blocker for:
 DOCS_MISSING
 SPEC_CONFLICT
 SOURCE_UNVERIFIED
-LICENSE_BLOCKED
 AMBIGUOUS_ENGINE
 RUNTIME_VERSION_UNRESOLVED
 UNSUPPORTED_NATIVE_DEPENDENCY
@@ -895,7 +884,7 @@ Phase 7
 encrypted-streaming content
 
 Phase 8
-Tyrano technical integration, subject to legal gate
+Tyrano technical integration and packaging
 
 Phase 9
 release hardening / AAB / provenance

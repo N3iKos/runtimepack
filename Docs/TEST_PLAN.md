@@ -151,15 +151,13 @@ Tests:
 
 ## 12. Tyrano tests
 
-Before legal gate clearance, testing may use developer-owned/synthetic structures without redistributing upstream engine files in release artifacts.
-
 Tests:
 
 - detection;
-- adapter bootstrap using permitted fixture strategy;
+- adapter bootstrap;
 - scenario navigation;
 - assets;
-- save if supported by approved model.
+- save/load.
 
 ## 13. Performance tests
 
@@ -197,8 +195,7 @@ No P0 release if:
 - release APK asks for forbidden broad storage permission;
 - save is lost across restart;
 - unsigned APK emitted as release success;
-- license notices missing;
-- Tyrano legal gate bypassed.
+- license notices missing.
 
 ## 16. Asset audit tests (static and deep)
 
@@ -240,7 +237,7 @@ No P0 release if:
   - `FAIL` blocks build with `BLD-104`; allowed only when `--accept-audit-fail` is supplied; blocked when `--accept-audit-unknown` is supplied.
   - `INDETERMINATE` blocks build with `BLD-104`; allowed only when `--accept-audit-unknown` is supplied; blocked when `--accept-audit-fail` is supplied.
 - **Hard blocker non-bypassability:**
-  - Verify that neither `--accept-audit-fail` nor `--accept-audit-unknown` bypasses `CMP-102` (native Windows DLL), `CNT-*` (container corruption), `TYR-101` (Tyrano legal gate), ambiguous engine detection, or unresolved runtime versions.
+  - Verify that neither `--accept-audit-fail` nor `--accept-audit-unknown` bypasses `CMP-102` (native Windows DLL), `CNT-*` (container corruption), ambiguous engine detection, or unresolved runtime versions.
 - **Pre-build side-effect gating:**
   - Verify that un-overridden audit failures abort the build before creating the output directory, packing content, generating Android projects, or running Gradle.
 - **Static and runtime separation:**

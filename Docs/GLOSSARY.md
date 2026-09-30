@@ -25,5 +25,3 @@
 **Standalone APK** — output Android application dedicated to one game, with no universal game picker.
 
 **Build-time dispatch** — choosing runtime while producing APK, contrasted with JoiPlay's play-time launcher/plugin selection.
-
-**Legal gate** — implementation/distribution is intentionally blocked until redistribution terms are resolved.

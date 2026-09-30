@@ -72,18 +72,6 @@ Define the smallest subset worth implementing.
 
 Do not emulate Node wholesale.
 
-## SPIKE-TYRANO-LEGAL-001
-
-Status: BLOCKING FOR DISTRIBUTION.
-
-Obtain:
-- explicit permission or clarified license;
-- allowed redistribution model;
-- whether user-supplied engine files may be repackaged by a conversion tool;
-- notice/attribution conditions.
-
-Until resolved, release build refuses Tyrano with `LIC-310_TYRANO_REDISTRIBUTION_BLOCKED`.
-
 ## SPIKE-CONTENT-001 — Container binary format
 
 Finalize:

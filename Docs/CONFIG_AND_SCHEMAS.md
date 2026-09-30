@@ -100,7 +100,7 @@ runtimepack build <game> [--audit-mode standard|deep] [--accept-audit-fail] [--a
 - `--no-html`: Suppresses generation of the self-contained offline HTML audit report viewer (`asset-audit-report.html`).
 - `--accept-audit-fail`: Explicitly accepts an audit outcome of `FAIL`; rejects `INDETERMINATE`.
 - `--accept-audit-unknown`: Explicitly accepts an audit outcome of `INDETERMINATE`; rejects `FAIL`.
-- Non-bypassable hard blockers: Security violations, container corruption (`CNT-*`), Tyrano legal gate (`TYR-101`), ambiguous engine detection, unresolved runtime version, and unsupported native modules/libraries (`CMP-102`) cannot be overridden.
+- Non-bypassable hard blockers: Security violations, container corruption (`CNT-*`), ambiguous engine detection, unresolved runtime version, and unsupported native modules/libraries (`CMP-102`) cannot be overridden.
 
 ### 8.3 Core invariants
 

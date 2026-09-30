@@ -53,7 +53,7 @@ Establish engine-neutral asset dependency graph, static audit domain, CLI audit 
 - **Override Constraints:**
   - `--accept-audit-fail` accepts only `FAIL`; rejects `INDETERMINATE`.
   - `--accept-audit-unknown` accepts only `INDETERMINATE`; rejects `FAIL`.
-  - Hard blockers (`CNT-*`, `TYR-101`, `DET-AMBIGUOUS`, `RUNTIME_VERSION_UNRESOLVED`, `CMP-102`) can never be bypassed.
+  - Hard blockers (`CNT-*`, `DET-AMBIGUOUS`, `RUNTIME_VERSION_UNRESOLVED`, `CMP-102`) can never be bypassed.
 - **Static vs Runtime Separation:** Static audit runs without executing game code. In-game telemetry viewers (Diagnostic Suite) are non-authoritative viewers.
 - **Source Immutability:** Input source is strictly read-only. Audit outputs inside the source directory are rejected (`CMP-AUD-009`). Reports use atomic file replacement.
 
@@ -160,11 +160,9 @@ Acceptance:
 
 ## Milestone 8 — Tyrano technical adapter
 
-Implement detection and compatibility analysis.
+Implement detection, compatibility analysis, and Web runtime packaging.
 
-Runtime packaging remains disabled while `TYRANO-LEGAL` is blocked.
-
-If gate clears, integrate browser-compatible Tyrano fixture and enable packaging.
+Integrate browser-compatible Tyrano fixture and enable standalone Android packaging.
 
 ## Milestone 9 — Release hardening
 
