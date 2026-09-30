@@ -3805,3 +3805,105 @@ fn test_emit_project_beta_flavor_runtime_build_info() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+#[test]
+fn test_release_project_emits_proguard_rules_and_enables_minify() {
+    let temp_dir = test_temp_dir("release-project-minify");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Release Proguard Test".to_string(),
+            package: "io.runtimepack.test.release".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let build_gradle_path = project_dir.join("app/build.gradle.kts");
+    assert!(
+        build_gradle_path.exists(),
+        "app/build.gradle.kts must exist"
+    );
+    let build_gradle = std::fs::read_to_string(&build_gradle_path).unwrap();
+    assert!(
+        build_gradle.contains("isMinifyEnabled = true"),
+        "release block in app/build.gradle.kts must set isMinifyEnabled = true, got:\n{}",
+        build_gradle
+    );
+
+    let proguard_rules_path = project_dir.join("app/proguard-rules.pro");
+    assert!(
+        proguard_rules_path.exists(),
+        "app/proguard-rules.pro must exist in emitted project"
+    );
+    let proguard_content = std::fs::read_to_string(&proguard_rules_path).unwrap();
+    assert!(
+        proguard_content.contains("@android.webkit.JavascriptInterface"),
+        "proguard-rules.pro must keep @android.webkit.JavascriptInterface, got:\n{}",
+        proguard_content
+    );
+    assert!(
+        proguard_content.contains("io.runtimepack.host.RuntimeIntegrity"),
+        "proguard-rules.pro must keep RuntimeIntegrity"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+

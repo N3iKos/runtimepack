@@ -80,6 +80,33 @@ impl AndroidProjectGenerator {
         "android.permission.WRITE_EXTERNAL_STORAGE",
     ];
 
+    pub const DEFAULT_PROGUARD_RULES: &'static str = r#"# Preserve all JavascriptInterface methods and their enclosing classes
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keepclasseswithmembernames class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Preserve Activities registered in AndroidManifest.xml
+-keep public class * extends android.app.Activity
+
+# Preserve native JNI methods (SDL, Ruby, mkxp-z, Ren'Py)
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Preserve RuntimeBuildInfo and RuntimeIntegrity constants & classes
+-keep class io.runtimepack.host.RuntimeBuildInfo { *; }
+-keep class io.runtimepack.host.RuntimeIntegrity { *; }
+-keep class io.runtimepack.host.OverlayAssetSource { *; }
+
+# Preserve Gpack models & AssetAudit serialization models
+-keep class io.runtimepack.host.BuildManifestData** { *; }
+-keep class io.runtimepack.host.RuntimeAudit** { *; }
+"#;
+
     pub fn detect_game_profile_id(game_source_dir: &Path) -> Option<String> {
         let path_str = game_source_dir.to_string_lossy().to_lowercase();
 
@@ -336,7 +363,7 @@ android {{
             signingConfig = signingConfigs.getByName("debug")
         }}
         release {{
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -638,6 +665,16 @@ include(":app")
             manifest.android.target_sdk,
         );
         fs::write(app_dir.join("build.gradle.kts"), gradle_kts)?;
+
+        // Write app/proguard-rules.pro
+        let proguard_dst = app_dir.join("proguard-rules.pro");
+        if let Some(src) = Self::find_template_file("android/shell/app/proguard-rules.pro") {
+            if fs::copy(&src, &proguard_dst).is_err() {
+                fs::write(&proguard_dst, Self::DEFAULT_PROGUARD_RULES)?;
+            }
+        } else {
+            fs::write(&proguard_dst, Self::DEFAULT_PROGUARD_RULES)?;
+        }
 
         let effective_flavor = flavor
             .or(manifest.flavor.as_deref())
