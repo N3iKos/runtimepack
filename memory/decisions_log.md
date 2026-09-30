@@ -1,5 +1,89 @@
 # Decisions Log
 
+## [2026-09-28] Touch Tail Smoothing, 3-Mode Toggle, Mobile Landscape Fit, Screen Fit & Overlay Hardening
+**Keputusan:**
+1. **Touch Tail Smoothing & Gesture Isolation:**
+   - Tap diam hanya memunculkan ripple tipis; titik ekor hanya tercipta saat jari bergeser >= 10px.
+   - Mengalokasikan unique session ID (`strokeId`) per gesture dan per finger. Saat jari diangkat, sesi stroke dikunci sehingga tap baru tidak akan pernah menghubungkan garis lurus melompat ke sapuan lama.
+   - Menghilangkan bayangan sambungan kelereng/beads dengan merender badan pita ribbon menggunakan `lineCap = "butt"` dan `lineJoin = "round"`.
+2. **3-Mode Feedback Toggle & Bottom Pill Toast:**
+   - Tombol `#vpad-btn-ripple` berganti siklus 3 mode: `All ON (Ripple + Tail)` -> `Ripple Only (Tail OFF)` -> `All OFF`.
+   - Menggunakan 3 ikon SVG dinamis serasi (`gestureSweep`, `rippleOnly`, `rippleOff`).
+   - Memunculkan rounded pill toast `#vpad-touch-toast` di bagian tengah bawah layar selama tepat 1 detik (1000ms).
+3. **Compact Mobile Landscape Modal Sizing:**
+   - Mengatur dimensi modal `#rp-diag-modal`, `#fnh-cheat-overlay`, `#vpad-prop-panel`, dan `#vpad-key-modal` menjadi `max-height: min(78vh, 320px)` dan `width: min(84vw, 460px)` di `vpad.css` dan ketiga paket tema, menjaga proporsi ideal pada layar HP landscape.
+4. **Full-Screen Game Canvas Fit:**
+   - Mem-patch `Graphics._stretchHeight` di `runtimepack_web_shims.js` agar selalu mengembalikan 100% tinggi layar (`window.innerHeight`), menghapus penalti `0.9` mobile rate bawaan RPG Maker MZ yang menyebabkan bar hitam atas-bawah.
+5. **Native URL Bridge & Overlay Hardening:**
+   - Memindahkan URL komunitas `https://linktr.ee/Veldra.Works` ke method native `@JavascriptInterface openCommunityLink()` di `WebActivity`, `RgssActivity`, dan `RenpyActivity`.
+6. **Verifikasi Forestia APK Rebuild:**
+   - Menghasilkan `dist/forestia/Forestia.apk` (856.247.284 bytes / 816.58 MB, SHA-256 `0D8E7DA2B7320ABE47D8708254A03A339062E4E1102FDE672B85BA6CE6A7B3F0`).
+   - `Raw-Game/Forestia1.4.4-IND` 100% immutable.
+**Alasan:** Memenuhi permintaan user untuk ekor sentuhan halus tanpa glitch garis lompat/multi-touch, kontrol toggle feedback 3 mode dengan visual toast, panel yang tidak menutupi game di HP, tampilan game layar penuh tanpa bar hitam, dan proteksi URL native.
+**Dampak:** Seluruh test suite (JS, Android Gradle, Cargo Rust) lulus 100%.
+
+## [2026-09-29] 3-Mode Feedback Cycling Toggle & Bottom Pill Toast (Task 2)
+**Keputusan:**
+1. Mengubah toggle sentuhan `#vpad-btn-ripple` menjadi 3-state cycling:
+   - Mode `"all"`: Ripple + Trail (keduanya ON). Icon: `SVG_ICONS.gestureSweep`, kelas `.active`, title `"Touch Feedback: Ripple + Trail (All ON)"`.
+   - Mode `"ripple_only"`: Ripple ON, Trail OFF. Icon: `SVG_ICONS.rippleOnly`, kelas `.active`, title `"Touch Feedback: Ripple Only (Trail OFF)"`.
+   - Mode `"off"`: Keduanya OFF. Icon: `SVG_ICONS.rippleOff`, kelas `.active` dicabut, title `"Touch Feedback: OFF"`.
+   - Urutan siklus: `"all"` -> `"ripple_only"` -> `"off"` -> `"all"`. Default: `"all"`.
+   - Disimpan di `state.feedbackMode` dan dipersistensi di `localStorage` bawah `STORAGE_KEY` (`vpad_controller_profiles_v11`).
+2. Komponen Pill Toast `#vpad-touch-toast`:
+   - Dibuat di `createOverlay()` dan di-hoist ke `document.body` dengan z-index 100050.
+   - Styling rounded pill di `vpad.css` menggunakan CSS variables tema aktif.
+   - Helper `showTouchToast(msg)` menampilkan teks selama 1000ms dengan debounce timer reset pada ketukan beruntun.
+3. Penegakan Perilaku Touch Feedback:
+   - Di `spawnTouchRipple`: bypass jika `state.feedbackMode === "off"`.
+   - Di `setupTrailListeners`: pointer tracking dan penambahan poin ribbon canvas hanya aktif jika `state.feedbackMode === "all"`. Dalam mode `"ripple_only"`, tap tetap memunculkan ripple tipis namun loop rAF canvas motion trail sama sekali tidak berjalan (0 overhead).
+**Alasan:** Memberikan fleksibilitas kontrol ergonomis kepada pengguna mobile yang menginginkan feedback visual ripple tanpa distraksi ekor sapuan, atau mematikan seluruh efek visual sentuhan.
+**Dampak:** Seluruh unit test JS overlay (`vpad_bridge.test.js`, `overlay_interaction_regression.test.js`) dan test Rust workspace lulus 100%. `Raw-Game/` 100% untouched.
+
+## [2026-09-28] Build Test Forestia (RPG Maker MZ) with Theme Package Engine
+**Keputusan:**
+1. Eksekusi kompilasi build game *Forestia* (RPG Maker MZ) menggunakan Theme Package Engine baru:
+   - Command: `cargo run --bin runtimepack -- build "Raw-Game\Forestia1.4.4-IND" -o dist/forestia --package com.example.forestia --name "Forestia" --flavor beta --themes matte,liquid_glass,retro_osd --default-theme matte --accept-audit-fail --accept-audit-unknown`
+   - Output: `dist/forestia/Forestia.apk` (856.242.296 bytes / 816.58 MB, SHA-256 `C2BEBB284E9FD1C82E2A5E11F17D00AB60CF8A954BAC8C1041C2D8877F65572B`).
+   - GPACK container `game.pack` tercipta (814.384.184 bytes / 776.66 MB).
+   - Gradle kompilasi `assembleDebug` sukses (exit code 0).
+2. Verifikasi Paket & Provenance:
+   - `themes_manifest.json` tercipta di assets dengan 3 tema (`matte`, `liquid_glass`, `retro_osd`) dan default `matte`.
+   - `build-manifest.json` dan provenance mencatat pilihan tema secara deterministik.
+   - Folder input game `Raw-Game/Forestia1.4.4-IND` 100% immutable (nol perubahan).
+**Alasan:** Memvalidasi end-to-end integrasi Build-Time Theme Package Engine pada game RPG Maker MZ skala riil.
+**Dampak:** APK mandiri Forestia berhasil dikompilasi dengan bundling tema modular dan siap diuji/dijalankan di Android/MuMu emulator.
+
+## [2026-09-28] Theme Switcher Engine (theme_loader.js) & Dynamic Stacking Refinement (Task 7)
+**Keputusan:**
+1. **Dynamic Theme Switcher Engine (`theme_loader.js`):**
+   - Membuat `theme_loader.js` yang mem-parse `themes_manifest.json` (atau built-in fallback: `matte`, `liquid_glass`, `retro_osd`) dan mengekspos `window.RuntimePackTheme`.
+   - Mengimplementasikan `applyTheme(themeId)`: validasi ID & alias (`clean` -> `liquid_glass`, `retro` -> `retro_osd`), unmounting `<link data-theme-sheet>`, mounting 4 stylesheets (`tokens.css`, `components.css`, `layout.css`, `effects.css`), setting atribut `data-theme` dan kelas `vpad-theme-${themeId}` (beserta backward-compat toggles `vpad-theme-retro` dan `vpad-theme-clean`), dispatch event `"vpad:themechange"`, serta persistensi localStorage (`STORAGE_KEY = "vpad_theme_selected"`).
+   - Menjaga kode 100% theme-neutral dengan 0 hardcoded presentation hex colors.
+2. **Dynamic UI Popover & Reactive Stacking in `vpad.js`:**
+   - Popover tema `#vpad-theme-popover` di-render dinamis dari `RuntimePackTheme.getAvailableThemes()` dan label `#vpad-bar-theme-name` tersinkronisasi otomatis via event `"vpad:themechange"`.
+   - Tombol Diagnostic Suite (`#vpad-btn-diag`) dan Cheat Menu (`#vpad-btn-cheat`) memanggil `bringPanelToFront(panel)` saat dibuka, menjamin Diagnostic Suite selalu berada di atas Cheat Menu saat dibuka.
+   - Menambahkan deduplikasi gesture pada `bringPanelToFront` dan `handlePanelElevation` (`< 100ms` window) sehingga sequence `pointerdown` / `touchstart` / `mousedown` pada satu ketukan fisik hanya meningkatkan z-index tepat satu kali (+2) tanpa triple-increment.
+**Alasan:** Memenuhi arsitektur modular Build-Time Theme Package Engine, memisahkan logika muat tema dinamis dari file monolitik, dan memastikan stacking modal Android transparan beroperasi stabil tanpa glitch z-index.
+**Dampak:** 100% test JS (21 overlay regression tests, 15 vpad bridge tests, 8 cheat menu suites, 14 diagnostic suite tests) dan test workspace Cargo lulus bersih. `Raw-Game/` 100% untouched.
+
+## [2026-09-28] Liquid Glass Redesign, Matte Refinement, Touch Ripple & Stacking
+**Keputusan:**
+1. **Minimalist Matte Refinement:**
+   - Mengembalikan toolbar aktif dan `#vpad-editor-bar` / tombol `✓ Done` ke aksen deep blue (`#1e3a8a` / `#2563eb`, pressed `#172554`) di atas base charcoal `#141416`, mengeliminasi kontras hitam pekat dan tabrakan warna cyan cerah.
+2. **Liquid Glass Overhaul (.vpad-theme-clean):**
+   - Menyelaraskan Liquid Glass dengan estetika iOS 26 Liquid Glass UI Kit / visionOS: panel menggunakan sudut squircle 22px (`border-radius: 22px !important;`), refraksi kaca beku tebal `backdrop-filter: blur(28px) saturate(190%) !important;`, 1px specular rim (`border: 1px solid rgba(255, 255, 255, 0.28) !important;`), dan tombol aksi Apple System Blue `#007aff !important;` tanpa efek over-glow neon norak.
+3. **Universal Thin-Ring Visual Ripple & Swipe Motion Trail:**
+   - Standardisasi cincin riak sentuhan tipis 1.5px putih bersih di seluruh tema.
+   - Partikel ekor sapuan (`.vpad-touch-tail-segment`, 0.22s fade) aktif saat jari menggeser layar game.
+   - Mengisolasi touch feedback dari seluruh tombol kontrol (`.vpad-control-item`), toolbar, popover, dan panel modal via `shouldIgnoreTouchForFeedback`.
+4. **Dynamic Top-Layer Panel Stacking:**
+   - Implementasi `window.bringPanelToFront(panelOrId)` yang mengangkat panel yang baru dibuka atau disentuh ke z-index teratas, dengan popovers selalu +10 di atas editor bar.
+5. **Retro OSD & Raw-Game:**
+   - Tema Retro OSD dan folder `Raw-Game/` 100% untouched.
+**Alasan:** Memenuhi preferensi visual dan ergonomi pengguna yang menuntut pembedaan jelas antar-tema, feedback sentuhan yang bersih tanpa pendaran berlebih, dan stacking modal yang responsif.
+**Dampak:** 100% test JS, Android JVM, dan Cargo workspace lulus tanpa regresi.
+
 ## [2026-09-27] Full Sweep Re-Audit & Verification Across All 8 Games (Task 4)
 **Keputusan:**
 1. Eksekusi static asset audit menyeluruh pada seluruh 8 game target di `Raw-Game/`:
@@ -616,3 +700,17 @@
 **Alasan:** Menghadirkan in-game layout editor interaktif bergaya Winlator/JoiPlay, 5 preset bawaan, dual theme (Clean Slate & Retro OSD), serta integrasi cheat tanpa perlu menulis ulang UI sentuh di C++ untuk setiap engine yang berbeda.
 **Alternatif yang dipertimbangkan:** Render kontrol sentuh manual lewat skrip Ruby RGSS atau rendering C++ ImGui.
 **Dampak:** UI kontrol sentuh seragam dan identik di seluruh engine keluarga RuntimePack (RGSS, Web, Ren'Py, Tyrano).
+# Decisions Log
+
+## [2026-09-30] Stability & Diagnostics Overhaul — Keputusan Desain Seseluruhan
+Keputusan:
+1. Probe CLI scope T1-only (universal smoke: boot/new game/input/error scan/FPS). T2 (suntik save template per engine: MZ/MV file JSON-compressed, RGSS Marshal; Ren'Py wajib save asli per game) & T3 (save round-trip in-game) dicatat future work — arsitektur ProbeTarget sudah menampung.
+2. Device TIDAK hardcode: implementasi tunggal AdbTarget generik; device dari probe-profiles/devices.toml / argumen --device <id|alamat>; tanpa argumen = scan adb devices (1 aktif dipakai, >1 minta eksplisit). Menambah emulator = 3 baris config.
+3. Save-anywhere = capability cheat manual per game-profile (dikerjakan agent saat kalibrasi profil), BUKAN prasyarat probe. MV/MZ mudah (DataManager/StorageManager engine-level); RGSS per-game.
+4. Probe = program dumb deterministik yang test; agent AI hanya mendiagnosis saat probe FAIL. Exit code 1 saat probe fail (verification gate), exit 0 saat skip karena tanpa device.
+5. Capability registry: format CAP-WEB-xxx (ID, engine, trigger, symptom, implementation, evidence, regression test, diagnostic) — 16 entri + marker // [CAP-WEB-xxx] grep-able di shim. Kepatuhan AGENTS.md S9.
+6. Fail-loud policy: kegagalan load WAJIB terlihat (RT-LOAD-FAIL log + toast on-screen beta) — kelas bug senyap HalfMove tidak boleh lolos tanpa jejak.
+7. ATURAN AUDIT CACHE: setiap perubahan perilaku audit WAJIB bump CURRENT_AUDIT_RULESET_VERSION (kini 11) — pelajaran dari 166 false positive yang lolos lewat cache hit.
+8. Ruling eksekusi: Task 6 (commit save-adapter) dikerjakan sebelum Task 3 (merge) karena file tracked modified memblokir pre-merge check.
+Alasan: probe dirancang rasional (80% nilai dari T1 tanpa kalibrasi per game); keputusan save/load injection ditunda karena kompleksitas prolog/naming/gacha-save tidak sebanding nilai awal; device-agnostic karena target rilis bisa ganti emulator.
+Dampak: untimepack probe + uild --probe tersedia; QA manual user berkurang drastis; 355 test workspace + 18 suite JS hijau; verifikasi device PASS penuh; final review APPROVED_FOR_MERGE (5 minor diterima dengan alasan tercatat).
