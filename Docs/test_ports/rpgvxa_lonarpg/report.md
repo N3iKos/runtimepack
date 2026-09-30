@@ -12,6 +12,7 @@
 ## Status Akhir
 - **Durasi Playtest:** Sedang Berjalan (Boot, Title Screen, Cheat Menu terverifikasi)
 - **Status Akhir:** `KENDALA (IN PROGRESS)` → Menunggu Playtest Lengkap 30 Menit oleh User
+> **Update 2026-09-30:** Menunggu playtest manual user (30 menit) sejak 2026-09-20; build tersedia dan stabil menurut audit statis. Laporan ini menunggu konfirmasi gameplay dari pemilik project.
 
 ---
 
