@@ -1,5 +1,19 @@
 # Technical Findings
 
+## [2026-09-30] Asset Hardening & Encrypted Overlay Architecture (B + C + D)
+
+### Finding 7: Overlay & Web Shims Serving via GPACK In-Memory Decryption
+- Di mode release, file `overlay/*`, `web_shims/*`, dan `fonts/*` dikemas ke dalam container biner `game.pack` (GPACK) dengan algoritma ChaCha20-Poly1305.
+- Host Android menggunakan `OverlayAssetSource` untuk menyajikan byte aset langsung dari stream terdekripsi ke WebView via `shouldInterceptRequest` (`VfsResourceInterceptor.kt` dan `WebActivity.kt`).
+- Hal ini menghilangkan 100% file HTML, CSS, JS, dan font dari folder `assets/` APK rilis, sehingga alat ekstraksi file ZIP tidak dapat menemukan kode tata letak maupun shim.
+
+### Finding 8: Startup Integrity Verification & R8 Keep Rules
+- SHA-256 deterministik dihitung dari pasangan `(canonical_path, bytes)` terurut secara alfabetis dengan pemisah null byte `0x00`.
+- Hash disematkan ke dalam objek Kotlin terkompilasi `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` di dalam bytecode DEX, bukan file JSON plaintext di assets.
+- R8 minification (`isMinifyEnabled = true`) diaktifkan untuk build release. Keep rules komprehensif di `proguard-rules.pro` memastikan seluruh method `@JavascriptInterface` pada `WebBridge`, `RuntimePackNative`, `RuntimePackVPad`, dan `RuntimePackAssetAudit` tidak dihapus atau di-obfuscate oleh R8 compiler.
+- Jika integritas hash tidak cocok atau aset dihapus, `RuntimeIntegrity` menampilkan layar `APPLICATION CORRUPTED` (`AND-401` / `AND-402`) dan memanggil `finishAffinity()` serta `exitProcess(1)` secara deterministik.
+- Resolusi layout `activity_corrupted` dilakukan secara dinamis via `resources.getIdentifier` dengan fallback layout programmatic murni, mencegah crash `NoClassDefFoundError` atau R package mismatch pada standalone game packages yang dihasilkan.
+
 ## [2026-09-30] RPG Maker MZ di Android WebView: 2 akar masalah "load game macet" (Forestia 1.4.4)
 
 ### Finding 1: Window_Selectable double-touch trap (rmmz_windows.js)

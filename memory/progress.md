@@ -28,6 +28,20 @@ e. HalfMove delegation: risiko recursion multi-button (guard try/catch ada).
 ### Verifikasi user di device: probe EXHAUSTIVE 0 error, load 1x tap PASS, gamepad PASS.
 
 ### Next (menunggu keputusan user):
-- Merge branch `feature/native-mv-mz-save` ke master (via finishing-a-development-branch).
-- Hapus workspace SDD kedua plan (git history jadi catatan).
-- Worktree bs2-audit-and-rendering-fix masih ada — cek apakah masih relevan.
+- Merge branch `feature/native-mv-mz-save` ke master (SUDAH di-merge: b4f1d1a).
+- Selesai plan `feature/asset-hardening` (7 commit, final review APPROVED_FOR_MERGE 10/10).
+- Siap merge `feature/asset-hardening` ke master.
+
+---
+
+## [2026-09-30] Asset Hardening & Overlay Lockdown (Plan B+C+D) — SELESAI & APPROVED_FOR_MERGE
+
+Branch: `feature/asset-hardening` (worktree `.worktrees/asset-hardening`, BASE `404749c`).
+
+### Yang diselesaikan:
+1. **Containerization (B)**: Pada build `--flavor release`, file `overlay/*`, `web_shims/*`, dan `fonts/*` dikemas ke dalam biner terenkripsi `game.pack` (GPACK) dengan algoritma AEAD ChaCha20-Poly1305. File-file tersebut **100% dihilangkan** dari direktori `assets/` APK. Host Android (`OverlayAssetSource`) memuat aset runtime langsung dari stream GPACK terdekripsi dalam memori.
+2. **Startup Integrity Verification (C)**: Generator build Rust menghitung hash SHA-256 deterministik (`sorted canonical paths + null byte + content bytes + null byte`) dan menyematkannya ke dalam kode sumber Kotlin terkompilasi (`RuntimeBuildInfo.kt`). Pada `onCreate`, `RuntimeIntegrity` memvalidasi payload sebelum WebView dimuat. Jika terdapat modifikasi atau penghapusan aset, aplikasi menampilkan layar `APPLICATION CORRUPTED` (`AND-401`/`AND-402`/`AND-403`) dan keluar secara rapi.
+3. **DEX Hardening / R8 (D)**: Mengaktifkan R8 minification (`isMinifyEnabled = true`) dengan aturan `-keep` komprehensif pada `@android.webkit.JavascriptInterface`, Activity, dan metode native JNI di `proguard-rules.pro`.
+4. **Verifikasi Host-Side**: APK release `dist_release/Forestia1.4.4-IND.apk` terverifikasi 0 file plain di `assets/overlay/`, `assets/web_shims/`, `assets/fonts/`; seluruh 8 file overlay, 2 file web shims, dan 7 file fonts ada di dalam `game.pack`.
+5. **Test Suite**: Semua 357 Cargo workspace tests, 12 Gradle Android unit test suites, dan 10/10 Node web shims tests lulus 100%. Final review: APPROVED_FOR_MERGE (Score 10/10, 0 Critical, 0 Important, 2 Minor).
+

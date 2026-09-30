@@ -702,6 +702,21 @@
 **Dampak:** UI kontrol sentuh seragam dan identik di seluruh engine keluarga RuntimePack (RGSS, Web, Ren'Py, Tyrano).
 # Decisions Log
 
+## [2026-09-30] Asset Hardening & Overlay Lockdown (Mekanisme B + C + D)
+**Keputusan:**
+1. **Containerization (B)**: Pada build `--flavor release`, file `overlay/*`, `web_shims/*`, dan `fonts/*` dikemas ke dalam biner terenkripsi `game.pack` (GPACK) dengan algoritma AEAD ChaCha20-Poly1305. File-file tersebut **100% dihilangkan** dari direktori `assets/` APK. Host Android (`OverlayAssetSource`) memuat aset runtime langsung dari stream GPACK terdekripsi dalam memori.
+2. **Startup Integrity Verification (C)**: Generator build Rust menghitung hash SHA-256 deterministik (`sorted canonical paths + null byte + content bytes + null byte`) dan menyematkannya ke dalam kode sumber Kotlin terkompilasi (`RuntimeBuildInfo.kt`). Pada `onCreate`, `RuntimeIntegrity` memvalidasi payload sebelum WebView dimuat. Jika terdapat modifikasi atau penghapusan aset, aplikasi menampilkan layar `APPLICATION CORRUPTED` (`AND-401`/`AND-402`/`AND-403`) dan keluar secara rapi.
+3. **DEX Hardening / R8 (D)**: Mengaktifkan R8 minification (`isMinifyEnabled = true`) dengan aturan `-keep` komprehensif pada `@android.webkit.JavascriptInterface`, Activity, dan metode native JNI di `proguard-rules.pro`.
+4. **Bifurkasi Flavor**:
+   - `release`: Proteksi penuh (aset terenkripsi dalam GPACK, aset plain ditiadakan, verifikasi hash SHA-256 wajib, R8 minified).
+   - `beta`: Tetap menggunakan file plain di `assets/` untuk kemudahan debugging dan inspeksi, dengan watermark `Beta Test Veldra Community`.
+5. **Taksonomi Kode Diagnostik Hardening**:
+   - `AND-401`: Runtime asset integrity mismatch (hash aktual tidak sesuai hash build).
+   - `AND-402`: Runtime overlay assets missing from container (container kosong pada mode release).
+   - `AND-403`: Expected integrity hash missing in release build / GPACK unreadable.
+**Alasan:** Memenuhi permintaan user agar kode layout dan overlay tidak lagi terekspos dalam bentuk plaintext di dalam file APK, menyatu dengan container terenkripsi, dan jika dihapus atau dimodifikasi oleh pihak ketiga akan memicu error terstruktur yang menghentikan aplikasi.
+**Dampak:** 100% file layout, virtual pad, cheat menu, dan web shims tidak lagi terlihat saat APK di-unzip pada build release. Seluruh 357 Cargo workspace tests, 12 Gradle unit tests, dan 10 JS tests lulus 100%.
+
 ## [2026-09-30] Stability & Diagnostics Overhaul — Keputusan Desain Seseluruhan
 Keputusan:
 1. Probe CLI scope T1-only (universal smoke: boot/new game/input/error scan/FPS). T2 (suntik save template per engine: MZ/MV file JSON-compressed, RGSS Marshal; Ren'Py wajib save asli per game) & T3 (save round-trip in-game) dicatat future work — arsitektur ProbeTarget sudah menampung.
