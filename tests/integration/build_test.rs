@@ -2363,10 +2363,24 @@ fn test_build_flavor_release_omits_watermark() {
     .unwrap();
 
     let overlay_dir = project_dir.join("app/src/main/assets/overlay");
-    let vpad_js_path = overlay_dir.join("vpad.js");
-    let index_html_path = overlay_dir.join("index.html");
+    assert!(
+        !overlay_dir.exists(),
+        "Plain overlay dir must NOT exist in release project assets"
+    );
 
-    assert!(overlay_dir.exists(), "Overlay dir must exist");
+    let direct_overlay = temp_dir.join("direct_overlay");
+    std::fs::create_dir_all(&direct_overlay).unwrap();
+    let overlay_src = AndroidProjectGenerator::find_overlay_src().unwrap();
+    for entry in std::fs::read_dir(&overlay_src).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            std::fs::copy(entry.path(), direct_overlay.join(entry.file_name())).unwrap();
+        }
+    }
+    AndroidProjectGenerator::configure_overlay_watermark(&direct_overlay, "release").unwrap();
+
+    let vpad_js_path = direct_overlay.join("vpad.js");
+    let index_html_path = direct_overlay.join("index.html");
 
     let mut combined_content = String::new();
     if vpad_js_path.exists() {
@@ -3314,3 +3328,255 @@ fn test_cli_build_help_mentions_probe_flags() {
         "Help must contain --probe-device"
     );
 }
+
+#[test]
+fn test_release_build_omits_plain_overlay_and_shims_assets() {
+    let temp_dir = test_temp_dir("release-omits-plain-assets");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("release".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Release Asset Hardening Test".to_string(),
+            package: "io.runtimepack.test.release".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("release".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("release"),
+    )
+    .unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        !assets_dir.join("overlay").exists(),
+        "assets/overlay must NOT exist in release project build"
+    );
+    assert!(
+        !assets_dir.join("web_shims").exists(),
+        "assets/web_shims must NOT exist in release project build"
+    );
+    assert!(
+        !assets_dir.join("fonts").exists(),
+        "assets/fonts must NOT exist in release project build"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_beta_build_preserves_plain_overlay_and_shims_assets() {
+    let temp_dir = test_temp_dir("beta-preserves-plain-assets");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "Beta Asset Hardening Test".to_string(),
+            package: "io.runtimepack.test.beta".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "rpgmaker_mv".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "web-mv".to_string(),
+            version: "1.0.0".to_string(),
+            family: "RPG Maker Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummyhash".to_string(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: None,
+                gradle_version: None,
+                jdk_version: None,
+                android_sdk_platform: None,
+                ndk_version: None,
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_source(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+    )
+    .unwrap();
+
+    let assets_dir = project_dir.join("app/src/main/assets");
+    assert!(
+        assets_dir.join("overlay/index.html").exists(),
+        "assets/overlay/index.html must exist in beta project build"
+    );
+    assert!(
+        assets_dir.join("web_shims/runtimepack_web_shims.js").exists(),
+        "assets/web_shims/runtimepack_web_shims.js must exist in beta project build"
+    );
+    assert!(
+        assets_dir.join("fonts/VL-Gothic-Regular.ttf").exists(),
+        "assets/fonts/VL-Gothic-Regular.ttf must exist in beta project build"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_release_gpack_contains_overlay_and_shim_entries() {
+    let fixture = test_temp_dir("release-gpack-fixture");
+    let out_dir = test_temp_dir("release-gpack-out");
+
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Release Pack Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&out_dir)
+        .arg("--flavor")
+        .arg("release")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run runtimepack build");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Build must succeed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+
+    let pack_path = out_dir.join("game.pack");
+    assert!(pack_path.exists(), "game.pack must exist");
+
+    let reader = runtimepack_pack::GpackReader::open(&pack_path)
+        .expect("game.pack must be a valid GPACK");
+
+    assert!(
+        reader.has_file("overlay/index.html"),
+        "game.pack must contain overlay/index.html"
+    );
+    assert!(
+        reader.has_file("web_shims/runtimepack_web_shims.js"),
+        "game.pack must contain web_shims/runtimepack_web_shims.js"
+    );
+    assert!(
+        reader.has_file("fonts/VL-Gothic-Regular.ttf"),
+        "game.pack must contain fonts/VL-Gothic-Regular.ttf"
+    );
+
+    let project_assets = out_dir.join("app/src/main/assets");
+    if project_assets.exists() {
+        assert!(
+            !project_assets.join("overlay").exists(),
+            "plain overlay must not exist in output assets for release"
+        );
+        assert!(
+            !project_assets.join("web_shims").exists(),
+            "plain web_shims must not exist in output assets for release"
+        );
+        assert!(
+            !project_assets.join("fonts").exists(),
+            "plain fonts must not exist in output assets for release"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+

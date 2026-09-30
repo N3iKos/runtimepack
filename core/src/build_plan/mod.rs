@@ -4,7 +4,7 @@ pub mod icon;
 pub mod signing;
 
 pub use audit_policy::{evaluate_audit_policy, AuditOverrideRecord, AuditPolicyDecision};
-pub use generator::AndroidProjectGenerator;
+pub use generator::{append_runtime_overlay_assets, AndroidProjectGenerator};
 pub use signing::SigningManager;
 
 use crate::domain::{Abi, ContentMode, EngineId, SigningMode};

@@ -1,5 +1,6 @@
 use crate::build_plan::BuildManifest;
 use crate::diagnostics::{DiagnosticCode, DiagnosticError};
+use crate::ingest::{GameSourceIndex, IndexedFile};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -697,22 +698,26 @@ include(":app")
             }
         }
 
-        // Copy overlay assets (vpad.js, cheat_menu.js, index.html)
-        let overlay_dst = assets_dir.join("overlay");
-        let overlay_src = Self::find_overlay_src()
-            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
-        if overlay_src.exists() {
-            copy_dir_all(&overlay_src, &overlay_dst)?;
-        }
-        // Inject game-specific cheat profile or fallback to neutral template
-        Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
-
-        // Configure watermark injection into assets/overlay based on flavor
         let effective_flavor = flavor
             .or(manifest.flavor.as_deref())
             .or(manifest.provenance.flavor.as_deref())
             .unwrap_or("beta");
-        Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+        let is_release = effective_flavor.eq_ignore_ascii_case("release");
+
+        // Copy overlay assets (vpad.js, cheat_menu.js, index.html) only if not release
+        let overlay_dst = assets_dir.join("overlay");
+        if !is_release {
+            let overlay_src = Self::find_overlay_src()
+                .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+            if overlay_src.exists() {
+                copy_dir_all(&overlay_src, &overlay_dst)?;
+            }
+            // Inject game-specific cheat profile or fallback to neutral template
+            Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
+
+            // Configure watermark injection into assets/overlay based on flavor
+            Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+        }
 
         // Theme packaging and themes_manifest.json emission
         if let Some(ref theme_entry) = manifest.themes {
@@ -775,52 +780,58 @@ include(":app")
                     DiagnosticError::from_code(code, clean_msg)
                 })?;
 
-            let themes_dest_dir = overlay_dst.join("themes");
-            fs::create_dir_all(&themes_dest_dir)?;
+            if !is_release {
+                let themes_dest_dir = overlay_dst.join("themes");
+                fs::create_dir_all(&themes_dest_dir)?;
 
-            let mut manifest_items = Vec::new();
-            for theme_id in &theme_entry.selected_themes {
-                let pkg = catalog.get(theme_id).ok_or_else(|| {
-                    DiagnosticError::from_code(
-                        crate::diagnostics::THM_PACKAGE_NOT_FOUND,
-                        format!("Theme package '{}' not found in catalog", theme_id),
-                    )
-                })?;
+                let mut manifest_items = Vec::new();
+                for theme_id in &theme_entry.selected_themes {
+                    let pkg = catalog.get(theme_id).ok_or_else(|| {
+                        DiagnosticError::from_code(
+                            crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                            format!("Theme package '{}' not found in catalog", theme_id),
+                        )
+                    })?;
 
-                let theme_target_dir = themes_dest_dir.join(theme_id);
-                copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
+                    let theme_target_dir = themes_dest_dir.join(theme_id);
+                    copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
 
-                manifest_items.push(crate::build_plan::ThemeManifestItem {
-                    id: pkg.manifest.id.clone(),
-                    name: pkg.manifest.name.clone(),
-                    version: pkg.manifest.version.clone(),
-                    dir: format!("themes/{}", theme_id),
-                });
+                    manifest_items.push(crate::build_plan::ThemeManifestItem {
+                        id: pkg.manifest.id.clone(),
+                        name: pkg.manifest.name.clone(),
+                        version: pkg.manifest.version.clone(),
+                        dir: format!("themes/{}", theme_id),
+                    });
+                }
+
+                let themes_manifest = crate::build_plan::ThemesManifest {
+                    default_theme_id: theme_entry.default_theme.clone(),
+                    themes: manifest_items,
+                };
+
+                let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
+                    .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+                fs::write(
+                    overlay_dst.join("themes_manifest.json"),
+                    themes_manifest_json,
+                )?;
             }
-
-            let themes_manifest = crate::build_plan::ThemesManifest {
-                default_theme_id: theme_entry.default_theme.clone(),
-                themes: manifest_items,
-            };
-
-            let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
-                .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
-            fs::write(
-                overlay_dst.join("themes_manifest.json"),
-                themes_manifest_json,
-            )?;
         }
 
         // Copy web_shims assets (runtimepack_web_shims.js, runtimepack_asset_audit.js)
-        if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
-            let shims_dst = assets_dir.join("web_shims");
-            copy_dir_all(&shims_src, &shims_dst)?;
+        if !is_release {
+            if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
+                let shims_dst = assets_dir.join("web_shims");
+                copy_dir_all(&shims_src, &shims_dst)?;
+            }
         }
 
         // Copy fonts (e.g. VL-Gothic-Regular.ttf)
-        if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
-            let fonts_dst = assets_dir.join("fonts");
-            copy_dir_all(&fonts_src, &fonts_dst)?;
+        if !is_release {
+            if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
+                let fonts_dst = assets_dir.join("fonts");
+                copy_dir_all(&fonts_src, &fonts_dst)?;
+            }
         }
 
         // Copy Android resources (launcher icons, mipmaps)
@@ -913,6 +924,78 @@ kotlin.code.style=official
 
         Ok(())
     }
+
+    pub fn append_runtime_overlay_assets(
+        index: &mut GameSourceIndex,
+        overlay_src: &Path,
+        shims_src: &Path,
+        fonts_src: Option<&Path>,
+    ) -> Result<(), std::io::Error> {
+        let mut add_dir = |dir: &Path, prefix: &str| -> Result<(), std::io::Error> {
+            if !dir.exists() {
+                return Ok(());
+            }
+            let abs_dir = if dir.is_relative() {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(dir))
+                    .unwrap_or_else(|_| dir.to_path_buf())
+            } else {
+                dir.to_path_buf()
+            };
+            for entry in walkdir::WalkDir::new(dir).follow_links(true) {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(err) => {
+                        let err_str = err.to_string();
+                        return Err(err.into_io_error().unwrap_or_else(|| {
+                            std::io::Error::new(std::io::ErrorKind::Other, err_str)
+                        }));
+                    }
+                };
+                if entry.file_type().is_file() {
+                    let path = entry.path();
+                    let rel_path = path.strip_prefix(dir).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
+                    let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+                    let rel_trimmed = rel_str.trim_start_matches('/');
+                    let logical_path = format!("{}/{}", prefix, rel_trimmed);
+                    let size_bytes = entry.metadata()?.len();
+
+                    let indexed_file = IndexedFile::with_source_root(
+                        logical_path.clone(),
+                        rel_path.to_path_buf(),
+                        size_bytes,
+                        Some(abs_dir.clone()),
+                    );
+
+                    if let Some(old) = index.files.insert(logical_path, indexed_file) {
+                        index.total_size_bytes =
+                            index.total_size_bytes.saturating_sub(old.size_bytes);
+                    }
+                    index.total_size_bytes += size_bytes;
+                }
+            }
+            Ok(())
+        };
+
+        add_dir(overlay_src, "overlay")?;
+        add_dir(shims_src, "web_shims")?;
+        if let Some(fonts_dir) = fonts_src {
+            add_dir(fonts_dir, "fonts")?;
+        }
+
+        Ok(())
+    }
+}
+
+pub fn append_runtime_overlay_assets(
+    index: &mut GameSourceIndex,
+    overlay_src: &Path,
+    shims_src: &Path,
+    fonts_src: Option<&Path>,
+) -> Result<(), std::io::Error> {
+    AndroidProjectGenerator::append_runtime_overlay_assets(index, overlay_src, shims_src, fonts_src)
 }
 
 pub fn sanitize_gradle_project_name(name: &str) -> String {
