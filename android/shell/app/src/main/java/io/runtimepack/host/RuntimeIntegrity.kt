@@ -89,7 +89,12 @@ object RuntimeIntegrity {
             return IntegrityResult.Ok(actual)
         }
 
-        if (expected.isNotEmpty() && !actual.equals(expected, ignoreCase = true)) {
+        if (expected.isEmpty()) {
+            Log.e(TAG, "[RuntimePack] AND-403 Expected integrity hash is missing in release build")
+            return IntegrityResult.Unreadable("AND-403", "Expected integrity hash is missing in release build")
+        }
+
+        if (!actual.equals(expected, ignoreCase = true)) {
             Log.e(TAG, "[RuntimePack] AND-401 Runtime integrity mismatch: expected $expected, got $actual")
             return IntegrityResult.Mismatch(expected, actual)
         }

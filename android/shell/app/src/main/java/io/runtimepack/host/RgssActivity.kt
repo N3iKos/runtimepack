@@ -443,8 +443,6 @@ open class RgssActivity : SDLActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        if (!RuntimeIntegrity.checkOrShowCorrupted(this)) return
-
         // Set transparent window background so SurfaceView beneath is visible
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         AssetAuditService.init(filesDir, "rgss", this)
@@ -467,6 +465,7 @@ open class RgssActivity : SDLActivity() {
 
         // Initialize SDLActivity and OpenGL ES Native Surface
         super.onCreate(savedInstanceState)
+        if (!RuntimeIntegrity.checkOrShowCorrupted(this)) return
 
         // Make mLayout transparent
         mLayout?.setBackgroundColor(Color.TRANSPARENT)

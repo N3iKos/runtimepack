@@ -217,4 +217,24 @@ class RuntimeIntegrityTest {
         val unreadable = result as IntegrityResult.Unreadable
         assertEquals("AND-403", unreadable.code)
     }
+
+    @Test
+    fun testVerifyReleaseFlavorEmptyExpectedHashReturnsAnd403() {
+        val overlayHtml = "<html><body>Overlay</body></html>".toByteArray(Charsets.UTF_8)
+        val packBytes = createPackData(
+            listOf(
+                PackItem("overlay/index.html", overlayHtml)
+            )
+        )
+        OverlayAssetSource.gpackReader = GpackStreamReader.open(ByteArrayInputStream(packBytes))
+
+        RuntimeBuildInfo.BUILD_FLAVOR = "release"
+        RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256 = ""
+
+        val result = RuntimeIntegrity.verify(null)
+        assertTrue("Expected IntegrityResult.Unreadable but got $result", result is IntegrityResult.Unreadable)
+        val unreadable = result as IntegrityResult.Unreadable
+        assertEquals("AND-403", unreadable.code)
+        assertEquals("Expected integrity hash is missing in release build", unreadable.detail)
+    }
 }
