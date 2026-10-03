@@ -4,6 +4,7 @@
 *.aab
 *.keystore
 *.jks
+*.zip
 .idea/
 .vscode/
 Thumbs.db
@@ -15,3 +16,10 @@ build/
 .worktrees/
 .runtimepack/
 **/.runtimepack/
+Raw-Game/
+graphify-out/
+.superpowers/
+asset-audit-report.html
+asset-audit-report.json
+asset-dependency-graph.json
+
