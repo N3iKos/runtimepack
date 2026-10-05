@@ -1,0 +1,28 @@
+/* Retro OSD CRT Effects */
+
+#vpad-root {
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15) 0px,
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+}
+
+.vpad-top-btn.active:active,
+.vpad-top-btn.active.vpad-btn-pressed,
+#vpad-main-trigger-btn.active:active,
+#vpad-main-trigger-btn.active.vpad-btn-pressed {
+  background: #ff7700;
+  border-color: #ffa244;
+  color: #000000;
+  box-shadow: 0 0 12px rgba(255, 119, 0, 0.85);
+  transform: scale(0.88);
+}
+
+.vpad-btn,
+.vpad-top-btn,
+#vpad-main-trigger-btn {
+  text-shadow: 0 0 4px rgba(255, 119, 0, 0.5);
+}

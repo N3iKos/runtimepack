@@ -1,0 +1,65 @@
+RuntimePack — Third-Party Notices
+Runtime: renpy-android-8 (official Ren'Py Android / RAPT runtime)
+================================================================
+
+This notice bundle covers the native runtime vendored under:
+
+    runtimes/renpy/jni/arm64-v8a/librenpython.so
+
+Pinned upstream artifact
+------------------------
+    Project:    Ren'Py (https://www.renpy.org, https://github.com/renpy/renpy)
+    Version:    8.3.7.25031702 ("Second Star to the Right", official, branch fix)
+    Artifact:   renpy-8.3.7-rapt.zip  (Android Packaging Tool + prebuilt runtime)
+    URL:        https://www.renpy.org/dl/8.3.7/renpy-8.3.7-rapt.zip
+    SHA-256:    ea3a96dc59a276464fcec30eb5371e12178be563348b1e318a5f236c3511ef9f
+    Retrieved:  2026-09-27
+    Checksums:  https://www.renpy.org/dl/8.3.7/checksums.txt (PGP-signed)
+
+Vendored binary
+---------------
+    File:       librenpython.so (arm64-v8a)
+    Size:       27918624 bytes
+    SHA-256:    e111aa6c02b040019e68f0e36361574d1110b577105de09636864c3a38fed80a
+    ELF:        ELF64, little-endian, AArch64, DYN (shared object)
+
+    librenpython.so is a single fat shared library. CPython 3.9, SDL2,
+    pygame_sdl2, the Ren'Py engine Cython modules and libc++ are statically
+    linked into it; there are no separate libpython/libSDL2/libc++_shared
+    .so files for Android in the official RAPT runtime.
+
+Licensing summary
+-----------------
+* Most of Ren'Py is MIT-licensed. See licenses/LICENSE.txt for the full
+  upstream license text (shipped verbatim from the matching SDK version).
+* Portions of Ren'Py and several bundled dependencies are licensed under the
+  GNU LGPL and other licenses. Per the upstream license, Ren'Py games must be
+  distributed in a manner that satisfies the LGPL (i.e. allow relinking with a
+  modified version of the LGPL-covered components).
+* Ren'Py binaries include source code from many projects. The complete list is
+  reproduced in licenses/LICENSE.txt and summarized in licenses/components.json.
+  Notable components statically linked into librenpython.so include:
+      - CPython 3.9                 (Python Software Foundation License)
+      - SDL2, SDL2_image, SDL2_ttf  (Zlib License)
+      - pygame_sdl2                 (MIT / LGPL)
+      - Freetype                    (Zlib / FTL)
+      - harfbuzz                    (Old MIT License)
+      - libpng                      (PNG License)
+      - libjpeg-turbo               (IJG / Modified BSD / Zlib)
+      - FFmpeg                      (GNU LGPL)
+      - OpenSSL                     (Apache License 2.0)
+      - bzip2, xz, brotli, libwebp, libusb, fribidi, and others
+  See licenses/LICENSE.txt for the authoritative per-component license text.
+
+Compliance obligations
+----------------------
+1. This NOTICE bundle and licenses/LICENSE.txt MUST be included in any
+   generated APK/AAB that bundles librenpython.so. Removing notices to reduce
+   APK size is forbidden (see Docs/LICENSE_COMPLIANCE.md section 10).
+2. The exact pinned version, source URL and SHA-256 above must be preserved so
+   the runtime can be reproduced and its source obligations satisfied.
+3. RuntimePack does not relicense Ren'Py or any bundled component. Users remain
+   responsible for the rights to the game content they package.
+
+Reference evidence: Docs/REFERENCES.md S07 (Ren'Py Android documentation) and
+S09 (Ren'Py license documentation).

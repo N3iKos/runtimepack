@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BuildManifest",
+  "description": "Schema for generated build-manifest.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "runtimepack_version",
+    "app",
+    "engine",
+    "runtime",
+    "content",
+    "android",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "runtimepack_version": { "type": "string" },
+    "git_commit": { "type": ["string", "null"] },
+    "build_timestamp": { "type": "string", "format": "date-time" },
+    "flavor": { "type": ["string", "null"] },
+    "overlay_mode": {
+      "type": "string",
+      "enum": ["full", "passive-watermark"],
+      "default": "full",
+      "description": "Overlay mode profile. Default 'full'. 'passive-watermark' is experimental for Visual Novel Maker beta builds."
+    },
+    "audit": { "$ref": "#/definitions/audit" },
+    "rtp_source": { "type": ["string", "null"] },
+    "themes": {
+      "type": ["object", "null"],
+      "properties": {
+        "default_theme": { "type": "string" },
+        "selected_themes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["default_theme", "selected_themes"]
+    },
+    "app": {
+      "type": "object",
+      "required": ["name", "package", "version_name", "version_code"],
+      "properties": {
+        "name": { "type": "string" },
+        "package": { "type": "string" },
+        "version_name": { "type": "string" },
+        "version_code": { "type": "integer" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["id", "confidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "confidence": { "type": "string" },
+        "overridden": { "type": "boolean", "default": false },
+        "detected_version": { "type": ["string", "null"] }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "version", "family", "runtime_api"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "family": { "type": "string" },
+        "runtime_api": { "type": "integer" },
+        "capabilities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "content": {
+      "type": "object",
+      "required": ["mode", "content_hash"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["plain", "packed", "encrypted-streaming"] },
+        "content_hash": { "type": "string" },
+        "file_count": { "type": "integer" },
+        "total_bytes": { "type": "integer" }
+      }
+    },
+    "android": {
+      "type": "object",
+      "required": ["abis", "min_sdk", "target_sdk", "permissions"],
+      "properties": {
+        "abis": { "type": "array", "items": { "type": "string" } },
+        "min_sdk": { "type": "integer" },
+        "target_sdk": { "type": "integer" },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source_hash", "config_hash"],
+      "properties": {
+        "source_hash": { "type": "string" },
+        "config_hash": { "type": "string" },
+        "apk_hash": { "type": ["string", "null"] },
+        "flavor": { "type": ["string", "null"] },
+        "audit": { "$ref": "#/definitions/audit" },
+        "rtp_source": { "type": ["string", "null"] },
+        "themes": {
+          "type": ["object", "null"],
+          "properties": {
+            "default_theme": { "type": "string" },
+            "selected_themes": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["default_theme", "selected_themes"]
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "agp_version": { "type": ["string", "null"] },
+            "gradle_version": { "type": ["string", "null"] },
+            "jdk_version": { "type": ["string", "null"] },
+            "android_sdk_platform": { "type": ["string", "null"] },
+            "ndk_version": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "audit": {
+      "type": ["object", "null"],
+      "required": ["report_path", "report_sha256", "mode", "outcome", "overrides"],
+      "additionalProperties": false,
+      "properties": {
+        "report_path": { "type": "string" },
+        "report_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mode": { "type": "string", "enum": ["STANDARD", "DEEP"] },
+        "outcome": { "type": "string", "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"] },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["flag", "original_outcome", "accepted_finding_ids", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "flag": { "type": "string", "enum": ["--accept-audit-fail", "--accept-audit-unknown"] },
+              "original_outcome": { "type": "string", "enum": ["FAIL", "INDETERMINATE"] },
+              "accepted_finding_ids": { "type": "array", "items": { "type": "string" } },
+              "rationale": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

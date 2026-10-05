@@ -1,0 +1,1760 @@
+mod audit_command;
+pub mod probe;
+
+use chrono::Utc;
+use clap::{Parser, Subcommand};
+use runtimepack_core::asset_audit::{
+    render_canonical_artifacts, write_audit_artifacts_with_options, AssetAuditOptions,
+    AssetAuditReport, AssetAuditorRegistry, AuditCache, AuditCacheKey, AuditMode, AuditOutcome,
+    CURRENT_AUDIT_RULESET_VERSION,
+};
+use runtimepack_core::build_plan::{
+    evaluate_audit_policy, AndroidManifestEntry, AndroidProjectGenerator, AppConfig,
+    AuditManifestEntry, AuditPolicyDecision, BuildManifest, ContentManifestEntry,
+    EngineManifestEntry, ProvenanceManifestEntry, RuntimeManifestEntry, ThemeManifestEntry,
+    ToolchainProvenance,
+};
+use runtimepack_core::theme::ThemePackage;
+use runtimepack_core::detection::DetectorRegistry;
+use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode, DiagnosticSeverity};
+use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineId};
+use runtimepack_core::ingest::GameSourceIndex;
+use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
+use runtimepack_core::runtime_registry::RuntimeRegistry;
+use runtimepack_engine_renpy::{RenPyAnalyzer, RenPyAssetAuditor, RenPyDetector};
+use runtimepack_engine_rgss::{
+    RgssAnalyzer, RgssAssetAuditor, RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector,
+};
+use runtimepack_engine_rpgmaker_web::{
+    RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer, RpgMakerWebAssetAuditor,
+};
+use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoAssetAuditor, TyranoDetector};
+use runtimepack_engine_vnmaker::{VnMakerAnalyzer, VnMakerAssetAuditor, VnMakerDetector};
+use runtimepack_pack::GpackPacker;
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Parser)]
+#[command(name = "runtimepack")]
+#[command(author = "RuntimePack Contributors")]
+#[command(version = "0.1.0")]
+#[command(about = "Build-time compatibility runtime packager for desktop/web games to Android")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Check host development environment and prerequisites
+    Doctor,
+    /// List available Android runtime backend packages
+    Runtime {
+        #[command(subcommand)]
+        sub: RuntimeCommands,
+    },
+    /// Manage and inspect overlay themes
+    Theme {
+        #[command(subcommand)]
+        sub: ThemeCommands,
+    },
+    /// Inspect a game distribution without executing game code
+    Inspect {
+        /// Path to game source directory
+        path: PathBuf,
+        /// Optional config path
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+    /// Explain engine detection evidence and compatibility rationale
+    Explain {
+        /// Path to game source directory
+        path: PathBuf,
+    },
+    /// Audit game asset references without executing game code
+    Audit(AuditArgs),
+    /// Build standalone Android APK/AAB from a game
+    Build(BuildArgs),
+    /// Automated APK smoke test on Android emulator or connected device (T1)
+    Probe(ProbeArgs),
+    /// Display third-party notices and licenses
+    Licenses,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ProbeArgs {
+    /// Path to game APK to probe
+    pub apk: Option<PathBuf>,
+    /// Device ID from config or raw address (e.g. 127.0.0.1:16384)
+    #[arg(long)]
+    pub device: Option<String>,
+    /// Number of DPAD down presses before Enter to select New Game
+    #[arg(long, default_value = "0")]
+    pub dpad_down: u32,
+    /// Path to output probe report JSON
+    #[arg(short, long, default_value = "dist/probe-report.json")]
+    pub report: PathBuf,
+    /// List discovered ADB devices and configured device profiles
+    #[arg(long)]
+    pub list_devices: bool,
+    /// Path to device profiles config
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct AuditArgs {
+    /// Path to game source directory
+    pub path: PathBuf,
+    /// Path to RTP (Run-Time Package) directory to resolve missing standard assets
+    #[arg(long)]
+    pub rtp_path: Option<PathBuf>,
+    /// Audit mode: standard or deep
+    #[arg(long, default_value = "standard")]
+    pub mode: String,
+    /// Permit bounded checks of external network resources
+    #[arg(long)]
+    pub allow_network_audit: bool,
+    /// Authoritative JSON report path
+    #[arg(short, long, default_value = "asset-audit-report.json")]
+    pub output: PathBuf,
+    /// Do not emit standalone HTML report viewer
+    #[arg(long)]
+    pub no_html: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct BuildArgs {
+    /// Path to game source directory
+    pub path: PathBuf,
+    /// Path to RTP (Run-Time Package) directory to bundle missing standard assets
+    #[arg(long)]
+    pub rtp_path: Option<PathBuf>,
+    /// Application package ID (e.g. com.example.game)
+    #[arg(long)]
+    pub package: Option<String>,
+    /// Application display name
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Content mode: plain, packed, encrypted-streaming
+    #[arg(long, default_value = "packed")]
+    pub content_mode: String,
+    /// Build flavor: beta or release
+    #[arg(long, default_value = "beta")]
+    pub flavor: String,
+    #[arg(long, default_value = "full", help = "Overlay mode: full or passive-watermark")]
+    pub overlay_mode: String,
+    /// Static asset audit mode: standard or deep
+    #[arg(long, default_value = "standard")]
+    pub audit_mode: String,
+    /// Themes to package into overlay (comma-separated or repeated, e.g. --themes matte,liquid_glass)
+    #[arg(long, value_delimiter = ',')]
+    pub themes: Vec<String>,
+    /// Default active theme ID (defaults to 'matte' if available, or first in list)
+    #[arg(long)]
+    pub default_theme: Option<String>,
+    /// Path to theme catalog directory (defaults to runtimes/themes)
+    #[arg(long)]
+    pub theme_catalog: Option<PathBuf>,
+    /// Accept a static audit FAIL outcome
+    #[arg(long)]
+    pub accept_audit_fail: bool,
+    /// Accept an INDETERMINATE static audit outcome
+    #[arg(long)]
+    pub accept_audit_unknown: bool,
+    /// Skip Gradle APK compilation (generates Android project and assets only)
+    #[arg(long)]
+    pub no_compile: bool,
+    /// Do not emit standalone HTML report viewer
+    #[arg(long)]
+    pub no_html: bool,
+    /// Output directory
+    #[arg(short, long, default_value = "./dist")]
+    pub output: PathBuf,
+    /// Run T1 smoke probe on built APK (exits non-zero if probe fails; skips gracefully if no device available)
+    #[arg(long)]
+    pub probe: bool,
+    /// Target ADB device address or profile ID for post-build probe
+    #[arg(long)]
+    pub probe_device: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum RuntimeCommands {
+    /// List all registered runtime packages
+    List,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum ThemeCommands {
+    /// List all discovered themes in catalog with validation status
+    List {
+        /// Optional path to theme catalog directory (defaults to runtimes/themes)
+        #[arg(long)]
+        catalog: Option<PathBuf>,
+    },
+    /// Validate a theme package directory
+    Validate {
+        /// Path to theme package directory
+        path: PathBuf,
+        /// Expected Theme API version (defaults to 1.0.0)
+        #[arg(long, default_value = "1.0.0")]
+        api_version: String,
+    },
+}
+
+fn create_default_detector_registry() -> DetectorRegistry {
+    let mut registry = DetectorRegistry::new();
+    registry.register(Box::new(RpgMakerXpDetector));
+    registry.register(Box::new(RpgMakerVxDetector));
+    registry.register(Box::new(RpgMakerVxAceDetector));
+    registry.register(Box::new(RpgMakerMvDetector));
+    registry.register(Box::new(RpgMakerMzDetector));
+    registry.register(Box::new(RenPyDetector));
+    registry.register(Box::new(TyranoDetector));
+    registry.register(Box::new(VnMakerDetector));
+    registry
+}
+
+fn create_default_analyzer_registry() -> runtimepack_core::compatibility::AnalyzerRegistry {
+    let mut registry = runtimepack_core::compatibility::AnalyzerRegistry::new();
+    registry.register(Box::new(RgssAnalyzer));
+    registry.register(Box::new(RpgMakerWebAnalyzer));
+    registry.register(Box::new(RenPyAnalyzer));
+    registry.register(Box::new(TyranoAnalyzer));
+    registry.register(Box::new(VnMakerAnalyzer));
+    registry
+}
+
+pub(crate) fn create_default_asset_auditor_registry() -> AssetAuditorRegistry {
+    let mut registry = AssetAuditorRegistry::new();
+    registry
+        .register(Box::new(RgssAssetAuditor))
+        .expect("RGSS asset auditor must register");
+    registry
+        .register(Box::new(RpgMakerWebAssetAuditor))
+        .expect("RPG Maker Web asset auditor must register");
+    registry
+        .register(Box::new(RenPyAssetAuditor))
+        .expect("Ren'Py asset auditor must register");
+    registry
+        .register(Box::new(TyranoAssetAuditor))
+        .expect("Tyrano asset auditor must register");
+    registry
+        .register(Box::new(VnMakerAssetAuditor))
+        .expect("Visual Novel Maker asset auditor must register");
+    registry
+}
+
+fn cmd_doctor() {
+    println!("RuntimePack Doctor — Environment Diagnostics\n");
+    println!("System & Toolchains:");
+
+    // Rust
+    let rustc_res = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .or_else(|_| {
+            if let Ok(profile) = std::env::var("USERPROFILE") {
+                let p = PathBuf::from(profile).join(".cargo/bin/rustc.exe");
+                Command::new(p).arg("--version").output()
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "not found",
+                ))
+            }
+        });
+
+    match rustc_res {
+        Ok(out) if out.status.success() => {
+            println!(
+                "  [OK] Rust: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
+        }
+        _ => println!("  [WARN] Rust compiler (rustc) not found in active PATH"),
+    }
+
+    // Git
+    let git_ok = Command::new("git").arg("--version").output();
+    match git_ok {
+        Ok(out) if out.status.success() => {
+            println!(
+                "  [OK] Git: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
+        }
+        _ => println!("  [WARN] Git not found"),
+    }
+
+    // Node.js
+    let node_ok = Command::new("node").arg("--version").output();
+    match node_ok {
+        Ok(out) if out.status.success() => {
+            println!(
+                "  [OK] Node.js: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
+        }
+        _ => println!("  [INFO] Node.js not detected"),
+    }
+
+    // Java / JDK
+    let java_res = Command::new("java").arg("-version").output().or_else(|_| {
+        if let Ok(jh) = std::env::var("JAVA_HOME") {
+            let p = PathBuf::from(jh).join("bin/java.exe");
+            Command::new(p).arg("-version").output()
+        } else if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = PathBuf::from(profile).join(".runtimepack/toolchains/jdk-17/bin/java.exe");
+            Command::new(p).arg("-version").output()
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "not found",
+            ))
+        }
+    });
+
+    match java_res {
+        Ok(out) if out.status.success() => {
+            let ver = String::from_utf8_lossy(&out.stderr);
+            let first_line = ver.lines().next().unwrap_or("detected");
+            println!("  [OK] Java Runtime: {}", first_line.trim());
+        }
+        _ => {
+            println!("  [WARN] Java (JDK 17+) not found; required for Android Gradle builds");
+        }
+    }
+
+    // Android SDK
+    let android_home = std::env::var("ANDROID_HOME")
+        .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
+        .ok()
+        .or_else(|| {
+            std::env::var("LOCALAPPDATA").ok().and_then(|la| {
+                let p = PathBuf::from(la).join("Android/Sdk");
+                if p.exists() {
+                    Some(p.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
+    match android_home {
+        Some(path) => println!("  [OK] Android SDK: {}", path),
+        None => println!(
+            "  [WARN] ANDROID_HOME / ANDROID_SDK_ROOT not set; required for packaging APKs"
+        ),
+    }
+
+    // Toolchain Lock
+    let lock = ToolchainLock::default();
+    println!("\nPinned Toolchain Baseline (toolchain.lock):");
+    println!("  AGP version:          {}", lock.agp_version);
+    println!("  Gradle version:       {}", lock.gradle_version);
+    println!("  JDK min version:      {}", lock.jdk_min_version);
+    println!("  Compile SDK:          {}", lock.android_compile_sdk);
+    println!("  Min SDK:              {}", lock.android_min_sdk);
+    println!("  Target SDK:           {}", lock.android_target_sdk);
+    println!("  Build tools version:  {}", lock.build_tools_version);
+
+    println!("\nDiagnostics complete.");
+}
+
+fn cmd_runtime_list() {
+    let registry = RuntimeRegistry::new();
+    println!("Available Android Runtime Packages:\n");
+    println!(
+        "{:<20} {:<10} {:<12} {:<24} {:<8}",
+        "ID", "VERSION", "FAMILY", "SUPPORTED ENGINES", "MIN SDK"
+    );
+    println!("{:-<20} {:-<10} {:-<12} {:-<24} {:-<8}", "", "", "", "", "");
+
+    for r in registry.all() {
+        let engines_str = r
+            .engines
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "{:<20} {:<10} {:<12} {:<24} {:<8}",
+            r.id,
+            r.version,
+            r.family.to_string(),
+            engines_str,
+            r.android.min_sdk
+        );
+    }
+}
+
+fn cmd_inspect(path: &Path, _config_path: Option<&Path>) {
+    println!("Inspecting: {}\n", path.display());
+
+    let source_index = match GameSourceIndex::build(path) {
+        Ok(idx) => idx,
+        Err(e) => {
+            eprintln!("Error reading source: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    println!(
+        "Indexed {} files ({:.2} MB, sha256: {})",
+        source_index.file_count(),
+        source_index.total_size_bytes as f64 / (1024.0 * 1024.0),
+        &source_index.source_hash[..8]
+    );
+
+    let detectors = create_default_detector_registry();
+    let descriptor = detectors.resolve(&source_index);
+
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &descriptor);
+
+    println!("Engine:         {}", descriptor.id);
+    println!("Confidence:     {}", descriptor.confidence);
+    println!("Score:          {}", descriptor.score);
+    println!("Status:         {}", report.status);
+    if let Some(family) = descriptor.id.default_runtime_family() {
+        println!("Runtime Family: {}", family);
+    }
+
+    if !report.required_capabilities.is_empty() {
+        println!("\nCapabilities Required:");
+        for cap in &report.required_capabilities {
+            println!("  + {}", cap);
+        }
+    }
+
+    if !report.required_shims.is_empty() {
+        println!("\nCompatibility Shims:");
+        for shim in &report.required_shims {
+            println!("  [SHIM] {}", shim);
+        }
+    }
+
+    if !report.issues.is_empty() {
+        println!(
+            "\nCompatibility Issues & Diagnostics ({}):",
+            report.issues.len()
+        );
+        for issue in &report.issues {
+            println!("  [{}] [{}] {}", issue.code, issue.severity, issue.message);
+        }
+    }
+
+    if !descriptor.evidence.is_empty() {
+        println!("\nEvidence:");
+        for ev in &descriptor.evidence {
+            println!("  [{}] {} (+{})", ev.rule, ev.path, ev.weight);
+        }
+    }
+
+    if !descriptor.conflicts.is_empty() {
+        println!("\nConflicts:");
+        for c in &descriptor.conflicts {
+            println!("  - {}", c);
+        }
+    }
+}
+
+fn cmd_explain(path: &Path) {
+    println!("Engine Detection Rationale for: {}\n", path.display());
+
+    let source_index = match GameSourceIndex::build(path) {
+        Ok(idx) => idx,
+        Err(e) => {
+            eprintln!("Error reading source: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let detectors = create_default_detector_registry();
+    let candidates = detectors.detect_all(&source_index);
+
+    println!("Evaluated Candidates:");
+    for c in candidates {
+        println!(
+            "  - Engine: {} | Score: {} | Confidence: {}",
+            c.engine, c.score, c.confidence
+        );
+        for ev in &c.evidence {
+            println!(
+                "      * {} -> {} (+{}): {}",
+                ev.rule, ev.path, ev.weight, ev.description
+            );
+        }
+        for conflict in &c.conflicts {
+            println!("      ! Conflict: {}", conflict);
+        }
+    }
+
+    let resolved = detectors.resolve(&source_index);
+    println!("\nFinal Resolution:");
+    println!("  Selected Engine: {}", resolved.id);
+    println!("  Confidence:      {}", resolved.confidence);
+    println!("  Score:           {}", resolved.score);
+
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &resolved);
+    println!("  Status:          {}", report.status);
+
+    if !report.required_shims.is_empty() {
+        println!("  Shims Required:  {}", report.required_shims.join(", "));
+    }
+}
+
+fn cmd_audit(args: AuditArgs) {
+    let request = audit_command::AuditRequest {
+        source: args.path,
+        rtp_path: args.rtp_path,
+        mode: args.mode,
+        allow_network: args.allow_network_audit,
+        output: args.output,
+        emit_html: !args.no_html,
+    };
+    match audit_command::run(request, &audit_command::StaticAuditExecutionContext) {
+        Ok(summary) => {
+            println!("Detected engine: {}", summary.engine);
+            println!("Audit mode: {:?}", summary.mode);
+            if let Some(ref rtp) = summary.rtp_path {
+                println!("RTP path: {}", rtp.display());
+            }
+            println!(
+                "Network audit: {}",
+                if summary.allow_network {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!("Outcome: {:?}", summary.outcome);
+            println!("Report: {}", summary.output.display());
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Build-time post-pack integrity gate for ASAR-sourced content.
+///
+/// Reads the original archive independently of the extractor (re-deriving the
+/// data offset straight from the raw header) and compares a deterministic
+/// sample of entries against their packed counterparts by SHA-256. This
+/// catches the historical class of bug where an ASAR header-padding
+/// miscalculation silently shifted every extracted byte before it was packed.
+fn verify_asar_pack_roundtrip(
+    asar_path: &Path,
+    archive: &runtimepack_engine_tyrano::AsarArchive,
+    pack_path: &Path,
+) -> Result<usize, String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    const MAX_SAMPLES: usize = 32;
+    const MAX_SAMPLED_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
+
+    // Derive the data offset directly from the raw header so the gate never
+    // shares the extractor's offset computation (regression guard).
+    let mut asar_file = fs::File::open(asar_path)
+        .map_err(|e| format!("cannot open archive '{}': {}", asar_path.display(), e))?;
+    let mut header = [0u8; 16];
+    asar_file
+        .read_exact(&mut header)
+        .map_err(|e| format!("cannot read archive header: {}", e))?;
+    let header_size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as u64;
+    let data_offset = 8 + header_size;
+
+    let mut reader = runtimepack_pack::GpackReader::open(pack_path)
+        .map_err(|e| format!("cannot open game.pack: {}", e))?;
+
+    let mut candidates: Vec<&runtimepack_engine_tyrano::asar::AsarFileEntry> = archive
+        .files
+        .values()
+        .filter(|entry| reader.has_file(&entry.path))
+        .collect();
+    if candidates.is_empty() {
+        // Returning Ok(0) lets the caller fail closed: an ASAR with entries
+        // that map to no pack entry means the gate cannot vouch for anything.
+        return Ok(0);
+    }
+    candidates.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Prefer smaller entries so the gate stays cheap while remaining
+    // deterministic and representative of every region of the archive.
+    let sampled: Vec<&runtimepack_engine_tyrano::asar::AsarFileEntry> = candidates
+        .iter()
+        .copied()
+        .filter(|entry| entry.size <= MAX_SAMPLED_ENTRY_BYTES)
+        .collect();
+    let pool = if sampled.is_empty() {
+        candidates
+    } else {
+        sampled
+    };
+
+    let stride = pool.len().div_ceil(MAX_SAMPLES);
+    let mut verified = 0usize;
+    for entry in pool.iter().step_by(stride.max(1)) {
+        let mut source_bytes = vec![0u8; entry.size as usize];
+        asar_file
+            .seek(SeekFrom::Start(data_offset + entry.offset))
+            .map_err(|e| format!("cannot seek to '{}': {}", entry.path, e))?;
+        asar_file
+            .read_exact(&mut source_bytes)
+            .map_err(|e| format!("cannot read source entry '{}': {}", entry.path, e))?;
+        let source_hash: [u8; 32] = Sha256::digest(&source_bytes).into();
+
+        let packed_bytes = reader
+            .read_file(&entry.path)
+            .map_err(|e| format!("cannot read packed entry '{}': {}", entry.path, e))?;
+        let packed_hash: [u8; 32] = Sha256::digest(&packed_bytes).into();
+
+        if source_hash != packed_hash {
+            return Err(format!(
+                "entry '{}' shifted or corrupted (source sha256={}, packed sha256={})",
+                entry.path,
+                hex_digest(&source_hash),
+                hex_digest(&packed_hash)
+            ));
+        }
+        verified += 1;
+    }
+
+    Ok(verified)
+}
+
+fn hex_digest(bytes: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
+/// Locates the Ren'Py launcher that RAPT renames to `main.py`.
+///
+/// RAPT's `split_renpy` renames every top-level `*.py` file (skipping
+/// `android-*` entries) to `main.py`, which the Android runtime then executes
+/// from `<ANDROID_PRIVATE>/main.py`. RuntimePack reproduces that alias inside
+/// the content container so the immutable source tree is never touched.
+fn find_renpy_root_launcher(index: &GameSourceIndex) -> Option<String> {
+    let mut candidates: Vec<String> = index
+        .files
+        .values()
+        .filter(|file| {
+            let logical = file.logical_path.replace('\\', "/");
+            let lower = logical.to_ascii_lowercase();
+            !logical.contains('/') && lower.ends_with(".py") && !lower.starts_with("android-")
+        })
+        .map(|file| file.logical_path.clone())
+        .collect();
+    candidates.sort();
+    candidates.into_iter().next()
+}
+
+/// Picks a runtime id to prefer for engine resolution, derived from the
+/// compatibility report in an engine-agnostic way: if an analyzer emitted an
+/// informational finding that names one of the candidate runtime ids (e.g.
+/// Ren'Py's `RNP-100-VERSION` maps a detected generation to
+/// `renpy-android-8`), that id is preferred. Returns `None` when no candidate
+/// is named, in which case the registry's deterministic version ordering wins.
+fn preferred_runtime_id_from_report(
+    report: &runtimepack_core::compatibility::CompatibilityReport,
+    candidates: &[&runtimepack_core::runtime_registry::RuntimeManifest],
+) -> Option<String> {
+    report.issues.iter().find_map(|issue| {
+        candidates
+            .iter()
+            .find(|candidate| issue.message.contains(&candidate.id))
+            .map(|candidate| candidate.id.clone())
+    })
+}
+
+fn cmd_build(args: BuildArgs) {
+    let normalized_flavor = args.flavor.to_lowercase();
+    if normalized_flavor != "beta" && normalized_flavor != "release" {
+        eprintln!(
+            "[BLD-101] Invalid build flavor '{}'. Must be 'beta' or 'release'.",
+            args.flavor
+        );
+        std::process::exit(1);
+    }
+    let normalized_overlay_mode = args.overlay_mode.to_lowercase();
+    if normalized_overlay_mode != "full" && normalized_overlay_mode != "passive-watermark" {
+        eprintln!(
+            "[BLD-101] Invalid overlay mode '{}'. Must be 'full' or 'passive-watermark'.",
+            args.overlay_mode
+        );
+        std::process::exit(1);
+    }
+    let audit_mode = match args.audit_mode.to_ascii_lowercase().as_str() {
+        "standard" => AuditMode::Standard,
+        "deep" => AuditMode::Deep,
+        _ => {
+            eprintln!(
+                "[CMP-AUD-010] Invalid audit mode '{}'. Must be 'standard' or 'deep'.",
+                args.audit_mode
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let path = &args.path;
+    let rtp_path = args.rtp_path.as_deref();
+    let package = args.package;
+    let name = args.name;
+    let content_mode = args.content_mode;
+    let output = &args.output;
+
+    println!("RuntimePack Build — Starting build pipeline\n");
+    println!("Source game:   {}", path.display());
+    if let Some(rtp) = rtp_path {
+        println!("RTP path:      {}", rtp.display());
+    }
+    println!("Build flavor:  {}", normalized_flavor);
+    println!("Output target: {}", output.display());
+
+    // 1. Ingest
+    let source_index = match GameSourceIndex::build_with_auto_rtp(path, rtp_path) {
+        Ok(idx) => idx,
+        Err(e) => {
+            eprintln!("[ING-101] Failed to ingest source: {}", e);
+            std::process::exit(1);
+        }
+    };
+    if let Some(resolved_rtp) = source_index.rtp_path() {
+        println!("RTP source:    {}", resolved_rtp.display());
+    }
+    println!(
+        "Indexed {} files ({:.2} MB, source_hash: {})",
+        source_index.file_count(),
+        source_index.total_size_bytes as f64 / (1024.0 * 1024.0),
+        &source_index.source_hash[..8]
+    );
+
+    // 2. Detect
+    let detectors = create_default_detector_registry();
+    let descriptor = detectors.resolve(&source_index);
+
+    if descriptor.confidence == DetectionConfidence::Ambiguous {
+        eprintln!("[DET-110] Detection ambiguous: Multiple contradictory engine markers found.");
+        for c in &descriptor.conflicts {
+            eprintln!("  ! {}", c);
+        }
+        std::process::exit(1);
+    }
+    if descriptor.id == EngineId::Unknown {
+        eprintln!("[DET-100] Detection failed: Engine could not be identified or is generic HTML out-of-scope.");
+        std::process::exit(1);
+    }
+
+    println!(
+        "Detected:      {} (Confidence: {})",
+        descriptor.id, descriptor.confidence
+    );
+
+    if normalized_overlay_mode == "passive-watermark" {
+        if normalized_flavor != "beta" {
+            eprintln!(
+                "[BLD-101] Overlay mode 'passive-watermark' is only supported for beta flavor builds."
+            );
+            std::process::exit(1);
+        }
+        if descriptor.id != EngineId::VisualNovelMaker {
+            eprintln!(
+                "[BLD-101] Overlay mode 'passive-watermark' is only supported for Visual Novel Maker engine."
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // 3. Compatibility & Legal Gate
+    let analyzers = create_default_analyzer_registry();
+    let report = analyzers.analyze(&source_index, &descriptor);
+
+    let mut hard_blockers = report
+        .issues
+        .iter()
+        .filter(|issue| {
+            matches!(
+                issue.code.as_str(),
+                DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY
+                    | DiagnosticCode::CMP_NODE_NATIVE_MODULE
+                    | DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
+                    | DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED
+                    | DiagnosticCode::RT_UNRESOLVED
+            ) || issue.severity == DiagnosticSeverity::Error
+        })
+        .map(|issue| Diagnostic::error(issue.code.clone(), issue.message.clone()))
+        .collect::<Vec<_>>();
+    if report.status == CompatibilityStatus::UnsupportedDependency && hard_blockers.is_empty() {
+        hard_blockers.push(Diagnostic::error(
+            DiagnosticCode::CMP_NATIVE_DLL_DEPENDENCY,
+            "game contains an unsupported native dependency",
+        ));
+    }
+
+    // 4. Static Asset Audit and Runtime Resolution
+    let audit_options = AssetAuditOptions {
+        mode: audit_mode,
+        allow_network: false,
+        ..AssetAuditOptions::default()
+    };
+    let audit_cache_key = AuditCacheKey::new(
+        &source_index.source_hash,
+        descriptor.id,
+        audit_mode,
+        CURRENT_AUDIT_RULESET_VERSION,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .with_limits(audit_options.limits.clone())
+    .with_allow_network(false)
+    .with_detected_version(descriptor.detected_version.clone());
+
+    let audit_cache = AuditCache::new(AuditCache::default_dir());
+    let cache_usable = audit_cache
+        .validate_outside_source(&source_index.root_path)
+        .is_ok();
+
+    let (mut audit_report, from_cache) = if cache_usable {
+        if let Some(cached_artifacts) = audit_cache.get(&audit_cache_key) {
+            match serde_json::from_slice::<AssetAuditReport>(&cached_artifacts.report_json) {
+                Ok(report) => (report, true),
+                Err(_) => {
+                    let _ = audit_cache.invalidate(&audit_cache_key);
+                    let report = create_default_asset_auditor_registry().audit(
+                        &source_index,
+                        &descriptor,
+                        &audit_options,
+                    );
+                    (report, false)
+                }
+            }
+        } else {
+            let report = create_default_asset_auditor_registry().audit(
+                &source_index,
+                &descriptor,
+                &audit_options,
+            );
+            (report, false)
+        }
+    } else {
+        let report = create_default_asset_auditor_registry().audit(
+            &source_index,
+            &descriptor,
+            &audit_options,
+        );
+        (report, false)
+    };
+    let registry = RuntimeRegistry::new();
+    let runtimes = registry.find_for_engine(descriptor.id);
+    if runtimes.is_empty() {
+        hard_blockers.push(Diagnostic::error(
+            DiagnosticCode::RT_UNRESOLVED,
+            format!("no compatible runtime package found for {}", descriptor.id),
+        ));
+    }
+    let decision = evaluate_audit_policy(
+        &audit_report,
+        args.accept_audit_fail,
+        args.accept_audit_unknown,
+        &hard_blockers,
+    );
+    let audit_overrides = match decision {
+        AuditPolicyDecision::Allow { overrides } => overrides,
+        AuditPolicyDecision::Block { diagnostics } => {
+            for diagnostic in &diagnostics {
+                eprintln!("[{}] {}", diagnostic.code, diagnostic.message);
+            }
+            if !audit_report.findings.is_empty() {
+                eprintln!("\nAsset Audit Findings ({}):", audit_report.findings.len());
+                for finding in &audit_report.findings {
+                    eprintln!(
+                        "  [{}] [{:?}] {}",
+                        finding.code, finding.severity, finding.message
+                    );
+                }
+            }
+            if hard_blockers.is_empty() {
+                match audit_report.outcome {
+                    AuditOutcome::Fail => {
+                        eprintln!(
+                            "\nSuggested remediation: Address missing or corrupted assets, or pass --accept-audit-fail to override."
+                        );
+                    }
+                    AuditOutcome::Indeterminate => {
+                        eprintln!(
+                            "\nSuggested remediation: Pass --accept-audit-unknown to accept incomplete or unknown static asset audit coverage."
+                        );
+                    }
+                    _ => {}
+                }
+            } else {
+                eprintln!("\nHard blockers cannot be bypassed with audit override flags.");
+            }
+            std::process::exit(1);
+        }
+    };
+    // Put pristine report into audit_cache before attaching ephemeral build policy overrides
+    if cache_usable && !from_cache {
+        if let Ok(clean_artifacts) = render_canonical_artifacts(&audit_report) {
+            let _ = audit_cache.put(&audit_cache_key, &clean_artifacts);
+        }
+    }
+
+    audit_report.overrides = audit_overrides
+        .iter()
+        .map(|record| runtimepack_core::asset_audit::AuditOverride {
+            flag: record.flag.clone(),
+            rationale: record.rationale.clone(),
+        })
+        .collect();
+    let audit_artifacts = match render_canonical_artifacts(&audit_report) {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            eprintln!("[CMP-AUD-010] Failed to render canonical asset audit report: {error}");
+            std::process::exit(1);
+        }
+    };
+    let audit_hash = audit_artifacts.report_sha256.clone();
+    let preferred_runtime_id = preferred_runtime_id_from_report(&report, &runtimes);
+    let resolved_runtimes =
+        registry.resolve_for_engine(descriptor.id, preferred_runtime_id.as_deref());
+    let runtime = resolved_runtimes.first().copied().unwrap_or(runtimes[0]);
+    let cache_tag = if from_cache { " [cache hit]" } else { "" };
+    println!(
+        "Audit:         {:?} ({:?}){}",
+        audit_report.outcome, audit_mode, cache_tag
+    );
+    println!(
+        "Resolved:      {} v{} ({})",
+        runtime.name, runtime.version, runtime.id
+    );
+
+    // 5. App details
+    let app_name = name.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("StandaloneGame")
+            .to_string()
+    });
+
+    let sanitized_pkg_suffix = app_name
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>();
+    let pkg_id = package.unwrap_or_else(|| format!("io.runtimepack.game.{}", sanitized_pkg_suffix));
+
+    println!("Package ID:    {}", pkg_id);
+    println!("App Name:      {}", app_name);
+
+    if let Err(e) = fs::create_dir_all(output) {
+        eprintln!("[BLD-101] Failed to create output directory: {}", e);
+        std::process::exit(1);
+    }
+
+    // Write audit artifacts early into output directory so project generator packages them
+    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html) {
+        eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
+        std::process::exit(1);
+    }
+
+    // 6. Content Packing (GPACK)
+    println!("\nPacking game content (mode: {})...", content_mode);
+    let pack_path = output.join("game.pack");
+
+    let encryption_key = if content_mode == "encrypted-streaming" {
+        Some(runtimepack_pack::ContentCrypto::derive_package_key(
+            &pkg_id, &app_name,
+        ))
+    } else {
+        None
+    };
+
+    let mut content_source_dir = path.to_path_buf();
+    let mut staging_dir_to_cleanup: Option<PathBuf> = None;
+    let mut asar_integrity_source: Option<(PathBuf, runtimepack_engine_tyrano::AsarArchive)> = None;
+    if matches!(descriptor.id, EngineId::RpgMakerMv | EngineId::RpgMakerMz) {
+        if path.join("www/index.html").exists() || path.join("www/js/rpg_core.js").exists() {
+            println!(
+                "Deployed NW.js structure detected. Normalizing content packaging root to 'www/'"
+            );
+            content_source_dir = path.join("www");
+        }
+    } else if descriptor.id == EngineId::Tyrano {
+        let asar_path = path.join("resources/app.asar");
+        if asar_path.exists() {
+            println!("Electron package detected: resources/app.asar. Extracting to build staging directory...");
+            let staging_dir = output.join("staging_content");
+            if staging_dir.exists() {
+                let _ = fs::remove_dir_all(&staging_dir);
+            }
+            if let Err(e) = fs::create_dir_all(&staging_dir) {
+                eprintln!("[CNT-101] Failed to create staging directory: {}", e);
+                std::process::exit(1);
+            }
+            let archive = match runtimepack_engine_tyrano::AsarArchive::load(&asar_path) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("[CNT-102] Failed to parse app.asar: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            asar_integrity_source = Some((asar_path.clone(), archive.clone()));
+            let extracted_count = match archive.extract_all(&asar_path, &staging_dir) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[CNT-103] Failed to extract app.asar: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            println!(
+                "Extracted {} files from app.asar into {}",
+                extracted_count,
+                staging_dir.display()
+            );
+            content_source_dir = staging_dir.clone();
+            staging_dir_to_cleanup = Some(staging_dir);
+        }
+    }
+
+    // Ren'Py's Android runtime executes `<ANDROID_PRIVATE>/main.py`; RAPT
+    // renames the top-level `<game>.py` launcher to `main.py`. Reproduce that
+    // alias inside the content container without mutating the source tree.
+    let mut renpy_launcher_alias: Option<GameSourceIndex> = None;
+    if descriptor.id == EngineId::RenPy && !source_index.files.contains_key("main.py") {
+        match find_renpy_root_launcher(&source_index) {
+            Some(launcher_path) => {
+                let mut aliased = source_index.clone();
+                if let Some(mut main_alias) = aliased.get_file(&launcher_path).cloned() {
+                    main_alias.logical_path = "main.py".to_string();
+                    aliased.files.insert("main.py".to_string(), main_alias);
+                    renpy_launcher_alias = Some(aliased);
+                    println!("Ren'Py launcher alias: {} -> main.py", launcher_path);
+                }
+            }
+            None => {
+                eprintln!(
+                    "Warning: no top-level Ren'Py launcher '<game>.py' found; the runtime \
+                     expects <ANDROID_PRIVATE>/main.py and may not boot."
+                );
+            }
+        }
+    }
+
+    let mut pack_index = if content_source_dir == *path {
+        renpy_launcher_alias.unwrap_or_else(|| source_index.clone())
+    } else {
+        match GameSourceIndex::build_with_auto_rtp(
+            &content_source_dir,
+            source_index.rtp_path().or(rtp_path),
+        ) {
+            Ok(idx) => idx,
+            Err(e) => {
+                eprintln!("[ING-101] Failed to ingest content source: {}", e);
+                std::process::exit(1);
+            }
+        }
+    };
+
+    if normalized_flavor == "release" {
+        println!("Hardening: bundling overlay, web shims, and fonts into GPACK (plain assets omitted)");
+        let overlay_src = AndroidProjectGenerator::find_overlay_src()
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/overlay"));
+        let shims_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/web_shims")
+            .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/web_shims"));
+        let fonts_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/fonts");
+
+        if let Err(e) = AndroidProjectGenerator::append_runtime_overlay_assets(
+            &mut pack_index,
+            &overlay_src,
+            &shims_src,
+            fonts_src.as_deref(),
+        ) {
+            eprintln!("[CNT-102] Failed to bundle runtime overlay assets: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    let total_bytes = match GpackPacker::pack_from_index_with_options(
+        &pack_index,
+        &pack_path,
+        encryption_key.as_ref(),
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[CNT-102] Failed to pack content: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(staging_dir) = staging_dir_to_cleanup {
+        let _ = fs::remove_dir_all(&staging_dir);
+    }
+
+    // Post-pack integrity gate: guarantee that ASAR-sourced content survives the
+    // extract → stage → pack pipeline byte-exact. This catches the historical
+    // class of bug where an ASAR header-padding miscalculation silently shifted
+    // every packed entry before it could ship.
+    if let Some((asar_path, archive)) = &asar_integrity_source {
+        if encryption_key.is_some() {
+            println!("ASAR round-trip integrity: skipped (encrypted-streaming mode)");
+        } else {
+            match verify_asar_pack_roundtrip(asar_path, archive, &pack_path) {
+                Ok(0) => {
+                    eprintln!(
+                        "[CNT-102] Post-pack ASAR round-trip integrity check failed: the archive \
+                         has entries but none could be matched to a game.pack entry (possible \
+                         path-mapping break); refusing to ship unverified content."
+                    );
+                    std::process::exit(1);
+                }
+                Ok(verified) => {
+                    println!(
+                        "ASAR round-trip integrity: verified {} entries (SHA-256 sample)",
+                        verified
+                    );
+                }
+                Err(reason) => {
+                    eprintln!(
+                        "[CNT-102] Post-pack ASAR round-trip integrity check failed: {}",
+                        reason
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+
+    // Calculate pack hash
+    let mut hasher = Sha256::new();
+    if let Ok(mut pf) = fs::File::open(&pack_path) {
+        use std::io::Read;
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = pf.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+    }
+    let pack_hash = format!("{:x}", hasher.finalize());
+    println!(
+        "GPACK created: {} ({:.2} MB, hash: {})",
+        pack_path.file_name().unwrap().to_string_lossy(),
+        total_bytes as f64 / (1024.0 * 1024.0),
+        &pack_hash[..8]
+    );
+
+    // 7. Assemble BuildManifest
+    let audit_manifest = AuditManifestEntry {
+        report_path: "asset-audit-report.json".into(),
+        report_sha256: audit_hash,
+        mode: audit_mode,
+        outcome: audit_report.outcome,
+        overrides: audit_overrides,
+    };
+    let rtp_source_str = source_index.rtp_path().map(|p| p.to_string_lossy().to_string());
+
+    // Themes resolution
+    let theme_manifest_entry = if !args.themes.is_empty() || args.default_theme.is_some() {
+        let selected_themes = if args.themes.is_empty() {
+            vec![args.default_theme.clone().unwrap()]
+        } else {
+            args.themes.clone()
+        };
+        let default_theme = args.default_theme.clone().unwrap_or_else(|| {
+            if selected_themes.iter().any(|t| t == "matte") {
+                "matte".to_string()
+            } else {
+                selected_themes.first().cloned().unwrap_or_else(|| "matte".to_string())
+            }
+        });
+
+        if !selected_themes.contains(&default_theme) {
+            eprintln!(
+                "[{}] Default theme '{}' is not in packaged themes list: {:?}",
+                runtimepack_core::diagnostics::THM_DEFAULT_NOT_PACKAGED,
+                default_theme,
+                selected_themes
+            );
+            std::process::exit(1);
+        }
+
+        Some(ThemeManifestEntry {
+            default_theme,
+            selected_themes,
+        })
+    } else {
+        None
+    };
+
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: Utc::now().to_rfc3339(),
+        overlay_mode: normalized_overlay_mode.clone(),
+        flavor: Some(normalized_flavor.clone()),
+        audit: Some(audit_manifest.clone()),
+        rtp_source: rtp_source_str.clone(),
+        themes: theme_manifest_entry.clone(),
+        app: AppConfig {
+            name: app_name.clone(),
+            package: pkg_id.clone(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: descriptor.id.to_string(),
+            confidence: descriptor.confidence.to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: runtime.id.clone(),
+            version: runtime.version.clone(),
+            family: runtime.family.to_string(),
+            runtime_api: runtime.runtime_api,
+            capabilities: runtime.capabilities.clone(),
+        },
+        content: ContentManifestEntry {
+            mode: content_mode.clone(),
+            content_hash: pack_hash.clone(),
+            file_count: source_index.file_count(),
+            total_bytes,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string(), "x86_64".to_string()],
+            min_sdk: runtime.android.min_sdk,
+            target_sdk: runtime.android.target_sdk,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: source_index.source_hash.clone(),
+            config_hash: "".to_string(),
+            apk_hash: None,
+            flavor: Some(normalized_flavor.clone()),
+            audit: Some(audit_manifest),
+            rtp_source: rtp_source_str,
+            themes: theme_manifest_entry,
+            toolchain: ToolchainProvenance {
+                agp_version: Some("8.3.0".to_string()),
+                gradle_version: Some("8.7".to_string()),
+                jdk_version: Some("17".to_string()),
+                android_sdk_platform: Some("34".to_string()),
+                ndk_version: Some("26.1.10909125".to_string()),
+            },
+        },
+    };
+
+    if let Some(ref entry) = manifest.themes {
+        println!(
+            "Themes packaged: {} (default: {})",
+            entry.selected_themes.join(", "),
+            entry.default_theme
+        );
+    }
+
+    // 8. Generate Android Project
+    println!("\nGenerating standalone Android project structure...");
+    let android_project_dir = output.join("android-project");
+    if let Err(e) = AndroidProjectGenerator::emit_project_with_themes(
+        &android_project_dir,
+        &manifest,
+        Some(&pack_path),
+        Some(path),
+        Some(&normalized_flavor),
+        args.theme_catalog.as_deref(),
+    ) {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    }
+    println!("Android project: {}", android_project_dir.display());
+
+    // Ensure asset-dependency-graph.json is packaged into APK assets
+    let target_graph = android_project_dir.join("app/src/main/assets/asset-dependency-graph.json");
+    if !target_graph.exists() {
+        let source_graph = output.join("asset-dependency-graph.json");
+        if source_graph.is_file() {
+            let _ = fs::copy(&source_graph, &target_graph);
+        } else {
+            let _ = fs::write(&target_graph, &audit_artifacts.graph_json);
+        }
+    }
+    let target_audit_report = android_project_dir.join("app/src/main/assets/asset-audit-report.json");
+    if !target_audit_report.exists() {
+        let source_report = output.join("asset-audit-report.json");
+        if source_report.is_file() {
+            let _ = fs::copy(&source_report, &target_audit_report);
+        } else {
+            let _ = fs::write(&target_audit_report, &audit_artifacts.report_json);
+        }
+    }
+
+    if content_mode != "plain" {
+        let exclusions = GpackPacker::compute_packaging_exclusions(&source_index);
+        let exclusions_json = serde_json::to_string_pretty(&exclusions).unwrap_or_default();
+        let source_exclusions = output.join("packaging-exclusions.json");
+        let _ = fs::write(&source_exclusions, &exclusions_json);
+        let target_exclusions = android_project_dir.join("app/src/main/assets/packaging-exclusions.json");
+        if !target_exclusions.exists() {
+            let _ = fs::write(&target_exclusions, &exclusions_json);
+        }
+    }
+
+    if descriptor.id == EngineId::VisualNovelMaker {
+        let vnm_profile = runtimepack_engine_vnmaker::VnmPreparationProfile::detect(&source_index);
+        let vnm_json = serde_json::to_string_pretty(&vnm_profile).unwrap_or_default();
+        let source_vnm_profile = output.join("vnm-preparation-profile.json");
+        let _ = fs::write(&source_vnm_profile, &vnm_json);
+        let target_vnm_profile = android_project_dir.join("app/src/main/assets/vnm-preparation-profile.json");
+        if !target_vnm_profile.exists() {
+            let _ = fs::write(&target_vnm_profile, &vnm_json);
+        }
+    }
+
+    // 9. Invoke Gradle compiler if toolchains are present
+    let mut apk_hash = None;
+    let mut produced_apk = None;
+    let sanitized_apk_name = derive_apk_filename(&app_name, output);
+    if args.no_compile || std::env::var("RUNTIMEPACK_SKIP_GRADLE").is_ok() {
+        println!(
+            "\nSkipping Gradle compilation (--no-compile). Project structure generated at {}.",
+            android_project_dir.display()
+        );
+    } else {
+        let mut gradle_cmd = Command::new("gradle");
+
+        if let Ok(jh) = std::env::var("JAVA_HOME") {
+            gradle_cmd.env("JAVA_HOME", jh);
+        } else if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = PathBuf::from(&profile).join(".runtimepack/toolchains/jdk-17");
+            if p.exists() {
+                gradle_cmd.env("JAVA_HOME", p);
+            }
+        }
+
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let gradle_bin =
+                PathBuf::from(&profile).join(".runtimepack/toolchains/gradle-8.7/bin/gradle.bat");
+            if gradle_bin.exists() {
+                gradle_cmd = Command::new(gradle_bin);
+            }
+        }
+
+        println!("\nCompiling standalone Android package with Gradle...");
+        // Always clean first: a bare `assembleDebug` can leave a stale
+        // app-debug.apk in place when inputs change (e.g. a new game.pack),
+        // producing an over-sized, incorrectly packaged APK.
+        gradle_cmd.arg("clean");
+        gradle_cmd.arg("assembleDebug");
+        gradle_cmd.arg("--console=plain");
+        gradle_cmd.current_dir(&android_project_dir);
+
+        match gradle_cmd.output() {
+            Ok(res) if res.status.success() => {
+                let apk_source =
+                    android_project_dir.join("app/build/outputs/apk/debug/app-debug.apk");
+                if apk_source.exists() {
+                    let dest_apk = output.join(&sanitized_apk_name);
+                    if let Ok(_) = fs::copy(&apk_source, &dest_apk) {
+                        produced_apk = Some(dest_apk.clone());
+                        if sanitized_apk_name.contains('\'') {
+                            let alt_name = sanitized_apk_name.replace('\'', "");
+                            let alt_apk = output.join(&alt_name);
+                            let _ = fs::copy(&dest_apk, &alt_apk);
+                        }
+                        let mut apk_hasher = Sha256::new();
+                        if let Ok(bytes) = fs::read(&dest_apk) {
+                            apk_hasher.update(&bytes);
+                            apk_hash = Some(format!("{:x}", apk_hasher.finalize()));
+                        }
+                        println!(
+                            "Generated APK:  {} ({:.2} MB)",
+                            dest_apk.display(),
+                            fs::metadata(&dest_apk).map(|m| m.len()).unwrap_or(0) as f64
+                                / (1024.0 * 1024.0)
+                        );
+                    }
+                }
+            }
+            Ok(res) => {
+                println!(
+                    "Gradle notice: Non-zero exit code ({:?}). Android project is available in {}.",
+                    res.status.code(),
+                    android_project_dir.display()
+                );
+            }
+            Err(e) => {
+                println!(
+                    "Gradle compiler notice: {}. Project structure generated at {}.",
+                    e,
+                    android_project_dir.display()
+                );
+            }
+        }
+    }
+
+    // 10. Emit Build Reports and Notices
+    println!("\nWriting build artifacts and third-party notices...");
+    let mut updated_manifest = manifest;
+    updated_manifest.provenance.apk_hash = apk_hash.clone();
+    let manifest_json = serde_json::to_string_pretty(&updated_manifest).unwrap();
+    fs::write(output.join("build-manifest.json"), &manifest_json).unwrap();
+
+    let report_json = serde_json::to_string_pretty(&report).unwrap();
+    fs::write(output.join("compatibility-report.json"), &report_json).unwrap();
+    if let Err(error) = write_audit_artifacts_with_options(output, &audit_artifacts, !args.no_html)
+    {
+        eprintln!("[CMP-AUD-010] Failed to write asset audit artifacts: {error}");
+        std::process::exit(1);
+    }
+
+    // Checksums
+    let mut checksums = format!(
+        "{}\tgame.pack\n{}\tbuild-manifest.json\n",
+        pack_hash,
+        format!("{:x}", Sha256::digest(manifest_json.as_bytes()))
+    );
+    if let Some(ref h) = apk_hash {
+        checksums.push_str(&format!("{}\t{}\n", h, sanitized_apk_name));
+        if sanitized_apk_name.contains('\'') {
+            let alt_name = sanitized_apk_name.replace('\'', "");
+            checksums.push_str(&format!("{}\t{}\n", h, alt_name));
+        }
+    }
+    fs::write(output.join("checksums.txt"), checksums).unwrap();
+
+    // Notices
+    let notices_dir = output.join("third-party-notices");
+    fs::create_dir_all(&notices_dir).unwrap();
+    let mut notices_text = String::from("Third-Party Notices:\n\n");
+    for item in EvidenceRegistry::get_canonical_evidence() {
+        notices_text.push_str(&format!(
+            "[{}] {}\nURL: {}\n\n",
+            item.id, item.title, item.url
+        ));
+    }
+    fs::write(notices_dir.join("NOTICES.txt"), notices_text).unwrap();
+
+    println!(
+        "Build report:   {}",
+        output.join("build-manifest.json").display()
+    );
+    println!(
+        "Compatibility:  {}",
+        output.join("compatibility-report.json").display()
+    );
+    println!(
+        "Notices:        {}",
+        notices_dir.join("NOTICES.txt").display()
+    );
+    println!("\n[SUCCESS] Standalone Android packaging complete!");
+
+    if args.probe {
+        if let Some(apk_path) = produced_apk {
+            println!("\n--- Runtime Verification (T1 Probe) ---");
+            let probe_report_path = output.join("probe-report.json");
+            match probe::resolve_device_target(
+                args.probe_device.as_deref(),
+                None,
+                probe::AdbTarget::scan_connected_devices,
+            ) {
+                Ok(probe::DeviceResolution::Resolved(device)) => {
+                    match probe::run_probe(&apk_path, &device, &probe_report_path) {
+                        Ok(probe_report) => {
+                            if probe_report.overall != "PASS" {
+                                eprintln!("\n[probe] FAILED — see {}", probe_report_path.display());
+                                std::process::exit(1);
+                            } else {
+                                println!("\n[probe] PASSED — runtime verification succeeded");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("\n[probe] FAILED: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Ok(probe::DeviceResolution::NoneAvailable) => {
+                    println!("[probe] no device available — skipping runtime verification");
+                }
+                Ok(probe::DeviceResolution::Ambiguous(msg)) => {
+                    println!(
+                        "[probe] multiple devices available — skipping runtime verification ({})",
+                        msg
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "[probe] no device available ({}) — skipping runtime verification",
+                        e
+                    );
+                }
+            }
+        } else {
+            println!("[probe] skipping runtime verification — no APK was produced by build");
+        }
+    }
+}
+
+fn cmd_licenses() {
+    println!("RuntimePack — Third-Party Notices and Evidence Registry\n");
+    let evidence = EvidenceRegistry::get_canonical_evidence();
+    for item in evidence {
+        println!("[{}] {}", item.id, item.title);
+        println!("  URL: {}", item.url);
+        for claim in item.claims {
+            println!("  - {}", claim);
+        }
+        println!();
+    }
+}
+
+fn cmd_theme_list(catalog_path: Option<PathBuf>) {
+    let catalog_dir = catalog_path
+        .or_else(|| {
+            std::env::var("RUNTIMEPACK_THEMES_PATH")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| AndroidProjectGenerator::find_template_file("runtimes/themes"))
+        .unwrap_or_else(|| PathBuf::from("runtimes/themes"));
+
+    println!("RuntimePack Themes — Catalog at {}\n", catalog_dir.display());
+
+    if !catalog_dir.exists() {
+        println!("Theme catalog directory does not exist: {}", catalog_dir.display());
+        return;
+    }
+
+    let entries = match fs::read_dir(&catalog_dir) {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("[THM-008] Failed to read catalog directory: {}", err);
+            std::process::exit(1);
+        }
+    };
+
+    let mut discovered = 0;
+    let mut dir_entries: Vec<_> = entries.flatten().collect();
+    dir_entries.sort_by_key(|e| e.path());
+
+    for entry in dir_entries {
+        let path = entry.path();
+        if path.is_dir() && path.join("theme.json").is_file() {
+            discovered += 1;
+            let dir_name = path.file_name().unwrap_or_default().to_string_lossy();
+            match ThemePackage::load_from_dir(&path) {
+                Ok(pkg) => {
+                    match pkg.validate("1.0.0") {
+                        Ok(()) => {
+                            println!(
+                                "  - [{}] {} v{} (API {}) [VALID]",
+                                pkg.manifest.id,
+                                pkg.manifest.name,
+                                pkg.manifest.version,
+                                pkg.manifest.theme_api
+                            );
+                            if let Some(ref desc) = pkg.manifest.description {
+                                println!("      Description: {}", desc);
+                            }
+                            println!("      Path: {}", path.display());
+                        }
+                        Err(val_err) => {
+                            println!(
+                                "  - [{}] {} v{} (API {}) [INVALID]",
+                                pkg.manifest.id,
+                                pkg.manifest.name,
+                                pkg.manifest.version,
+                                pkg.manifest.theme_api
+                            );
+                            println!("      Error: {}", val_err);
+                            println!("      Path: {}", path.display());
+                        }
+                    }
+                }
+                Err(load_err) => {
+                    println!("  - [{}] (Failed to load) [INVALID]", dir_name);
+                    println!("      Error: {}", load_err);
+                    println!("      Path: {}", path.display());
+                }
+            }
+        }
+    }
+
+    if discovered == 0 {
+        println!("No theme packages discovered in {}", catalog_dir.display());
+    } else {
+        println!("\nDiscovered {} theme package(s).", discovered);
+    }
+}
+
+fn cmd_theme_validate(path: &Path, api_version: &str) {
+    println!("Validating theme package at {}...\n", path.display());
+
+    let pkg = match ThemePackage::load_from_dir(path) {
+        Ok(p) => p,
+        Err(err) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
+    };
+
+    println!("  ID:          {}", pkg.manifest.id);
+    println!("  Name:        {}", pkg.manifest.name);
+    println!("  Version:     {}", pkg.manifest.version);
+    println!("  Theme API:   {}", pkg.manifest.theme_api);
+    if let Some(ref author) = pkg.manifest.author {
+        println!("  Author:      {}", author);
+    }
+
+    match pkg.validate(api_version) {
+        Ok(()) => {
+            println!(
+                "\n[PASS] Theme package '{}' is valid for Theme API {}.",
+                pkg.manifest.id, api_version
+            );
+        }
+        Err(err) => {
+            eprintln!("\n[FAIL] Validation failed: {}", err);
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn derive_apk_filename(app_name: &str, output: &Path) -> String {
+    if let Some((_prefix, sub)) = app_name.rsplit_once(':') {
+        let trimmed_sub = sub.trim().replace(' ', "");
+        let output_leaf = output
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !trimmed_sub.is_empty()
+            && (output_leaf == trimmed_sub.to_lowercase() || output_leaf == "termina")
+        {
+            return format!("{}.apk", trimmed_sub);
+        }
+    }
+
+    let safe: String = app_name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .filter(|c| *c != ' ')
+        .collect();
+
+    let trimmed = safe.trim_matches('_');
+    if trimmed.is_empty() {
+        "app.apk".to_string()
+    } else {
+        format!("{}.apk", trimmed)
+    }
+}
+
+fn cmd_probe(args: ProbeArgs) {
+    if args.list_devices {
+        probe::print_device_inventory(args.config.as_deref());
+        return;
+    }
+
+    let apk = match args.apk {
+        Some(path) => path,
+        None => {
+            eprintln!("[PROBE-001] Missing APK path. Usage: runtimepack probe <APK> or runtimepack probe --list-devices");
+            std::process::exit(1);
+        }
+    };
+
+    if !apk.is_file() {
+        eprintln!("[PROBE-002] APK file not found: {}", apk.display());
+        std::process::exit(1);
+    }
+
+    let address = match probe::resolve_device(args.device.as_deref(), args.config.as_deref()) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let report = if args.dpad_down == 0 {
+        probe::run_probe(&apk, &address, &args.report)
+    } else {
+        let config = probe::ScenarioConfig {
+            dpad_down: args.dpad_down,
+            ..probe::ScenarioConfig::default()
+        };
+        probe::run_probe_with_config(&apk, &address, &args.report, &config)
+    };
+
+    let report = match report {
+        Ok(rep) => rep,
+        Err(e) => {
+            eprintln!("Probe failure: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if report.overall != "PASS" {
+        std::process::exit(1);
+    }
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Doctor) => cmd_doctor(),
+        Some(Commands::Runtime {
+            sub: RuntimeCommands::List,
+        }) => cmd_runtime_list(),
+        Some(Commands::Inspect { path, config }) => cmd_inspect(&path, config.as_deref()),
+        Some(Commands::Explain { path }) => cmd_explain(&path),
+        Some(Commands::Theme { sub }) => match sub {
+            ThemeCommands::List { catalog } => cmd_theme_list(catalog),
+            ThemeCommands::Validate { path, api_version } => cmd_theme_validate(&path, &api_version),
+        },
+        Some(Commands::Audit(args)) => cmd_audit(args),
+        Some(Commands::Build(args)) => cmd_build(args),
+        Some(Commands::Probe(args)) => cmd_probe(args),
+        Some(Commands::Licenses) => cmd_licenses(),
+        None => {
+            println!("runtimepack 0.1.0");
+            println!("Run 'runtimepack --help' for usage.");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_apk_filename() {
+        assert_eq!(
+            derive_apk_filename("Fear & Hunger 2: Termina", Path::new("dist/termina")),
+            "Termina.apk"
+        );
+        assert_eq!(
+            derive_apk_filename("Black Souls", Path::new("dist/black_souls")),
+            "BlackSouls.apk"
+        );
+        assert_eq!(
+            derive_apk_filename("Fear & Hunger 2: Termina", Path::new("dist/other")),
+            "Fear&Hunger2_Termina.apk"
+        );
+    }
+}

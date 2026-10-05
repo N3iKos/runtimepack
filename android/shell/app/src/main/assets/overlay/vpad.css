@@ -1,0 +1,2659 @@
+/* ============================================================================
+   RuntimePack Virtual Pad & Controls Overlay Stylesheet
+   Architecture: iOS Spring Physics, Origin-Based Transitions, & 3 Distinct Themes:
+   1. Sleek Cyber Glass (.vpad-theme-clean) [Translucent Frosted Glass & Neon]
+   2. Minimalist Matte Tactile (.vpad-theme-matte) [Solid Charcoal Matte Black & Crisp Rim]
+   3. Retro OSD (.vpad-theme-retro) [Amber CRT Terminal, Sharp Panels, Circular Buttons]
+   ============================================================================ */
+
+:root {
+    --theme-accent: #007aff;
+    --theme-accent-contrast: #ffffff;
+    --theme-bg-panel: rgba(15, 23, 42, 0.75);
+    --theme-border-panel: 1px solid rgba(255, 255, 255, 0.28);
+    --theme-radius-panel: 24px;
+    --theme-radius-button: 9999px;
+    --theme-radius-pill: 9999px;
+    --vpad-spring-enter: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --vpad-spring-exit: cubic-bezier(0.32, 0.72, 0, 1);
+    --vpad-touch-press: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --vpad-accent-cyan: #38bdf8;
+    --vpad-accent-green: #34d399;
+    --vpad-accent-red: #f87171;
+    --vpad-accent-amber: #fbbf24;
+}
+
+/* ============================================================================
+   Root Container & Anti-Glitch Resets
+   ============================================================================ */
+html, body {
+    touch-action: none !important;
+    -ms-touch-action: none !important;
+    overscroll-behavior: none !important;
+}
+
+#vpad-root {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%; height: 100%;
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    pointer-events: none;
+    touch-action: none !important;
+    z-index: 99990;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none !important;
+    -webkit-tap-highlight-color: transparent !important;
+    outline: none !important;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+}
+
+#vpad-root ::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+#vpad-root *, .vpad-btn, .vpad-control-item, .vpad-top-btn {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-touch-callout: none !important;
+    outline: none !important;
+}
+
+/* Watermark Top-Right: Hidden by default */
+#fnh-watermark {
+    display: none !important;
+    position: fixed;
+    top: max(14px, env(safe-area-inset-top, 14px));
+    right: max(20px, calc(env(safe-area-inset-right, 0px) + 12px));
+    pointer-events: none;
+    z-index: 99999;
+    color: #f4f4f5;
+    font-size: 11px;
+}
+
+/* ============================================================================
+   Top-Left Dynamic Toolbar
+   ============================================================================ */
+#vpad-topbar {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top, 10px));
+    left: max(12px, calc(env(safe-area-inset-left, 0px) + 6px));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: auto;
+    z-index: 100002;
+    transform-origin: top center;
+}
+
+/* Main Toggle Trigger Button (Gamepad ⇄ ^) */
+#vpad-main-trigger-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50% !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: none;
+    z-index: 100003;
+    transition: transform 0.28s var(--vpad-spring-enter),
+                background 0.22s ease,
+                box-shadow 0.22s ease,
+                border-color 0.22s ease;
+}
+
+#vpad-main-trigger-btn:active, #vpad-main-trigger-btn.vpad-btn-pressed {
+    transform: scale(0.88) !important;
+    transition: transform 0.05s var(--vpad-touch-press) !important;
+}
+
+#vpad-main-trigger-btn svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+    transition: transform 0.25s var(--vpad-spring-enter);
+}
+
+/* Sub-Menu Container (Origin-Based Expand & Collapse) */
+#vpad-sub-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transform-origin: top center;
+    transition: transform 0.26s var(--vpad-spring-exit),
+                opacity 0.2s ease,
+                visibility 0.26s;
+    pointer-events: none;
+    visibility: hidden;
+    opacity: 0;
+    transform: scale(0.4) translateY(-14px);
+}
+
+#vpad-sub-menu.vpad-menu-open {
+    visibility: visible;
+    pointer-events: auto;
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    transition: transform 0.38s var(--vpad-spring-enter),
+                opacity 0.25s ease;
+}
+
+/* Sub Menu Buttons with Staggered iOS Spring */
+.vpad-top-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50% !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: none;
+    transition: transform 0.25s var(--vpad-spring-enter),
+                background 0.2s ease,
+                box-shadow 0.2s ease,
+                border-color 0.2s ease,
+                opacity 0.2s ease;
+}
+
+.vpad-top-btn:active, .vpad-top-btn.vpad-btn-pressed {
+    transform: scale(0.88) !important;
+    transition: transform 0.05s var(--vpad-touch-press) !important;
+}
+
+.vpad-top-btn svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+/* Staggered Delay for Submenu Items */
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(1) { transition-delay: 0.02s; }
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(2) { transition-delay: 0.04s; }
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(3) { transition-delay: 0.06s; }
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(4) { transition-delay: 0.08s; }
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(5) { transition-delay: 0.10s; }
+#vpad-sub-menu.vpad-menu-open .vpad-top-btn:nth-child(6) { transition-delay: 0.12s; }
+
+/* ============================================================================
+   Touchscreen Visual Ripple Indicator Layer & HTML5 Motion Trail Canvas
+   ============================================================================ */
+#vpad-touch-ripple-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    touch-action: none !important;
+    z-index: 99997;
+    overflow: hidden;
+}
+
+#vpad-trail-canvas {
+    pointer-events: none;
+    touch-action: none !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 99996;
+}
+
+.vpad-touch-ripple {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    margin-left: -24px;
+    margin-top: -24px;
+    border-radius: 50%;
+    pointer-events: none;
+    box-sizing: border-box;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 55%, transparent 75%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45) !important;
+    animation: vpad-ripple-pop 0.35s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes vpad-ripple-pop {
+    0% {
+        transform: scale(0.2);
+        opacity: 1;
+    }
+    60% {
+        opacity: 0.85;
+    }
+    100% {
+        transform: scale(1.65);
+        opacity: 0;
+    }
+}
+
+/* ============================================================================
+   1-Second Bottom Pill Toast (Touch Feedback Indicator)
+   ============================================================================ */
+#vpad-touch-toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--theme-bg-panel, rgba(15, 23, 42, 0.9));
+    border: var(--theme-border-panel, 1.5px solid rgba(255, 255, 255, 0.3));
+    border-radius: 9999px;
+    padding: 6px 18px;
+    color: var(--theme-text-primary, #ffffff);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    backdrop-filter: var(--theme-backdrop-filter, blur(16px));
+    -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(16px));
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100050;
+    transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#vpad-touch-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ============================================================================
+   Controls Layer & Bidirectional Hide/Show Transition
+   ============================================================================ */
+#vpad-controls {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    transition: opacity 0.35s var(--vpad-spring-exit),
+                transform 0.35s var(--vpad-spring-exit),
+                visibility 0.35s;
+    transform-origin: center center;
+    opacity: 1;
+    visibility: visible;
+}
+
+#vpad-controls.vpad-hidden {
+    opacity: 0 !important;
+    transform: scale(0.97) !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: opacity 0.28s var(--vpad-spring-exit),
+                transform 0.28s var(--vpad-spring-exit),
+                visibility 0.28s;
+}
+
+/* ============================================================================
+   Universal Button Interactive Mechanics (Fix Zoom-Out: 5% Tactile Compression)
+   ============================================================================ */
+.vpad-btn {
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    cursor: pointer;
+    transform-origin: center center;
+    transform: scale(var(--vpad-scale, 1));
+    transition: transform 0.18s var(--vpad-spring-enter),
+                background 0.15s ease,
+                border-color 0.15s ease,
+                box-shadow 0.15s ease;
+}
+
+/* Gentle 5% touch depression bounce relative to button's own base scale */
+.vpad-btn:active, .vpad-btn.active {
+    transform: scale(calc(var(--vpad-scale, 1) * 0.95)) !important;
+    transition: transform 0.05s var(--vpad-touch-press) !important;
+}
+
+/* D-Pad Container */
+.vpad-dpad-container {
+    position: absolute;
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    border-radius: 50% !important;
+    transform-origin: center center;
+    transform: scale(var(--vpad-scale, 1));
+    transition: transform 0.22s var(--vpad-spring-enter);
+}
+
+.vpad-dpad-arrow {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50% !important;
+    font-size: 15px;
+    font-weight: 800;
+    pointer-events: none;
+    transform-origin: center center;
+    transition: transform 0.18s var(--vpad-spring-enter),
+                background 0.15s ease,
+                border-color 0.15s ease,
+                box-shadow 0.15s ease,
+                color 0.15s ease;
+}
+
+.vpad-dpad-up    { top: 6px; left: 50%; transform: translateX(-50%) scale(1); }
+.vpad-dpad-down  { bottom: 6px; left: 50%; transform: translateX(-50%) scale(1); }
+.vpad-dpad-left  { left: 6px; top: 50%; transform: translateY(-50%) scale(1); }
+.vpad-dpad-right { right: 6px; top: 50%; transform: translateY(-50%) scale(1); }
+
+/* Tactile press like buttons X/Y: gentle 8% compression + glowing burst */
+.vpad-dpad-up.active    { transform: translateX(-50%) scale(0.92) !important; transition: transform 0.05s var(--vpad-touch-press) !important; }
+.vpad-dpad-down.active  { transform: translateX(-50%) scale(0.92) !important; transition: transform 0.05s var(--vpad-touch-press) !important; }
+.vpad-dpad-left.active  { transform: translateY(-50%) scale(0.92) !important; transition: transform 0.05s var(--vpad-touch-press) !important; }
+.vpad-dpad-right.active { transform: translateY(-50%) scale(0.92) !important; transition: transform 0.05s var(--vpad-touch-press) !important; }
+
+.vpad-dpad-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 34%; height: 34%;
+    border-radius: 50% !important;
+    pointer-events: none;
+}
+
+/* Analog Joystick */
+.vpad-joystick-container {
+    position: absolute;
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    border-radius: 50% !important;
+    transform-origin: center center;
+    transform: scale(var(--vpad-scale, 1));
+    transition: transform 0.22s var(--vpad-spring-enter);
+}
+
+.vpad-joystick-inner-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 50%; height: 50%;
+    border-radius: 50% !important;
+    pointer-events: none;
+}
+
+.vpad-joystick-stick {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 44%; height: 44%;
+    border-radius: 50% !important;
+    pointer-events: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* ============================================================================
+   THEME 1: LIQUID GLASS (.vpad-theme-clean)
+   VisionOS / iOS 18 Fluid Specular Glass, Frosted Refraction & Liquid Glow
+   ============================================================================ */
+body.vpad-theme-clean #vpad-main-trigger-btn,
+body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn {
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+    color: #f4f4f5 !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+}
+
+body.vpad-theme-clean .vpad-top-btn,
+body:not([class*="vpad-theme-"]) .vpad-top-btn {
+    color: #f1f5f9 !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 42%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+}
+
+body.vpad-theme-clean .vpad-top-btn.active,
+body.vpad-theme-clean #vpad-main-trigger-btn.active,
+body:not([class*="vpad-theme-"]) .vpad-top-btn.active,
+body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn.active {
+    background: radial-gradient(circle at 35% 20%, rgba(0, 122, 255, 0.55) 0%, rgba(0, 100, 220, 0.35) 50%, rgba(15, 23, 42, 0.75) 100%) !important;
+    border-color: #007aff !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.75) !important;
+}
+body.vpad-theme-clean .vpad-top-btn.active svg,
+body.vpad-theme-clean #vpad-main-trigger-btn.active svg,
+body:not([class*="vpad-theme-"]) .vpad-top-btn.active svg,
+body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn.active svg {
+    stroke: #ffffff !important;
+}
+body.vpad-theme-clean .vpad-top-btn.active:active,
+body.vpad-theme-clean .vpad-top-btn.active.vpad-btn-pressed,
+body:not([class*="vpad-theme-"]) .vpad-top-btn.active:active,
+body:not([class*="vpad-theme-"]) .vpad-top-btn.active.vpad-btn-pressed,
+body.vpad-theme-clean #vpad-main-trigger-btn.active:active,
+body.vpad-theme-clean #vpad-main-trigger-btn.active.vpad-btn-pressed,
+body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn.active:active,
+body:not([class*="vpad-theme-"]) #vpad-main-trigger-btn.active.vpad-btn-pressed {
+    background: radial-gradient(circle at 35% 20%, rgba(0, 122, 255, 0.65) 0%, rgba(0, 100, 220, 0.45) 50%, rgba(15, 23, 42, 0.8) 100%) !important;
+    border-color: #007aff !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.8) !important;
+    transform: scale(0.88) !important;
+}
+
+body.vpad-theme-clean .vpad-btn,
+body:not([class*="vpad-theme-"]) .vpad-btn {
+    color: #ffffff !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 40%, rgba(15, 23, 42, 0.6) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    border-radius: var(--theme-radius-button, 9999px) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55), inset 0 -1.5px 2px rgba(0, 0, 0, 0.2) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+}
+
+body.vpad-theme-clean .vpad-btn:active,
+body:not([class*="vpad-theme-"]) .vpad-btn:active {
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.35) 0%, rgba(35, 42, 60, 0.8) 100%) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
+}
+
+body.vpad-theme-clean .vpad-btn-green,
+body:not([class*="vpad-theme-"]) .vpad-btn-green {
+    background: radial-gradient(circle at 35% 25%, rgba(16, 185, 129, 0.4) 0%, rgba(6, 78, 59, 0.75) 100%) !important;
+    border: 1px solid rgba(110, 231, 183, 0.6) !important;
+    color: #ecfdf5 !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+}
+body.vpad-theme-clean .vpad-btn-green:active,
+body:not([class*="vpad-theme-"]) .vpad-btn-green:active {
+    background: radial-gradient(circle at 35% 25%, rgba(52, 211, 153, 0.6) 0%, rgba(5, 150, 105, 0.85) 100%) !important;
+    border-color: #a7f3d0 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
+}
+
+body.vpad-theme-clean .vpad-btn-red,
+body:not([class*="vpad-theme-"]) .vpad-btn-red {
+    background: radial-gradient(circle at 35% 25%, rgba(239, 68, 68, 0.4) 0%, rgba(127, 29, 29, 0.75) 100%) !important;
+    border: 1px solid rgba(252, 165, 165, 0.6) !important;
+    color: #fef2f2 !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+}
+body.vpad-theme-clean .vpad-btn-red:active,
+body:not([class*="vpad-theme-"]) .vpad-btn-red:active {
+    background: radial-gradient(circle at 35% 25%, rgba(248, 113, 113, 0.6) 0%, rgba(220, 38, 38, 0.85) 100%) !important;
+    border-color: #fecaca !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
+}
+
+body.vpad-theme-clean .vpad-btn-yellow,
+body:not([class*="vpad-theme-"]) .vpad-btn-yellow {
+    background: radial-gradient(circle at 35% 25%, rgba(245, 158, 11, 0.4) 0%, rgba(120, 53, 15, 0.75) 100%) !important;
+    border: 1px solid rgba(253, 230, 138, 0.6) !important;
+    color: #fffbeb !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+}
+body.vpad-theme-clean .vpad-btn-yellow:active,
+body:not([class*="vpad-theme-"]) .vpad-btn-yellow:active {
+    background: radial-gradient(circle at 35% 25%, rgba(251, 191, 36, 0.6) 0%, rgba(217, 119, 6, 0.85) 100%) !important;
+    border-color: #fef08a !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7) !important;
+}
+
+body.vpad-theme-clean .vpad-btn-util,
+body:not([class*="vpad-theme-"]) .vpad-btn-util {
+    border-radius: var(--theme-radius-button, 9999px) !important;
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.16) 0%, rgba(28, 34, 48, 0.75) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    font-size: 11px !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
+}
+
+body.vpad-theme-clean .vpad-dpad-container,
+body:not([class*="vpad-theme-"]) .vpad-dpad-container {
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(26, 32, 48, 0.65) 50%, rgba(10, 14, 22, 0.85) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+}
+body.vpad-theme-clean .vpad-dpad-arrow,
+body:not([class*="vpad-theme-"]) .vpad-dpad-arrow {
+    color: rgba(255, 255, 255, 0.75) !important;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+body.vpad-theme-clean .vpad-dpad-arrow.active,
+body:not([class*="vpad-theme-"]) .vpad-dpad-arrow.active {
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.65) 0%, rgba(0, 90, 200, 0.85) 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4) !important;
+}
+body.vpad-theme-clean .vpad-dpad-center,
+body:not([class*="vpad-theme-"]) .vpad-dpad-center {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+body.vpad-theme-clean .vpad-joystick-container,
+body:not([class*="vpad-theme-"]) .vpad-joystick-container {
+    background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(30, 36, 52, 0.65) 50%, rgba(12, 16, 26, 0.85) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+}
+body.vpad-theme-clean .vpad-joystick-inner-ring,
+body:not([class*="vpad-theme-"]) .vpad-joystick-inner-ring {
+    border: 1px dashed rgba(255, 255, 255, 0.25) !important;
+}
+body.vpad-theme-clean .vpad-joystick-stick,
+body:not([class*="vpad-theme-"]) .vpad-joystick-stick {
+    background: radial-gradient(circle at 35% 35%, #475569, #0f172a) !important;
+    border: 2px solid rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+}
+body.vpad-theme-clean .vpad-joystick-container.active .vpad-joystick-stick,
+body:not([class*="vpad-theme-"]) .vpad-joystick-container.active .vpad-joystick-stick {
+    border-color: #007aff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4) !important;
+}
+
+/* Liquid Glass Panels (Editor Bar, Panels & Modals) */
+body.vpad-theme-clean #vpad-editor-bar,
+body.vpad-theme-clean #fnh-cheat-overlay,
+body.vpad-theme-clean #rp-diag-modal,
+body.vpad-theme-clean #vpad-prop-panel,
+body.vpad-theme-clean #vpad-key-modal,
+body.vpad-theme-clean .vpad-modal-box,
+body:not([class*="vpad-theme-"]) #vpad-editor-bar,
+body:not([class*="vpad-theme-"]) #fnh-cheat-overlay,
+body:not([class*="vpad-theme-"]) #rp-diag-modal,
+body:not([class*="vpad-theme-"]) #vpad-prop-panel,
+body:not([class*="vpad-theme-"]) #vpad-key-modal,
+body:not([class*="vpad-theme-"]) .vpad-modal-box {
+    border-radius: var(--theme-radius-panel, 24px) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.28) !important;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45) !important;
+}
+
+body.vpad-theme-clean #vpad-bar-done,
+body:not([class*="vpad-theme-"]) #vpad-bar-done {
+    background: #007aff !important;
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    border-radius: var(--theme-radius-pill, 9999px) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+body.vpad-theme-clean #vpad-bar-done:active,
+body:not([class*="vpad-theme-"]) #vpad-bar-done:active {
+    background: #0062cc !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    transform: scale(0.92);
+}
+
+/* ============================================================================
+   THEME 2: MINIMALIST MATTE TACTILE (.vpad-theme-matte)
+   100% Solid Charcoal Black Matte Body, Flat Contrasting Colored Rims, Zero Gloss
+   ============================================================================ */
+body.vpad-theme-matte #vpad-main-trigger-btn {
+    background: #141416 !important;
+    border: 2px solid #3f3f46 !important;
+    color: #f4f4f5 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-matte .vpad-top-btn {
+    background: #141416 !important;
+    border: 1.5px solid #27272a !important;
+    color: #a1a1aa !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.65) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-matte .vpad-top-btn.active,
+body.vpad-theme-matte #vpad-main-trigger-btn.active {
+    background: #1e3a8a !important;
+    border-color: #2563eb !important;
+    color: #dbeafe !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+body.vpad-theme-matte .vpad-top-btn.active svg,
+body.vpad-theme-matte #vpad-main-trigger-btn.active svg {
+    stroke: #dbeafe !important;
+}
+body.vpad-theme-matte .vpad-top-btn:active,
+body.vpad-theme-matte .vpad-top-btn.vpad-btn-pressed {
+    transform: scale(0.88) !important;
+}
+body.vpad-theme-matte .vpad-top-btn.active:active,
+body.vpad-theme-matte .vpad-top-btn.active.vpad-btn-pressed,
+body.vpad-theme-matte #vpad-main-trigger-btn.active:active,
+body.vpad-theme-matte #vpad-main-trigger-btn.active.vpad-btn-pressed {
+    background: #172554 !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8) !important;
+    transform: scale(0.88) !important;
+}
+
+/* Base Matte Button: Solid flat dark charcoal */
+body.vpad-theme-matte .vpad-btn {
+    background: #141416 !important;
+    border: 2px solid #3f3f46 !important;
+    color: #f4f4f5 !important;
+    border-radius: 50% !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-matte .vpad-btn:active {
+    background: #27272a !important;
+    border-color: #a1a1aa !important;
+}
+
+/* Matte Colored Buttons: Solid flat body with crisp colored border & sharp colored text */
+body.vpad-theme-matte .vpad-btn-green {
+    background: #141416 !important;
+    border: 2.2px solid #10b981 !important;
+    color: #34d399 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(16, 185, 129, 0.25) !important;
+}
+body.vpad-theme-matte .vpad-btn-green:active {
+    background: #064e3b !important;
+    border-color: #6ee7b7 !important;
+    color: #ecfdf5 !important;
+}
+
+body.vpad-theme-matte .vpad-btn-red {
+    background: #141416 !important;
+    border: 2.2px solid #ef4444 !important;
+    color: #f87171 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(239, 68, 68, 0.25) !important;
+}
+body.vpad-theme-matte .vpad-btn-red:active {
+    background: #7f1d1d !important;
+    border-color: #fca5a5 !important;
+    color: #fef2f2 !important;
+}
+
+body.vpad-theme-matte .vpad-btn-yellow {
+    background: #141416 !important;
+    border: 2.2px solid #f59e0b !important;
+    color: #fbbf24 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(245, 158, 11, 0.25) !important;
+}
+body.vpad-theme-matte .vpad-btn-yellow:active {
+    background: #78350f !important;
+    border-color: #fde68a !important;
+    color: #fffbeb !important;
+}
+
+body.vpad-theme-matte .vpad-btn-util {
+    border-radius: 8px !important;
+    background: #141416 !important;
+    border: 1.8px solid #3f3f46 !important;
+    color: #d4d4d8 !important;
+}
+
+body.vpad-theme-matte .vpad-dpad-container {
+    background: #101012 !important;
+    border: 2.5px solid #27272a !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-matte .vpad-dpad-arrow {
+    color: #a1a1aa !important;
+    background: #18181b;
+    border: 1.5px solid #27272a;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+body.vpad-theme-matte .vpad-dpad-arrow.active {
+    background: #27272a !important;
+    border-color: #2563eb !important;
+    color: #2563eb !important;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.5) !important;
+}
+body.vpad-theme-matte .vpad-dpad-center {
+    background: #18181b !important;
+}
+
+body.vpad-theme-matte .vpad-joystick-container {
+    background: #101012 !important;
+    border: 2.5px solid #27272a !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-matte .vpad-joystick-stick {
+    background: #27272a !important;
+    border: 2px solid #52525b !important;
+}
+body.vpad-theme-matte .vpad-joystick-container.active .vpad-joystick-stick {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.5) !important;
+}
+
+body.vpad-theme-matte #vpad-editor-bar {
+    background: #141416 !important;
+    border: 1.5px solid #2563eb !important;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85) !important;
+}
+body.vpad-theme-matte #vpad-bar-done {
+    background: #1e3a8a !important;
+    border-color: #2563eb !important;
+    color: #dbeafe !important;
+}
+body.vpad-theme-matte #vpad-bar-done:active {
+    background: #172554 !important;
+    border-color: #3b82f6 !important;
+}
+
+/* ============================================================================
+   THEME 3: RETRO OSD (.vpad-theme-retro)
+   Amber CRT Terminal: Buttons & Layout REMAIN CIRCLES, Panels are Sharp 2px!
+   ============================================================================ */
+body.vpad-theme-retro #vpad-root,
+body.vpad-theme-retro #vpad-editor-bar,
+body.vpad-theme-retro #vpad-prop-panel,
+body.vpad-theme-retro .vpad-popover,
+body.vpad-theme-retro .vpad-modal-box {
+    font-family: Consolas, "Roboto Mono", "Courier New", monospace !important;
+}
+
+/* In Retro, toolbar and buttons STAY CIRCLES (50%) */
+body.vpad-theme-retro #vpad-main-trigger-btn {
+    border-radius: 50% !important;
+    background: #0a0a0c !important;
+    border: 1.8px solid #ff7700 !important;
+    color: #ff7700 !important;
+    box-shadow: 0 0 14px rgba(255, 119, 0, 0.35) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+body.vpad-theme-retro .vpad-top-btn {
+    border-radius: 50% !important;
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    color: #ffaa44 !important;
+    box-shadow: 0 0 6px rgba(255, 119, 0, 0.2) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-top-btn.active,
+body.vpad-theme-retro #vpad-main-trigger-btn.active {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000000 !important;
+    box-shadow: 0 0 8px rgba(255, 119, 0, 0.45) !important;
+}
+body.vpad-theme-retro .vpad-top-btn.active svg,
+body.vpad-theme-retro #vpad-main-trigger-btn.active svg {
+    stroke: #000000 !important;
+}
+body.vpad-theme-retro .vpad-top-btn.active:active,
+body.vpad-theme-retro .vpad-top-btn.active.vpad-btn-pressed,
+body.vpad-theme-retro #vpad-main-trigger-btn.active:active,
+body.vpad-theme-retro #vpad-main-trigger-btn.active.vpad-btn-pressed {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000000 !important;
+    box-shadow: 0 0 12px rgba(255, 119, 0, 0.85) !important;
+    transform: scale(0.88) !important;
+}
+
+/* Gameplay Buttons: REMAIN CIRCLES! */
+body.vpad-theme-retro .vpad-btn {
+    border-radius: 50% !important;
+    background: #0a0a0c !important;
+    border: 2px solid #ff7700 !important;
+    color: #ffaa44 !important;
+    font-family: Consolas, monospace !important;
+    box-shadow: 0 0 10px rgba(255, 119, 0, 0.25) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-btn:active,
+body.vpad-theme-retro .vpad-btn.active {
+    background: #ff7700 !important;
+    color: #000000 !important;
+    box-shadow: 0 0 20px rgba(255, 119, 0, 0.85) !important;
+}
+
+body.vpad-theme-retro .vpad-btn-green,
+body.vpad-theme-retro .vpad-btn-red,
+body.vpad-theme-retro .vpad-btn-yellow {
+    background: #0a0a0c !important;
+    border-color: #ff7700 !important;
+    color: #ffaa44 !important;
+}
+
+body.vpad-theme-retro .vpad-btn-util {
+    border-radius: 4px !important;
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    color: #ffaa44 !important;
+}
+
+/* D-Pad & Joystick: REMAIN CIRCLES! */
+body.vpad-theme-retro .vpad-dpad-container {
+    border-radius: 50% !important;
+    background: #0a0a0c !important;
+    border: 2px solid #ff7700 !important;
+    box-shadow: 0 0 14px rgba(255, 119, 0, 0.25) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-dpad-arrow {
+    color: #885522 !important;
+    background: #0a0a0c;
+    border: 1px solid #442200;
+}
+body.vpad-theme-retro .vpad-dpad-arrow.active {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000000 !important;
+    box-shadow: 0 0 16px rgba(255, 119, 0, 0.85) !important;
+}
+body.vpad-theme-retro .vpad-dpad-center {
+    background: #181410 !important;
+    border-radius: 50% !important;
+}
+
+body.vpad-theme-retro .vpad-joystick-container {
+    border-radius: 50% !important;
+    background: #0a0a0c !important;
+    border: 2px solid #ff7700 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-joystick-inner-ring {
+    border-radius: 50% !important;
+    border: 1px dashed rgba(255, 119, 0, 0.4) !important;
+}
+body.vpad-theme-retro .vpad-joystick-stick {
+    border-radius: 50% !important;
+    background: #181410 !important;
+    border: 2px solid #ff7700 !important;
+}
+body.vpad-theme-retro .vpad-joystick-container.active .vpad-joystick-stick {
+    border-color: #ffa244 !important;
+    box-shadow: 0 0 16px rgba(255, 119, 0, 0.7) !important;
+}
+
+/* PANELS: SHARP RECTANGLES (2px) & Retro Orange CRT Style! */
+body.vpad-theme-retro #vpad-editor-bar {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 20px rgba(255, 119, 0, 0.3) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-bar-drag-handle {
+    color: #ff7700 !important;
+}
+body.vpad-theme-retro .vpad-bar-btn {
+    background: #141418 !important;
+    border: 1px solid #444 !important;
+    border-radius: 2px !important;
+    color: #e6e6e6 !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-bar-done {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+}
+body.vpad-theme-retro .vpad-popover {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 24px rgba(255, 119, 0, 0.3) !important;
+}
+body.vpad-theme-retro .vpad-popover-item {
+    font-family: Consolas, monospace !important;
+    color: #ccc !important;
+    border-bottom: 1px solid #222 !important;
+}
+body.vpad-theme-retro .vpad-popover-item.active {
+    background: #ff7700 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+}
+
+body.vpad-theme-retro #vpad-prop-panel {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 20px rgba(255, 119, 0, 0.25) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-prop-header {
+    background: #15151b !important;
+    color: #ff7700 !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid #333 !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-touch-slider-track {
+    background: #141418 !important;
+    border: 1px solid #444 !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro .vpad-slider-fill {
+    background: #ff7700 !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro .vpad-slider-knob {
+    border-radius: 2px !important;
+    border: 2px solid #ff7700 !important;
+    background: #ffa244 !important;
+}
+body.vpad-theme-retro .vpad-prop-btn {
+    background: #141418 !important;
+    border: 1px solid #444 !important;
+    border-radius: 2px !important;
+    color: #e6e6e6 !important;
+    font-family: Consolas, monospace !important;
+}
+
+body.vpad-theme-retro #vpad-key-modal {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+body.vpad-theme-retro .vpad-modal-box {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 24px rgba(255, 119, 0, 0.3) !important;
+}
+body.vpad-theme-retro .vpad-modal-header {
+    color: #ff7700 !important;
+    border-bottom: 1px solid #333 !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-input-field {
+    border-color: #ff7700 !important;
+    background: #000 !important;
+    color: #ffaa44 !important;
+    border-radius: 2px !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-modal-scroll-area {
+    border: 1px solid #333 !important;
+    border-radius: 2px !important;
+    background: #000 !important;
+}
+body.vpad-theme-retro .vpad-picker-item {
+    border-radius: 2px !important;
+    background: #141418 !important;
+    border-color: #333 !important;
+    color: #aaa !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-picker-item.active {
+    background: #ff7700 !important;
+    color: #000 !important;
+    border-color: #ffa244 !important;
+    font-weight: bold !important;
+}
+body.vpad-theme-retro .vpad-segmented-group {
+    background: #000000 !important;
+    border: 1px solid #333 !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro .vpad-segmented-btn {
+    border-radius: 2px !important;
+    color: #888 !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .vpad-segmented-btn.active {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000000 !important;
+    font-weight: bold !important;
+    box-shadow: 0 0 10px rgba(255, 119, 0, 0.5) !important;
+}
+
+/* ============================================================================
+   Layout Editor Bar & Inspector Panels (Clean & Matte Defaults)
+   ============================================================================ */
+.vpad-edit-mode .vpad-control-item {
+    outline: 2px dashed rgba(255, 255, 255, 0.45);
+    outline-offset: 3px;
+    cursor: grab;
+}
+.vpad-edit-mode .vpad-control-item.vpad-selected {
+    outline: 2.5px solid var(--vpad-accent-cyan) !important;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.8) !important;
+}
+
+#vpad-editor-bar {
+    position: fixed;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(18, 22, 30, 0.94);
+    border: 1.5px solid var(--vpad-accent-cyan);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 18px;
+    pointer-events: auto !important;
+    z-index: 100003;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    touch-action: none !important;
+}
+#vpad-editor-bar.show {
+    display: flex !important;
+}
+
+.vpad-bar-drag-handle {
+    cursor: move;
+    color: var(--vpad-accent-cyan);
+    font-size: 16px;
+    font-weight: bold;
+    padding: 2px 6px;
+    user-select: none;
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+.vpad-bar-btn {
+    padding: 6px 11px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(38, 44, 58, 0.88);
+    color: #fff;
+    cursor: pointer;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.vpad-bar-btn:active {
+    transform: scale(0.92);
+}
+.vpad-bar-done {
+    background: #0284c7;
+    border-color: #38bdf8;
+    color: #fff;
+}
+
+/* Popover Dropdowns */
+.vpad-popover {
+    position: fixed;
+    display: none;
+    background: rgba(18, 22, 30, 0.98);
+    border: 1.5px solid var(--vpad-accent-cyan);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    z-index: 100008;
+    pointer-events: auto;
+    min-width: 195px;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.vpad-popover.show {
+    display: block !important;
+}
+.vpad-popover-item {
+    padding: 9px 13px;
+    font-size: 12px;
+    color: #e4e4e7;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background 0.15s ease;
+}
+.vpad-popover-item:last-child {
+    border-bottom: none;
+}
+.vpad-popover-item.active {
+    background: #0284c7;
+    color: #fff;
+    font-weight: bold;
+}
+
+/* Floating Inspector Property Panel */
+#vpad-prop-panel {
+    position: fixed;
+    width: min(80vw, 290px);
+    max-height: min(78vh, 310px);
+    background: rgba(18, 22, 30, 0.94);
+    border: 1.5px solid rgba(56, 189, 248, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 14px;
+    color: #fff;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75);
+    pointer-events: auto !important;
+    z-index: 100004;
+    display: none;
+    font-size: 12px;
+    touch-action: none !important;
+    overflow-y: auto;
+}
+#vpad-prop-panel.show {
+    display: block !important;
+}
+.vpad-prop-header {
+    padding: 9px 13px;
+    background: rgba(28, 34, 48, 0.92);
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: move;
+    font-weight: bold;
+    color: var(--vpad-accent-cyan);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+.vpad-prop-body {
+    padding: 12px 14px;
+}
+.vpad-prop-row {
+    margin-bottom: 11px;
+}
+.vpad-prop-label {
+    display: flex;
+    justify-content: space-between;
+    color: #bbb;
+    margin-bottom: 5px;
+    font-size: 11px;
+}
+
+/* Touch Sliders */
+.vpad-touch-slider-track {
+    position: relative;
+    width: 100%; height: 18px;
+    background: rgba(40, 46, 62, 0.88);
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    border-radius: 9px;
+    cursor: pointer;
+    touch-action: none;
+    margin: 4px 0;
+}
+.vpad-slider-fill {
+    position: absolute;
+    top: 0; left: 0; height: 100%;
+    background: linear-gradient(90deg, #0284c7, var(--vpad-accent-cyan));
+    border-radius: 9px;
+    pointer-events: none;
+}
+.vpad-slider-knob {
+    position: absolute;
+    top: 50%;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid #0284c7;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.7);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.vpad-prop-actions {
+    display: flex; gap: 6px; margin-top: 11px;
+}
+.vpad-prop-btn {
+    flex: 1;
+    padding: 8px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(45, 52, 70, 0.88);
+    color: #fff;
+    text-align: center;
+    cursor: pointer;
+    touch-action: none;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.vpad-prop-btn:active {
+    transform: scale(0.94);
+}
+.vpad-prop-btn.danger {
+    background: rgba(185, 30, 40, 0.88);
+    border-color: #f87171;
+}
+.vpad-prop-btn.danger-confirm {
+    background: #dc2626 !important;
+    border-color: #fca5a5 !important;
+    animation: vpad-pulse 0.8s infinite alternate;
+}
+@keyframes vpad-pulse {
+    from { box-shadow: 0 0 4px #dc2626; }
+    to { box-shadow: 0 0 16px #ef4444; }
+}
+
+/* Modal Dialog */
+#vpad-key-modal {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none;
+    align-items: center; justify-content: center;
+    pointer-events: auto !important;
+    touch-action: none !important;
+    z-index: 100010;
+}
+#vpad-key-modal.show {
+    display: flex !important;
+}
+.vpad-modal-box {
+    width: min(84vw, 440px);
+    max-width: 440px;
+    max-height: min(78vh, 320px);
+    background: rgba(18, 22, 30, 0.98);
+    border: 1.5px solid var(--vpad-accent-cyan);
+    border-radius: 16px;
+    padding: 16px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.85);
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+#vpad-key-modal .vpad-modal-box {
+    width: min(84vw, 440px);
+    max-height: min(78vh, 320px);
+}
+.vpad-modal-header {
+    flex-shrink: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: bold; color: var(--vpad-accent-cyan); font-size: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+.vpad-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 4px;
+    margin-top: 8px;
+}
+.vpad-modal-footer {
+    flex-shrink: 0;
+    display: flex; gap: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+}
+.vpad-segmented-group {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    background: #11141c;
+    padding: 3px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.vpad-segmented-btn {
+    flex: 1;
+    padding: 7px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #a1a1aa;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.18s ease;
+    touch-action: none;
+}
+.vpad-segmented-btn.active {
+    background: #0284c7;
+    border-color: #38bdf8;
+    color: #ffffff;
+    box-shadow: 0 2px 10px rgba(2, 132, 199, 0.5);
+}
+.vpad-input-field {
+    width: 100%;
+    padding: 9px 12px;
+    background: #11141c;
+    color: #fff;
+    border: 1.2px solid var(--vpad-accent-cyan);
+    border-radius: 8px;
+    margin-top: 5px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+.vpad-modal-scroll-area {
+    margin: 8px 0;
+    max-height: 140px;
+    overflow-y: auto !important;
+    touch-action: pan-y !important;
+    -webkit-overflow-scrolling: touch;
+    border: 1.5px solid rgba(56, 189, 248, 0.35);
+    border-radius: 10px;
+    padding: 6px;
+    background: rgba(10, 13, 18, 0.85);
+}
+.vpad-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.vpad-picker-item {
+    padding: 8px 4px;
+    font-size: 11px;
+    text-align: center;
+    background: rgba(35, 42, 56, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: pan-y;
+    transition: background 0.15s, border-color 0.15s;
+}
+.vpad-picker-item.active {
+    background: #0284c7;
+    border-color: var(--vpad-accent-cyan);
+    font-weight: bold;
+    color: #fff;
+}
+
+/* ============================================================================
+   3-THEME CONSISTENT STYLING: CHEAT ENGINE & DIAGNOSTIC SUITE MODALS
+   1. Minimalist Glass (Default): Cyan Frosted Glass (#38bdf8 / #0284c7)
+   2. Minimalist Matte: Deep Dark Blue (#1e3a8a / #2563eb) & Solid Dark Charcoal
+   3. Retro OSD: Amber CRT (#ff7700 / #ffa244), Sharp 2px, Black #0a0a0c
+   ============================================================================ */
+
+/* Floating Real-Time On-Screen FPS Counter */
+#rp-floating-fps {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top, 12px));
+    right: max(16px, env(safe-area-inset-right, 16px));
+    padding: 3px 8px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    border-radius: 12px;
+    color: #34d399;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Consolas, monospace;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+    z-index: 100005;
+    display: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+body.vpad-theme-matte #rp-floating-fps {
+    background: #18181b !important;
+    border: 1px solid #2563eb !important;
+    color: #60a5fa !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7) !important;
+}
+body.vpad-theme-retro #rp-floating-fps {
+    background: #0a0a0c !important;
+    border: 1px solid #ff7700 !important;
+    color: #ffaa44 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 10px rgba(255, 119, 0, 0.4) !important;
+    font-family: Consolas, monospace !important;
+}
+
+/* ============================================================================
+   Base Component Styles: Diagnostic Suite & Cheat Menu (Theme-Neutral Variables)
+   ============================================================================ */
+
+/* 1. Diagnostic Suite Base Structure */
+#rp-diag-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(84vw, 460px);
+    max-height: min(78vh, 320px);
+    background: var(--theme-bg-panel, rgba(15, 23, 42, 0.75));
+    border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
+    border-radius: var(--theme-radius-panel, 24px);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+    color: #f1f5f9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    display: none;
+    flex-direction: column;
+    z-index: 100003;
+    box-sizing: border-box;
+    pointer-events: auto !important;
+    overflow: hidden;
+}
+
+#rp-diag-header {
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+.diag-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+    flex-shrink: 0;
+}
+
+.diag-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.diag-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--theme-accent, #38bdf8);
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.diag-badge {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.diag-badge-scanning {
+    background: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+}
+
+.diag-badge-ready {
+    background: rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+}
+
+.diag-badge-success {
+    background: #16a34a;
+    color: #ffffff;
+}
+
+.diag-badge-error {
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.diag-badge-warn {
+    background: #eab308;
+    color: #000000;
+}
+
+.diag-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.diag-close-btn:active {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.15);
+}
+
+.diag-stats-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+
+.diag-stat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.diag-stat-pill strong {
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.diag-fps-toggle {
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    background: rgba(14, 165, 233, 0.15);
+    color: var(--theme-accent, #38bdf8);
+    transition: all 0.15s ease;
+}
+
+#diag-fps-toggle-btn.active {
+    background: var(--theme-accent, #38bdf8) !important;
+    color: var(--theme-accent-contrast, #ffffff) !important;
+    border-color: var(--theme-accent, #38bdf8) !important;
+}
+
+.diag-fps-high {
+    color: #34d399 !important;
+}
+
+.diag-fps-mid {
+    color: #fbbf24 !important;
+}
+
+.diag-fps-low {
+    color: #f87171 !important;
+}
+
+.diag-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    flex-shrink: 0;
+}
+
+.diag-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 18px;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #94a3b8;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.diag-tab-btn.active {
+    background: var(--theme-accent, #38bdf8);
+    border-color: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+}
+
+.diag-body-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y !important;
+}
+
+.diag-tab-pane {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+}
+
+.diag-tab-pane.active {
+    display: flex;
+}
+
+.diag-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.diag-card-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.diag-card-desc {
+    font-size: 10px;
+    color: #94a3b8;
+    line-height: 1.35;
+    margin-bottom: 8px;
+}
+
+.diag-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.diag-btn-primary {
+    background: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+    width: 100%;
+}
+
+.diag-btn-primary:active {
+    opacity: 0.85;
+    transform: scale(0.98);
+}
+
+.diag-btn-success {
+    background: #16a34a;
+    color: #ffffff;
+    width: 100%;
+}
+
+.diag-btn-success:active {
+    background: #15803d;
+}
+
+.diag-btn-action {
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid var(--theme-accent, #38bdf8);
+    color: var(--theme-accent, #38bdf8);
+}
+
+.diag-btn-action:active {
+    background: rgba(56, 189, 248, 0.3);
+}
+
+.diag-pbar-box {
+    width: 100%;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 8px 0 4px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.diag-pbar-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--theme-accent, #38bdf8);
+    transition: width 0.2s ease;
+}
+
+.diag-status-line {
+    font-size: 10px;
+    color: var(--theme-accent, #38bdf8);
+    font-weight: 600;
+    min-height: 14px;
+}
+
+.diag-counters-row {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0;
+    font-size: 12px;
+    color: #cbd5e1;
+}
+
+.diag-input-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.diag-input-group label {
+    font-size: 11px;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.diag-input-group input {
+    width: 52px;
+    padding: 5px 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #f8fafc;
+    font-size: 11px;
+    box-sizing: border-box;
+}
+
+.diag-console-section {
+    padding: 0 12px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.diag-console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: #cbd5e1;
+}
+
+.diag-console-box,
+.diag-log-box {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    height: 35px;
+    max-height: 90px;
+    overflow-y: auto;
+    padding: 6px 8px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 10px;
+    line-height: 1.45;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y !important;
+}
+
+.diag-log-line {
+    margin-bottom: 2px;
+    word-break: break-all;
+}
+
+.diag-log-time {
+    color: #475569;
+    font-weight: 500;
+    margin-right: 4px;
+}
+
+.diag-log-tag {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.diag-tag-info {
+    color: var(--theme-accent, #38bdf8);
+}
+
+.diag-tag-progress {
+    color: #c084fc;
+}
+
+.diag-tag-scan {
+    color: #60a5fa;
+}
+
+.diag-tag-audit {
+    color: #2dd4bf;
+}
+
+.diag-tag-success {
+    color: #4ade80;
+}
+
+.diag-tag-warn {
+    color: #fbbf24;
+}
+
+.diag-tag-error {
+    color: #f87171;
+}
+
+.diag-btn-sm {
+    padding: 3px 8px;
+    font-size: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #94a3b8;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.diag-btn-sm:active {
+    background: rgba(255, 255, 255, 0.15);
+    color: #f8fafc;
+}
+
+/* 2. Cheat Menu Base Structure */
+#fnh-cheat-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(84vw, 460px);
+    max-height: min(78vh, 320px);
+    background: var(--theme-bg-panel, rgba(15, 23, 42, 0.75));
+    border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
+    border-radius: var(--theme-radius-panel, 24px);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+    color: #f4f4f5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: none;
+    flex-direction: column;
+    z-index: 100010;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+#fnh-cheat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: grab;
+    flex-shrink: 0;
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+.fnh-cheat-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #f4f4f5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.fnh-cheat-title svg {
+    width: 15px;
+    height: 15px;
+    stroke: var(--theme-accent, #38bdf8);
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.fnh-cheat-close {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #a1a1aa;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.fnh-cheat-close:active {
+    background: rgba(239, 68, 68, 0.4);
+    color: #fff;
+}
+
+#fnh-cheat-tabs {
+    display: flex;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    scrollbar-width: none;
+    flex-shrink: 0;
+}
+
+#fnh-cheat-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.fnh-cheat-tab {
+    flex: 1;
+    flex-shrink: 0;
+    min-width: 78px;
+    padding: 10px 4px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #71717a;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.fnh-cheat-tab svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.fnh-cheat-tab.active {
+    color: #f4f4f5;
+    border-bottom-color: var(--theme-accent, #38bdf8);
+    background: rgba(56, 189, 248, 0.08);
+}
+
+#fnh-cheat-content,
+#fnh-cheat-body {
+    flex: 1;
+    overflow-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 180px;
+}
+
+.fnh-tab-pane {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.fnh-cheat-row {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.fnh-cheat-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #e4e4e7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.fnh-input, .fnh-select, .fnh-textarea {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #f4f4f5;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.fnh-input:focus, .fnh-select:focus, .fnh-textarea:focus {
+    border-color: var(--theme-accent, #38bdf8);
+    outline: none;
+}
+
+.fnh-cheat-btn {
+    padding: 6px 14px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f4f4f5;
+    cursor: pointer;
+    transition: background 0.1s, transform 0.05s;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.fnh-cheat-btn:active {
+    transform: scale(0.95);
+}
+
+.fnh-btn-action {
+    background: var(--theme-accent, #38bdf8);
+    border-color: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+}
+
+.fnh-btn-action:active {
+    opacity: 0.85;
+}
+
+.fnh-btn-danger {
+    background: #7f1d1d !important;
+    border-color: #991b1b !important;
+    color: #fecaca !important;
+}
+
+.fnh-btn-toggle-off {
+    background: rgba(255, 255, 255, 0.08);
+    color: #71717a;
+    border-color: rgba(255, 255, 255, 0.18);
+    min-width: 60px;
+}
+
+.fnh-btn-toggle-on {
+    background: #15803d;
+    color: #dcfce7;
+    border-color: #22c55e;
+    min-width: 60px;
+}
+
+.fnh-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 52vh;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.fnh-console-pre {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #a1a1aa;
+    font-family: Consolas, "Roboto Mono", "Courier New", monospace;
+    font-size: 11px;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+}
+
+#fnh-cheat-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--theme-bg-panel, rgba(15, 23, 42, 0.85));
+    border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
+    color: #f4f4f5;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+    opacity: 0;
+    transition: all 0.2s ease-out;
+    z-index: 100020;
+    text-align: center;
+}
+
+#fnh-cheat-toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+#btn-cheat-mode-toggle {
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+    border: 1px solid var(--theme-accent, #38bdf8);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#btn-cheat-mode-toggle.fnh-mode-engine {
+    background: #4f46e5;
+    border-color: #6366f1;
+}
+
+#btn-cheat-mode-toggle.fnh-mode-menu {
+    background: var(--theme-accent, #38bdf8);
+    border-color: var(--theme-accent, #38bdf8);
+}
+
+.fnh-cat-nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+}
+
+.fnh-cat-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #a1a1aa;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.fnh-cat-btn svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.fnh-cat-btn.active {
+    background: var(--theme-accent, #38bdf8);
+    border-color: var(--theme-accent, #38bdf8);
+    color: var(--theme-accent-contrast, #ffffff);
+}
+
+.fnh-profile-sec {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fnh-empty-msg {
+    text-align: center;
+    padding: 20px;
+    color: #71717a;
+    font-size: 12px;
+}
+
+.fnh-profile-empty {
+    text-align: center;
+    padding: 30px 15px;
+    color: #71717a;
+}
+
+.fnh-profile-empty-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e4e4e7;
+    margin-bottom: 6px;
+}
+
+.fnh-snippet-heading {
+    font-size: 11px;
+    font-weight: 700;
+    color: #a1a1aa;
+    letter-spacing: 0.5px;
+}
+
+/* 3. VPad Text & State Utilities */
+.vpad-text-accent {
+    color: var(--theme-accent, #38bdf8) !important;
+}
+
+.vpad-text-amber {
+    color: var(--vpad-accent-amber, #fbbf24) !important;
+}
+
+.vpad-label-muted {
+    font-size: 11px;
+    color: #bbb;
+}
+
+/* Base Panel Constraints for Cheat & Diagnostic Overlays */
+#fnh-cheat-overlay {
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+#rp-diag-modal {
+    pointer-events: auto !important;
+}
+#fnh-cheat-header,
+#rp-diag-header {
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+/* 1. LIQUID GLASS MODAL DETAILS (.vpad-theme-clean & Default) */
+body.vpad-theme-clean #fnh-cheat-header,
+body:not([class*="vpad-theme-"]) #fnh-cheat-header {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-top-left-radius: 23px !important;
+    border-top-right-radius: 23px !important;
+}
+body.vpad-theme-clean .fnh-cheat-tab.active,
+body:not([class*="vpad-theme-"]) .fnh-cheat-tab.active {
+    color: #f4f4f5 !important;
+    border-bottom-color: #007aff !important;
+    background: rgba(0, 122, 255, 0.18) !important;
+}
+body.vpad-theme-clean .fnh-btn-action,
+body.vpad-theme-clean .fnh-cat-btn.active,
+body:not([class*="vpad-theme-"]) .fnh-btn-action,
+body:not([class*="vpad-theme-"]) .fnh-cat-btn.active {
+    background: linear-gradient(135deg, #0062cc 0%, #007aff 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4) !important;
+}
+body.vpad-theme-clean #rp-diag-header,
+body:not([class*="vpad-theme-"]) #rp-diag-header {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-top-left-radius: 23px !important;
+    border-top-right-radius: 23px !important;
+    color: #007aff !important;
+}
+body.vpad-theme-clean .diag-tab-btn.active,
+body:not([class*="vpad-theme-"]) .diag-tab-btn.active {
+    background: linear-gradient(135deg, #0062cc 0%, #007aff 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4) !important;
+}
+body.vpad-theme-clean .diag-btn-primary,
+body:not([class*="vpad-theme-"]) .diag-btn-primary {
+    background: linear-gradient(135deg, #0062cc 0%, #007aff 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4) !important;
+}
+body.vpad-theme-clean .diag-stat-pill,
+body:not([class*="vpad-theme-"]) .diag-stat-pill {
+    background: rgba(0, 122, 255, 0.1) !important;
+    border: 1px solid rgba(0, 122, 255, 0.3) !important;
+}
+
+/* 2. MINIMALIST MATTE MODALS (Solid Dark Charcoal, Deep Blue Accent) */
+body.vpad-theme-matte #fnh-cheat-overlay {
+    background: #141416 !important;
+    border: 1.5px solid #2563eb !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.9) !important;
+    border-radius: 10px !important;
+}
+body.vpad-theme-matte #fnh-cheat-header {
+    background: #18181b !important;
+    border-bottom: 1px solid #27272a !important;
+}
+body.vpad-theme-matte .fnh-cheat-tab.active {
+    color: #dbeafe !important;
+    border-bottom-color: #2563eb !important;
+    background: rgba(37, 99, 235, 0.15) !important;
+}
+body.vpad-theme-matte .fnh-btn-action,
+body.vpad-theme-matte .fnh-cat-btn.active {
+    background: #1e3a8a !important;
+    border-color: #2563eb !important;
+    color: #dbeafe !important;
+    box-shadow: none !important;
+}
+body.vpad-theme-matte .fnh-btn-action:active,
+body.vpad-theme-matte .fnh-cat-btn.active:active {
+    background: #1d4ed8 !important;
+}
+body.vpad-theme-matte #rp-diag-modal {
+    background: #141416 !important;
+    border: 1.5px solid #2563eb !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.9) !important;
+    border-radius: 10px !important;
+}
+body.vpad-theme-matte #rp-diag-header {
+    background: #18181b !important;
+    border-bottom: 1px solid #27272a !important;
+    color: #60a5fa !important;
+}
+body.vpad-theme-matte .diag-tab-btn.active {
+    background: #1e3a8a !important;
+    border-color: #2563eb !important;
+    color: #dbeafe !important;
+    box-shadow: none !important;
+}
+body.vpad-theme-matte .diag-btn-primary {
+    background: #1e3a8a !important;
+    border-color: #2563eb !important;
+    color: #dbeafe !important;
+    box-shadow: none !important;
+}
+body.vpad-theme-matte .diag-btn-primary:active {
+    background: #1d4ed8 !important;
+}
+body.vpad-theme-matte .diag-stat-pill {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #cbd5e1 !important;
+}
+
+/* 3. RETRO OSD MODALS (Sharp 2px, Amber CRT #ff7700, Black #0a0a0c) */
+body.vpad-theme-retro #fnh-cheat-overlay {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 24px rgba(255, 119, 0, 0.3) !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro #fnh-cheat-header {
+    background: #141418 !important;
+    border-bottom: 1px solid #ff7700 !important;
+}
+body.vpad-theme-retro .fnh-cheat-title {
+    color: #ffaa44 !important;
+}
+body.vpad-theme-retro .fnh-cheat-tab.active {
+    color: #000 !important;
+    border-bottom-color: #ff7700 !important;
+    background: #ff7700 !important;
+    font-weight: bold !important;
+}
+body.vpad-theme-retro .fnh-btn-action,
+body.vpad-theme-retro .fnh-cat-btn.active {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro #rp-diag-modal {
+    background: #0a0a0c !important;
+    border: 1.5px solid #ff7700 !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 24px rgba(255, 119, 0, 0.3) !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro #rp-diag-header {
+    background: #141418 !important;
+    border-bottom: 1px solid #ff7700 !important;
+    color: #ffaa44 !important;
+}
+body.vpad-theme-retro .diag-tab-btn {
+    border-radius: 2px !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .diag-tab-btn.active {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+}
+body.vpad-theme-retro .diag-btn-primary {
+    background: #ff7700 !important;
+    border-color: #ffa244 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro .diag-stat-pill {
+    background: #141418 !important;
+    border: 1px solid #ff7700 !important;
+    color: #ffaa44 !important;
+    border-radius: 2px !important;
+    font-family: Consolas, monospace !important;
+}
+body.vpad-theme-retro .diag-card {
+    background: #101014 !important;
+    border: 1px solid #333 !important;
+    border-radius: 2px !important;
+}
+body.vpad-theme-retro .diag-console-pre {
+    background: #000 !important;
+    border: 1px solid #ff7700 !important;
+    color: #ffaa44 !important;
+    border-radius: 2px !important;
+    font-family: Consolas, monospace !important;
+}
+
+/* ============================================================================
+   Compositor Performance & Touch Action Polish
+   Eliminate duplicate nested blurs on modal buttons; enforce smooth touch scrolling
+   ============================================================================ */
+#fnh-cheat-overlay button,
+#fnh-cheat-overlay .fnh-cheat-tab,
+#fnh-cheat-overlay .fnh-cat-btn,
+#rp-diag-modal button,
+#rp-diag-modal .diag-tab-btn,
+.vpad-modal-box button,
+.vpad-bar-btn {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+#fnh-cheat-header,
+#rp-diag-header {
+    touch-action: none !important;
+}
+
+#fnh-cheat-tabs,
+.fnh-cat-nav,
+.diag-tabs {
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x !important;
+}
+
+.diag-tab-btn,
+.fnh-cheat-tab,
+.fnh-cat-btn {
+    flex-shrink: 0 !important;
+}
+
+/* ============================================================================
+   Responsive Media Queries: 720p Landscape & Narrow Viewports
+   Scaled font sizes, card paddings, modal sizes, and non-overlapping tabs
+   (e.g., 1280x720 physical landscape = 640x360 / 853x480 CSS pixels)
+   ============================================================================ */
+@media (max-height: 480px) {
+    #fnh-cheat-overlay,
+    #rp-diag-modal {
+        width: min(84vw, 460px) !important;
+        max-height: min(78vh, 320px) !important;
+        font-size: 11px !important;
+    }
+    #fnh-cheat-content,
+    #fnh-cheat-body {
+        max-height: 180px !important;
+    }
+    #vpad-key-modal .vpad-modal-box {
+        width: min(84vw, 440px) !important;
+        max-height: min(78vh, 320px) !important;
+    }
+    #vpad-prop-panel {
+        width: min(80vw, 290px) !important;
+        max-height: min(78vh, 310px) !important;
+    }
+    .vpad-modal-scroll-area {
+        max-height: 140px !important;
+    }
+    #fnh-cheat-header,
+    #rp-diag-header {
+        padding: 6px 10px !important;
+    }
+    .fnh-cheat-title,
+    .diag-title {
+        font-size: 11px !important;
+    }
+    .fnh-cheat-close,
+    .diag-close-btn {
+        width: 22px !important;
+        height: 22px !important;
+        font-size: 12px !important;
+        padding: 2px !important;
+    }
+    #fnh-cheat-tabs,
+    .diag-tabs {
+        padding: 4px 6px !important;
+        gap: 4px !important;
+    }
+    .fnh-cheat-tab,
+    .diag-tab-btn {
+        padding: 4px 8px !important;
+        font-size: 10px !important;
+        min-width: 60px !important;
+        flex-shrink: 0 !important;
+    }
+    .fnh-cat-nav {
+        padding-bottom: 4px !important;
+        margin-bottom: 6px !important;
+        gap: 4px !important;
+    }
+    .fnh-cat-btn {
+        padding: 4px 8px !important;
+        font-size: 10px !important;
+        flex-shrink: 0 !important;
+    }
+    .diag-body-container,
+    .diag-tab-pane,
+    .fnh-modal-body {
+        padding: 6px 10px !important;
+    }
+    .diag-card {
+        padding: 8px !important;
+        margin-bottom: 6px !important;
+    }
+    .fnh-cheat-row {
+        padding: 6px 10px !important;
+    }
+    .diag-card-title {
+        font-size: 11px !important;
+        margin-bottom: 2px !important;
+    }
+    .diag-card-desc {
+        font-size: 10px !important;
+        margin-bottom: 6px !important;
+    }
+    .diag-stats-bar {
+        padding: 3px 10px !important;
+        font-size: 10px !important;
+        gap: 4px !important;
+    }
+    .diag-stat-pill {
+        padding: 2px 6px !important;
+        font-size: 10px !important;
+    }
+    .diag-btn,
+    .fnh-btn-action {
+        padding: 5px 10px !important;
+        font-size: 10px !important;
+    }
+    .diag-console-section {
+        max-height: 110px !important;
+    }
+    .diag-console-box,
+    .diag-log-box {
+        max-height: 90px !important;
+        font-size: 10px !important;
+    }
+    .vpad-modal-box {
+        width: min(84vw, 440px) !important;
+        max-height: min(78vh, 320px) !important;
+        padding: 10px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    #fnh-cheat-overlay,
+    #rp-diag-modal {
+        width: min(84vw, 460px) !important;
+        max-height: min(78vh, 320px) !important;
+    }
+    .fnh-cheat-tab,
+    .diag-tab-btn,
+    .fnh-cat-btn {
+        flex-shrink: 0 !important;
+    }
+    .diag-card {
+        padding: 8px 10px !important;
+    }
+}

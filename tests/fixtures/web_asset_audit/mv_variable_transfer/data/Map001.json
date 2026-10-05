@@ -1,0 +1,173 @@
+{
+  "displayName": "Starting Town",
+  "autoplayBgm": true,
+  "bgm": {
+    "name": "MapBgm",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "autoplayBgs": true,
+  "bgs": {
+    "name": "MapBgs",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "parallaxName": "Parallax1",
+  "battleback1Name": "Grassland",
+  "battleback2Name": "Forest",
+  "tilesetId": 1,
+  "events": [
+    null,
+    {
+      "id": 1,
+      "name": "EV001",
+      "pages": [
+        {
+          "image": {
+            "characterName": "NPC1",
+            "characterIndex": 0
+          },
+          "moveRoute": {
+            "list": [
+              {
+                "code": 41,
+                "parameters": [
+                  "NPC2",
+                  0
+                ]
+              },
+              {
+                "code": 44,
+                "parameters": [
+                  {
+                    "name": "StepSE",
+                    "pan": 0,
+                    "pitch": 100,
+                    "volume": 90
+                  }
+                ]
+              },
+              {
+                "code": 0,
+                "parameters": []
+              }
+            ]
+          },
+          "list": [
+            {
+              "code": 201,
+              "indent": 0,
+              "parameters": [
+                1,
+                10,
+                5,
+                5,
+                0,
+                0
+              ]
+            },
+            {
+              "code": 231,
+              "indent": 0,
+              "parameters": [
+                1,
+                "MapPicMV",
+                0,
+                0,
+                0,
+                0,
+                100,
+                100,
+                255,
+                0
+              ]
+            },
+            {
+              "code": 241,
+              "indent": 0,
+              "parameters": [
+                {
+                  "name": "EventBgm",
+                  "pan": 0,
+                  "pitch": 100,
+                  "volume": 90
+                }
+              ]
+            },
+            {
+              "code": 245,
+              "indent": 0,
+              "parameters": [
+                {
+                  "name": "EventBgs",
+                  "pan": 0,
+                  "pitch": 100,
+                  "volume": 90
+                }
+              ]
+            },
+            {
+              "code": 249,
+              "indent": 0,
+              "parameters": [
+                {
+                  "name": "EventMe",
+                  "pan": 0,
+                  "pitch": 100,
+                  "volume": 90
+                }
+              ]
+            },
+            {
+              "code": 250,
+              "indent": 0,
+              "parameters": [
+                {
+                  "name": "EventSe",
+                  "pan": 0,
+                  "pitch": 100,
+                  "volume": 90
+                }
+              ]
+            },
+            {
+              "code": 261,
+              "indent": 0,
+              "parameters": [
+                "IntroMovie"
+              ]
+            },
+            {
+              "code": 322,
+              "indent": 0,
+              "parameters": [
+                1,
+                "HeroNew",
+                0,
+                "HeroNewFace",
+                0,
+                "HeroNewSV"
+              ]
+            },
+            {
+              "code": 212,
+              "indent": 0,
+              "parameters": [
+                0,
+                1,
+                false
+              ]
+            },
+            {
+              "code": 0,
+              "indent": 0,
+              "parameters": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

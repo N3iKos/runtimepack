@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RuntimeManifest",
+  "description": "Schema for runtime package manifest (runtime.toml)",
+  "type": "object",
+  "required": [
+    "manifest_version",
+    "id",
+    "version",
+    "runtime_api",
+    "family",
+    "engines",
+    "abis",
+    "android",
+    "capabilities"
+  ],
+  "properties": {
+    "manifest_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "runtime_api": { "type": "integer", "minimum": 1 },
+    "family": { "type": "string", "enum": ["rgss", "web", "renpy", "tyrano", "vnmaker-web"] },
+    "engines": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "abis": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["arm64-v8a", "x86_64", "armeabi-v7a"] }
+    },
+    "android": {
+      "type": "object",
+      "required": ["min_sdk"],
+      "properties": {
+        "min_sdk": { "type": "integer", "default": 26 },
+        "target_sdk": { "type": "integer", "default": 34 }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "android_module": { "type": "string" },
+        "aar_path": { "type": "string" }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "licenses": {
+      "type": "object",
+      "properties": {
+        "license_id": { "type": "string" },
+        "notice_bundle": { "type": "string" }
+      }
+    }
+  }
+}

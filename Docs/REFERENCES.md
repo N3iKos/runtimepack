@@ -1,0 +1,306 @@
+# References and Evidence Registry
+
+Access baseline: **2026-09-18**
+
+Use source IDs in implementation comments/design docs. URLs should be re-verified before major release because external documentation can change.
+
+## Class A — Official product/vendor documentation
+
+### S01 — JoiPlay official product page
+URL: https://www.joiplay.cyou/index.html
+
+Supports the claims:
+- JoiPlay is a game interpreter and launcher.
+- Listed families include RPG Maker XP/VX/VX Ace/MV/MZ, Ren'Py, TyranoBuilder, Construct, Flash, HTML.
+- JoiPlay explicitly says it does not emulate Windows/another OS.
+- Windows APIs and uncommon Node.js APIs can affect compatibility.
+
+### S02 — JoiPlay RPGPacker
+URL: https://joiplay.cyou/rpgpacker/
+
+Supports:
+- RPGPacker targets RPG Maker XP/VX/VX Ace -> Android.
+- It generates a project from user/game files and builds with Gradle.
+- It produces APK/AAB and signing artifacts.
+
+### S07 — Ren'Py Android documentation
+URL: https://www.renpy.org/doc/html/android.html
+
+Supports:
+- RAPT creates Android packages.
+- Ren'Py Android packages run as Android apps.
+- Android packaging has upstream-supported workflow.
+- Ren'Py Android distributions include license obligations.
+
+### S08 — Ren'Py command-line documentation
+URL: https://www.renpy.org/doc/html/cli.html
+
+Supports:
+- upstream Android build CLI;
+- APK/AAB build modes.
+
+### S09 — Ren'Py license documentation
+URL: https://www.renpy.org/doc/html/license.html
+
+Supports:
+- most Ren'Py under MIT;
+- portions/dependencies under LGPL and other licenses;
+- redistribution notice/compliance requirement.
+
+### S11 — TyranoBuilder export tutorial
+URL: https://tyranobuilder.com/tutorials/all-done-time-to-export
+
+Supports:
+- TyranoBuilder exports browser, Windows, macOS, iOS and Android targets.
+- Browser export is a web-project model.
+
+### S13 — RPG Maker MV official Android conversion documentation
+URL: https://rpgmakerofficial.com/product/MV_Help/page/01_11_05.html
+
+Supports:
+- MV uses HTML5/WebGL/Canvas/WebAudio/JavaScript.
+- Android packaging is described as a hybrid application using a browser engine/WebView.
+
+### S14 — RPG Maker MZ official output documentation
+URL: https://rpgmakerofficial.com/product/MZ_help-en/01_11_03.html
+
+Supports:
+- MZ web-browser deployment.
+- HTML5/WebGL-capable Android browser environment is part of documented web target requirements.
+
+### S15 — Android app-specific storage
+URL: https://developer.android.com/training/data-storage/app-specific
+
+Supports:
+- internal app-specific storage isolation;
+- no system storage permission needed for app-private files.
+
+### S16 — Android Keystore
+URL: https://developer.android.com/privacy-and-security/keystore
+
+Supports:
+- non-exportable key material;
+- possible secure-hardware binding.
+
+### S17 — Android App Bundle / signing FAQ
+URL: https://developer.android.com/guide/app-bundle/faq
+
+Supports:
+- APKs need cryptographic signing;
+- signing key is part of application update identity.
+
+## Class B — Upstream/open-source runtime repositories
+
+### S06 — mkxp-z
+URL: https://github.com/mkxp-z/mkxp-z
+
+Supports:
+- open-source player for RPG Maker XP/VX/VX Ace.
+- not universal compatibility; demanding games may need porting.
+- GPL-2.0+ licensing statement and build-option license caveat.
+
+### S10 — TyranoScript official repository
+URL: https://github.com/ShikemokuMK/tyranoscript
+
+Supports:
+- TyranoScript uses HTML/JavaScript.
+- repository layout includes `data`, `tyrano`, `index.html`.
+- project states cross-platform targets.
+- README terms include restrictions around redistribution and smartphone conversion-tool commercialization/use, requiring consultation in those cases.
+
+### S12 — TyranoScript index.html
+URL: https://github.com/ShikemokuMK/tyranoscript/blob/master/index.html
+
+Supports:
+- specific runtime files loaded from `tyrano/`;
+- KAG plugin stack;
+- JS/browser architecture and optional desktop `require` behavior.
+
+## Class C — JoiPlay public implementation evidence
+
+### S03 — JoiPlay RGA templates
+URL: https://github.com/joiplay/rga
+
+Supports:
+- public JoiPlay game archive metadata structure;
+- legacy/public type values and engine template directories.
+
+Do not treat this old type list as the sole current support list; S01 is current product evidence.
+
+### S04 — JoiPlay android-mkxp
+URL: https://github.com/joiplay/android-mkxp
+
+Supports:
+- Android/mobile MKXP lineage used as JoiPlay RPG Maker plugin reference.
+- public proof of Android feasibility for RGSS family.
+
+### S05 — JoiPlay android-mkxp app build configuration
+URL: https://github.com/joiplay/android-mkxp/blob/master/app/build.gradle
+
+Supports:
+- older public build uses Android application module;
+- ABI splits include armeabi-v7a, arm64-v8a, x86_64;
+- older min/target SDK values (historical evidence only).
+
+### S18 — JoiPlay release: Ren'Py 8.4.1 separate plugin
+URL: https://www.patreon.com/joiplay/posts/joiplay-1-20-600-135070650
+
+Supports:
+- JoiPlay created a new Ren'Py plugin for 8.4.1 due to breaking changes;
+- multiple historical Ren'Py plugin generations are maintained.
+
+### S19 — JoiPlay Android MKXP manifest
+URL: https://github.com/joiplay/android-mkxp/blob/master/app/src/main/AndroidManifest.xml
+
+Supports:
+- JoiPlay launcher/plugin architecture historically used broad external-storage permissions.
+- This is historical implementation evidence, **not** a RuntimePack recommendation.
+
+### S20 — JoiPlay RPG Maker XP RGA template Game.ini
+URL: https://github.com/joiplay/rga/blob/master/rpgmxp/Game.ini
+
+Supports:
+- `.rxdata` script marker and RGSS1 library example.
+
+### S21 — JoiPlay RPG Maker VX RGA template Game.ini
+URL: https://github.com/joiplay/rga/blob/master/rpgmvx/Game.ini
+
+Supports:
+- `.rvdata` script marker and RGSS2 library example.
+
+### S22 — JoiPlay RPG Maker VX Ace RGA template Game.ini
+URL: https://github.com/joiplay/rga/blob/master/rpgmvxace/Game.ini
+
+Supports:
+- `.rvdata2` script marker and RGSS3 library example.
+
+### S23 — JoiPlay Tyrano RGA template
+URL: https://github.com/joiplay/rga/blob/master/tyrano/game.cfg
+
+Supports:
+- Tyrano `index.html` entrypoint in JoiPlay's public archive template.
+
+### S24 — JoiPlay JoiPad
+URL: https://github.com/joiplay/joipad
+
+Supports:
+- JoiPlay separates virtual gamepad into a reusable plugin component.
+
+### S25 — JoiPlay public plugin repository license
+URL: https://github.com/joiplay/plugin/blob/master/LICENSE
+
+Supports:
+- this specific `joiplay/plugin` repository is MIT licensed.
+- does NOT establish licenses for unrelated JoiPlay repositories.
+
+## Historical supplemental reference
+
+### S26 — Archived JoiPlay site source
+URL: https://github.com/joiplay/joiplay.github.io-archived/blob/master/index.html
+
+Supports historical architecture statements:
+- old JoiPlay used Ren'Py and RPG Maker plugins based on Ren'Py/RAPT/MKXP/android-mkxp.
+- compatibility affected by native libraries, Win32API and Node.js modules.
+
+Use only as historical context when current docs are silent.
+
+### S27 — Ruby Marshal 4.8 Format and RGSS Data Specifications
+URL: https://docs.ruby-lang.org/en/3.2/marshal_rdoc.html
+Preserved RGSS1/RGSS2/RGSS3 specifications and Enterbrain documentation for RPG Maker XP / VX / VX Ace.
+
+Supports:
+- Ruby Marshal 4.8 binary format specification: major 4 minor 8 magic bytes `\x04\x08`, type tokens for nil (`0`), bool (`T`/`F`), fixnum (`i`), string (`"`), symbol (`:`), symbol link (`;`), object link (`@`), array (`[`), hash (`{`), object (`o`), instance variable wrapper (`I`), user-defined dump (`u`), user marshal (`U`).
+- RGSS file extensions: `.rxdata` (XP / RGSS1), `.rvdata` (VX / RGSS2), `.rvdata2` (VX Ace / RGSS3).
+- RGSS data structure schemas: `RPG::System`, `RPG::Map`, `RPG::Event`, `RPG::Event::Page`, `RPG::EventCommand`, `RPG::MoveRoute`, `RPG::MoveCommand`, `RPG::Actor`, `RPG::Enemy`, `RPG::Animation`, `RPG::Tileset`, `RPG::CommonEvent`, `RPG::Troop`, `RPG::AudioFile`, `RPG::BGM`, `RPG::BGS`, `RPG::ME`, `RPG::SE`.
+- Event command codes: 201 (Player Transfer), 212 (Show Animation), 231 (Show Picture), 241 (Play BGM), 245 (Play BGS), 249 (Play ME), 250 (Play SE), 322 (Change Actor Graphic).
+- Move route command codes: 41 (Change Graphic), 44 (Play SE).
+
+### S28 — Ren'Py Script Language Syntax and Archive Specifications
+URL: https://www.renpy.org/doc/html/quickstart.html
+URL: https://www.renpy.org/doc/html/audio.html
+URL: https://www.renpy.org/doc/html/displayables.html
+URL: https://www.renpy.org/doc/html/python.html
+
+Supports:
+- Ren'Py script file extension: `.rpy` and compiled bytecode `.rpyc`.
+- Ren'Py archive format extension: `.rpa` (RPAv3 / RPAv2 / RPAv1 archive packages).
+- Declarative image statement syntax: `image <tag> = "<path>"`, `image <tag> = Movie(...)`.
+- Audio statement syntax: `play music "<path>"`, `play sound "<path>"`, `play voice "<path>"`, `define audio.<name> = "<path>"`, dynamic channel expressions (`play music <var>`).
+- Scene and show statement syntax: `scene "<path>"`, `show "<path>"`, `scene <tag>`, `show <tag>`.
+- Video playback statement syntax: `movie "<path>"`, `renpy.movie_cutscene("<path>")`.
+- Python code execution blocks: `init python:`, `python:`, `$ <stmt>`.
+- Python import restrictions for standalone mobile runtimes: native C extensions (`.pyd`, `.so`, Windows `.dll`) and unsupported native imports (e.g. `ctypes`, `win32api`) cannot run on Android ARM64 pure-Python runtimes.
+
+### S29 — Visual Novel Maker HTML5 Export Specifications and Legacy Architecture
+URL: https://asset.visualnovelmaker.com/help/Engine_Getting_Started.htm
+URL: https://asset.visualnovelmaker.com/help/engine_doc/classes/gs.Graphics.html
+URL: https://asset.visualnovelmaker.com/help/engine_doc/classes/gs.GameStorage.html
+URL: https://asset.visualnovelmaker.com/help/game_script_doc/classes/Component_MessageBehavior.html
+URL: https://asset.visualnovelmaker.com/help/Create_Game_Package.htm
+
+Supports:
+- Visual Novel Maker uses an HTML5 JavaScript framework ("Basic Engine") separating core engine components (`data/ENGINE.js`) from game behaviors and scene scripts (`data/SCRIPTS.js`).
+- Verified core engine export contains `window.gs` namespace initialization and `GameStorage` persistence management.
+- Verified game scripts export contains `vn.Component_MessageBehavior` and `gs.Application`.
+- Entry point `index.html` loads platform libraries and scripts in defined order, referencing `data/ENGINE.js` and `data/SCRIPTS.js`.
+- Legacy desktop packaging produces a web-application bundle with `package.json` (`main: "index.html"`).
+- Supported experimental export profile identifies this specific legacy export layout verified from fresh game research; does not imply universal support for all past and future VNM generations.
+
+### S30 — Visual Novel Maker Static Asset Manifest and Encryption Baseline
+URL: local://docs/research/VNM_PORTING_POSTMORTEM_AND_RECOMMENDATIONS.md
+URL: https://asset.visualnovelmaker.com/help/Resource_Standards.htm
+URL: https://asset.visualnovelmaker.com/help/Create_Game_Package.htm
+
+Supports:
+- Visual Novel Maker encrypted exports contain encrypted asset tables in `data/RESOURCES.json.js` and `data/SUMMARIES.json.js`.
+- Opaque/encrypted manifests cannot be statically resolved without encryption keys and game execution; static audit must report INDETERMINATE with incomplete reference scope.
+- Unreferenced asset files cannot be inferred as orphans while manifest resolution is indeterminate.
+- Native Node.js modules (`.node`) and unsupported native desktop libraries (`.dll`, `.so`) are incompatible with Android WebView.
+
+### S31 — JSZip NodeBuffer and ArrayBuffer Specifications
+URL: https://github.com/Stuk/jszip
+URL: https://stuk.github.io/jszip/documentation/api_jszip/generate.html
+
+Supports:
+- JSZip uses `new Buffer(data, encoding)` and `Buffer.isBuffer(b)`.
+- When type is `"nodebuffer"`, output satisfies `Buffer.isBuffer` and provides Uint8Array/Buffer methods (`slice`, `toString`, `copy`, `alloc`, `from`).
+- Multibyte UTF-8 and base64 transformations must maintain exact byte fidelity.
+
+### S32 — Visual Novel Maker Storage and NW.js Window Contract Baseline
+URL: local://fresh-game-inspection/data/ENGINE.js
+
+Supports:
+- `GameStorage` in `data/ENGINE.js` routes persistence via `window.nw` and `require("fs")` when `$PARAMS.isOffline && !$PARAMS.platform.isSteamOS && null != window.nw`, else fallback to `localStorage.getItem($PARAMS.uid + "_" + e)`.
+- `nw.Window.get()` provides `isFullscreen`, `setResizable`, `enterFullscreen`, `leaveFullscreen`, and event handling `on("resize", ...)`.
+
+### S33 — Web Audio API AudioScheduledSourceNode Lifecycle and WebIDL onended Setter Specifications
+URL: https://www.w3.org/TR/webaudio/#AudioScheduledSourceNode
+
+Supports:
+- Calling `stop()` on an `AudioScheduledSourceNode` before `start()` has been invoked throws `InvalidStateError`.
+- `onended` is an IDL attribute on `AudioScheduledSourceNode` whose setter accepts an event handler callback.
+- Stale or asynchronous `onended` callbacks running after reference disposal must be detached or guarded from manipulating nulled destination or restarting unreferenced loops.
+
+### S34 — Visual Novel Maker Voice Duration and Skip Lifecycle Specifications
+URL: local://fresh-game-inspection/data/SCRIPTS.js
+
+Supports:
+- Line 11501: `vn.Component_MessageBehavior.prototype.voiceDuration` accesses `this.voice.source.buffer.duration` and `this.voice.source.playbackRate.value`.
+- When `this.voice` has been disposed, `voice.source` is null, causing `TypeError: Cannot read properties of null (reading 'buffer')`.
+- When `this.tempSettings.skip` is true, the method returns `1` frame.
+
+### S35 — Visual Novel Maker Synchronous HTML5 Script Execution Order
+URL: local://fresh-game-inspection/index.html
+
+Supports:
+- `index.html` loads libraries synchronously in `<head>` before `data/ENGINE.js` and `data/SCRIPTS.js`.
+- Shims must execute before `data/ENGINE.js`, and message behavior hooks must execute immediately following `data/SCRIPTS.js` before DOM-ready `Main.start()`.
+
+## Source hygiene
+
+Implementation agents must not introduce new external claims without adding an Sxx entry.
+
+When a source changes materially:
+- record the retrieval date;
+- pin repository commits when code becomes a dependency;
+- update affected requirement/ADR.

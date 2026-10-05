@@ -1,0 +1,26 @@
+/* Liquid Glass Optical Effects */
+
+.vpad-btn,
+.vpad-top-btn,
+#vpad-main-trigger-btn {
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+              background 0.2s ease,
+              box-shadow 0.2s ease,
+              border-color 0.2s ease;
+}
+
+.vpad-btn:active,
+.vpad-btn.vpad-btn-pressed,
+.vpad-top-btn:active,
+.vpad-top-btn.vpad-btn-pressed,
+#vpad-main-trigger-btn:active,
+#vpad-main-trigger-btn.vpad-btn-pressed {
+  transform: scale(0.92);
+}
+
+.vpad-top-btn.active:active,
+.vpad-top-btn.active.vpad-btn-pressed,
+#vpad-main-trigger-btn.active:active,
+#vpad-main-trigger-btn.active.vpad-btn-pressed {
+  transform: scale(0.92);
+}

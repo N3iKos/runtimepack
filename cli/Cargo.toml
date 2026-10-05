@@ -1,0 +1,63 @@
+[package]
+name = "runtimepack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "runtimepack"
+path = "src/main.rs"
+
+[[test]]
+name = "integration_detection"
+path = "../tests/integration/detection_test.rs"
+
+[[test]]
+name = "build_test"
+path = "../tests/integration/build_test.rs"
+
+[[test]]
+name = "integration_compatibility"
+path = "../tests/integration/compatibility_test.rs"
+
+[[test]]
+name = "asset_audit_cli_test"
+path = "../tests/integration/asset_audit_cli_test.rs"
+
+[[test]]
+name = "asset_audit_contract_test"
+path = "../tests/integration/asset_audit_contract_test.rs"
+
+[[test]]
+name = "asset_audit_report_test"
+path = "../tests/integration/asset_audit_report_test.rs"
+
+[[test]]
+name = "probe_scenario_test"
+path = "tests/probe_scenario_test.rs"
+
+[[test]]
+name = "vnmaker_detection_test"
+path = "../tests/integration/vnmaker_detection_test.rs"
+
+[[test]]
+name = "vnmaker_asset_audit_test"
+path = "../tests/integration/vnmaker_asset_audit_test.rs"
+
+[dependencies]
+runtimepack-core = { path = "../core" }
+runtimepack-pack = { path = "../pack" }
+runtimepack-engine-rgss = { path = "../engines/rgss" }
+runtimepack-engine-rpgmaker-web = { path = "../engines/rpgmaker_web" }
+runtimepack-engine-renpy = { path = "../engines/renpy" }
+runtimepack-engine-tyrano = { path = "../engines/tyrano" }
+runtimepack-engine-vnmaker = { path = "../engines/vnmaker" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+image = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,12 @@
+{
+  "lock_version": 1,
+  "gradle_version": "8.7",
+  "agp_version": "8.3.0",
+  "jdk_min_version": "17",
+  "android_compile_sdk": 34,
+  "android_min_sdk": 26,
+  "android_target_sdk": 34,
+  "build_tools_version": "34.0.0",
+  "ndk_version": "26.1.10909125",
+  "cmake_version": "3.22.1"
+}

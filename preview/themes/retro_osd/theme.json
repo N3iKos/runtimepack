@@ -1,0 +1,14 @@
+{
+  "id": "retro_osd",
+  "name": "Retro OSD",
+  "version": "1.0.0",
+  "themeApi": "1.0.0",
+  "author": "RuntimePack",
+  "description": "Amber monochrome CRT OSD terminal aesthetic with crisp 2px panels and scanline phosphor effects",
+  "stylesheets": {
+    "tokens": "tokens.css",
+    "components": "components.css",
+    "layout": "layout.css",
+    "effects": "effects.css"
+  }
+}

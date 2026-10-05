@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <link rel="stylesheet" href="vpad.css">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: transparent !important;
+            background: transparent !important;
+            overflow: hidden !important;
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent !important;
+            color: #f8fafc;
+        }
+        ::-webkit-scrollbar {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        function openCommunityLink() {
+            if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openCommunityLink === "function") {
+                window.RuntimePackVPad.openCommunityLink();
+            } else if (typeof window !== "undefined" && window.RuntimePackVPad && typeof window.RuntimePackVPad.openUrl === "function") {
+                window.RuntimePackVPad.openUrl("https://linktr.ee/Veldra.Works");
+            }
+        }
+        window.openLinktree = openCommunityLink;
+        window.openCommunityLink = openCommunityLink;
+    </script>
+    <script src="theme_loader.js"></script>
+    <script src="cheat_engine.js"></script>
+    <script src="cheat_profile.js"></script>
+    <script src="vpad.js"></script>
+    <script src="cheat_menu.js"></script>
+    <script src="diagnostic_suite.js"></script>
+</body>
+</html>

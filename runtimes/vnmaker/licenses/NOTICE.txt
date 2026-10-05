@@ -1,0 +1,14 @@
+RuntimePack — Third-Party Notices
+Runtime: vnmaker-web (RuntimePack Visual Novel Maker Web Adapter)
+================================================================
+
+This adapter provides host integration and compatibility adaptation
+for Visual Novel Maker HTML5 games running in Android WebView.
+
+Licensing summary
+-----------------
+* RuntimePack adapter integration code is licensed under MIT OR Apache-2.0.
+* This notice covers host-side adapter code only and does not grant,
+  license, or convey rights to any upstream Visual Novel Maker engine
+  binaries, editor tools, or user game assets.
+* No proprietary third-party native libraries are bundled in this adapter.

@@ -1,0 +1,18 @@
+/* Liquid Glass Fluid Layout Rules */
+
+#vpad-topbar {
+  gap: 10px;
+}
+
+.vpad-modal-box,
+#vpad-prop-panel,
+#rp-diag-modal,
+#fnh-cheat-overlay {
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+#vpad-editor-bar {
+  padding: 10px 18px;
+  gap: 12px;
+}

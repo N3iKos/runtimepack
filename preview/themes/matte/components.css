@@ -1,0 +1,252 @@
+/* Minimalist Matte Component Styles */
+
+/* Toolbar & Trigger Button */
+#vpad-main-trigger-btn {
+  background: var(--theme-bg-panel, #141416);
+  border: 2px solid #3f3f46;
+  color: var(--theme-text-primary, #f4f4f5);
+  border-radius: var(--theme-radius-button, 50%);
+  box-shadow: var(--theme-box-shadow, 0 4px 12px rgba(0, 0, 0, 0.75));
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-top-btn {
+  background: var(--theme-bg-toolbar, #10172a);
+  border: 1.5px solid var(--theme-border-color, #27272a);
+  color: var(--theme-text-muted, #a1a1aa);
+  border-radius: var(--theme-radius-button, 50%);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.65);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-top-btn.active,
+#vpad-main-trigger-btn.active {
+  background: var(--theme-bg-toolbar-active, #1e3a8a);
+  border-color: var(--theme-accent, #2563eb);
+  color: var(--theme-accent-contrast, #ffffff);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.vpad-top-btn.active svg,
+#vpad-main-trigger-btn.active svg {
+  stroke: var(--theme-accent-contrast, #ffffff);
+}
+
+/* Action Buttons */
+.vpad-btn {
+  background: var(--theme-bg-panel, #141416);
+  border: 2px solid #3f3f46;
+  color: var(--theme-text-primary, #f4f4f5);
+  border-radius: var(--theme-radius-button, 50%);
+  box-shadow: var(--theme-box-shadow, 0 4px 14px rgba(0, 0, 0, 0.75));
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-btn:active {
+  background: #27272a;
+  border-color: #a1a1aa;
+}
+
+.vpad-btn-green {
+  background: var(--theme-bg-panel, #141416);
+  border: 2.2px solid var(--theme-color-green, #10b981);
+  color: #34d399;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.vpad-btn-green:active {
+  background: #064e3b;
+  border-color: #6ee7b7;
+  color: #ecfdf5;
+}
+
+.vpad-btn-red {
+  background: var(--theme-bg-panel, #141416);
+  border: 2.2px solid var(--theme-color-red, #ef4444);
+  color: #f87171;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(239, 68, 68, 0.25);
+}
+
+.vpad-btn-red:active {
+  background: #7f1d1d;
+  border-color: #fca5a5;
+  color: #fef2f2;
+}
+
+.vpad-btn-yellow {
+  background: var(--theme-bg-panel, #141416);
+  border: 2.2px solid var(--theme-color-yellow, #f59e0b);
+  color: #fbbf24;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.vpad-btn-yellow:active {
+  background: #78350f;
+  border-color: #fde68a;
+  color: #fffbeb;
+}
+
+.vpad-btn-util {
+  border-radius: 8px;
+  background: var(--theme-bg-panel, #141416);
+  border: 1.8px solid #3f3f46;
+  color: #d4d4d8;
+}
+
+/* D-Pad */
+.vpad-dpad-container {
+  background: #101012;
+  border: 2.5px solid var(--theme-border-color, #27272a);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-dpad-arrow {
+  color: var(--theme-text-muted, #a1a1aa);
+  background: #18181b;
+  border: 1.5px solid var(--theme-border-color, #27272a);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.vpad-dpad-arrow.active {
+  background: #27272a;
+  border-color: var(--theme-accent, #2563eb);
+  color: var(--theme-accent, #2563eb);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
+}
+
+.vpad-dpad-center {
+  background: #18181b;
+}
+
+/* Joystick */
+.vpad-joystick-container {
+  background: #101012;
+  border: 2.5px solid var(--theme-border-color, #27272a);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8);
+  backdrop-filter: var(--theme-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, none);
+}
+
+.vpad-joystick-stick {
+  background: #27272a;
+  border: 2px solid #52525b;
+}
+
+.vpad-joystick-container.active .vpad-joystick-stick {
+  border-color: var(--theme-accent, #2563eb);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
+}
+
+/* Editor Bar & Modal Frames */
+#vpad-editor-bar {
+  background: var(--theme-bg-panel, #141416);
+  border: var(--theme-border-panel, 1.5px solid #2563eb);
+  border-radius: var(--theme-radius-panel, 10px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+}
+
+#vpad-bar-done {
+  background: var(--theme-bg-toolbar-active, #1e3a8a);
+  border: 1px solid var(--theme-accent, #2563eb);
+  border-radius: 8px;
+  color: var(--theme-accent-contrast, #ffffff);
+}
+
+#vpad-bar-done:active {
+  background: #172554;
+  border-color: #3b82f6;
+}
+
+#fnh-cheat-overlay,
+#rp-diag-modal,
+#vpad-prop-panel,
+#vpad-key-modal,
+.vpad-modal-box {
+  background: var(--theme-bg-panel, #141416);
+  border: var(--theme-border-panel, 1.5px solid #2563eb);
+  border-radius: var(--theme-radius-panel, 10px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+  color: var(--theme-text-primary, #f4f4f5);
+}
+
+#rp-diag-modal {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+.diag-console-box,
+.diag-log-box {
+  max-height: 90px;
+}
+
+#fnh-cheat-overlay {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+#fnh-cheat-content,
+#fnh-cheat-body {
+  max-height: 180px;
+}
+
+#fnh-cheat-overlay .fnh-cheat-row {
+  padding: 6px 10px;
+}
+
+#vpad-key-modal .vpad-modal-box {
+  width: min(84vw, 440px);
+  max-height: min(78vh, 320px);
+}
+
+.vpad-modal-scroll-area {
+  max-height: 140px;
+}
+
+#vpad-prop-panel {
+  width: min(80vw, 290px);
+  max-height: min(78vh, 310px);
+}
+
+@media (max-height: 480px) {
+  #rp-diag-modal {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .diag-tab-pane {
+    padding: 8px !important;
+  }
+  .diag-card {
+    padding: 8px !important;
+  }
+  .diag-console-box,
+  .diag-log-box {
+    max-height: 90px !important;
+  }
+  #fnh-cheat-overlay {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  #fnh-cheat-content,
+  #fnh-cheat-body {
+    max-height: 180px !important;
+  }
+  .fnh-cheat-row {
+    padding: 6px 10px !important;
+  }
+  #vpad-key-modal .vpad-modal-box {
+    width: min(84vw, 440px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .vpad-modal-scroll-area {
+    max-height: 140px !important;
+  }
+  #vpad-prop-panel {
+    width: min(80vw, 290px) !important;
+    max-height: min(78vh, 310px) !important;
+  }
+}

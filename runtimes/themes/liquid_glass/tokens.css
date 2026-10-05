@@ -1,0 +1,15 @@
+:root, [data-theme="liquid_glass"] {
+  --theme-accent: #007aff;
+  --theme-accent-contrast: #ffffff;
+  --theme-bg-toolbar: rgba(15, 23, 42, 0.55);
+  --theme-bg-panel: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%);
+  --theme-border-panel: 1px solid rgba(255, 255, 255, 0.28);
+  --theme-radius-panel: 24px;
+  --theme-radius-button: 9999px;
+  --theme-backdrop-filter: blur(30px) saturate(180%);
+  --theme-box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+  --theme-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --theme-text-primary: #f8fafc;
+  --theme-text-muted: rgba(255, 255, 255, 0.7);
+  --theme-rim-highlight: inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
