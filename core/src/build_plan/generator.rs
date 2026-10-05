@@ -635,7 +635,7 @@ include(":app")
         let (main_activity, additional_activities): (&str, Vec<&str>) =
             match manifest.runtime.family.as_str() {
                 "RGSS" => ("io.runtimepack.host.RgssActivity", vec![]),
-                "RPG Maker Web" | "web" | "Tyrano Web" => {
+                "RPG Maker Web" | "web" | "Tyrano Web" | "VNM Web" | "vnmaker-web" => {
                     ("io.runtimepack.host.WebActivity", vec![])
                 }
                 "Ren'Py" => (
@@ -688,13 +688,168 @@ include(":app")
             .unwrap_or_else(|| PathBuf::from("android/shell/app/src/main/assets/web_shims"));
         let fonts_src = Self::find_template_file("android/shell/app/src/main/assets/fonts");
 
-        let integrity_hash = Self::compute_runtime_integrity_hash(
-            &overlay_src,
-            &shims_src,
-            fonts_src.as_deref(),
-        ).unwrap_or_default();
+        let integrity_hash = if !is_release {
+            let overlay_dst = assets_dir.join("overlay");
+            let shims_dst = assets_dir.join("web_shims");
+            let fonts_dst = assets_dir.join("fonts");
 
-        // Write build-manifest.json to assets
+            if manifest.overlay_mode == "passive-watermark" {
+                fs::create_dir_all(&overlay_dst)?;
+                let passive_html = "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"user-scalable=0, initial-scale=1.0\">\n    <style>\n        html, body {\n            margin: 0; padding: 0; width: 100%; height: 100%;\n            background: transparent !important;\n            pointer-events: none !important;\n            overflow: hidden;\n        }\n        #fnh-watermark {\n            position: fixed;\n            bottom: 12px;\n            right: 12px;\n            color: rgba(255, 255, 255, 0.45);\n            font-family: sans-serif;\n            font-size: 11px;\n            font-weight: 600;\n            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);\n            pointer-events: none !important;\n            user-select: none !important;\n            z-index: 999999;\n            text-align: right;\n            line-height: 1.2;\n        }\n    </style>\n</head>\n<body>\n    <div id=\"fnh-watermark\">\n        <div>Beta Test</div>\n        <div>Veldra Community</div>\n    </div>\n</body>\n</html>";
+                fs::write(overlay_dst.join("index.html"), passive_html)?;
+
+                if shims_src.exists() {
+                    copy_dir_all(&shims_src, &shims_dst)?;
+                }
+
+                if let Some(ref fonts_dir) = fonts_src {
+                    if fonts_dir.exists() {
+                        copy_dir_all(fonts_dir, &fonts_dst)?;
+                    }
+                }
+
+                let staged_fonts = if fonts_dst.exists() {
+                    Some(fonts_dst.as_path())
+                } else {
+                    None
+                };
+                Self::compute_runtime_integrity_hash(
+                    &overlay_dst,
+                    &shims_dst,
+                    staged_fonts,
+                ).unwrap_or_default()
+            } else {
+                if overlay_src.exists() {
+                    copy_dir_all(&overlay_src, &overlay_dst)?;
+                }
+                Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
+                Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
+
+                if let Some(ref theme_entry) = manifest.themes {
+                    if theme_entry.selected_themes.is_empty() {
+                        return Err(DiagnosticError::from_code(
+                            crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                            "Theme selection list cannot be empty",
+                        ));
+                    }
+
+                    if !theme_entry.selected_themes.contains(&theme_entry.default_theme) {
+                        return Err(DiagnosticError::from_code(
+                            crate::diagnostics::THM_DEFAULT_NOT_PACKAGED,
+                            format!(
+                                "Default theme '{}' is not in packaged themes list: {:?}",
+                                theme_entry.default_theme, theme_entry.selected_themes
+                            ),
+                        ));
+                    }
+
+                    let catalog_dir = Self::find_theme_catalog_path(theme_catalog_path)
+                        .unwrap_or_else(|| PathBuf::from("runtimes/themes"));
+
+                    if !catalog_dir.exists() {
+                        return Err(DiagnosticError::from_code(
+                            crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                            format!(
+                                "Theme catalog directory does not exist: {}",
+                                catalog_dir.display()
+                            ),
+                        ));
+                    }
+
+                    let mut catalog = crate::theme::ThemeCatalog::new();
+                    catalog.discover(&catalog_dir).map_err(|e| {
+                        let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
+                        let msg = e.to_string();
+                        let clean_msg = if let Some(idx) = msg.find("] ") {
+                            &msg[idx + 2..]
+                        } else {
+                            &msg
+                        };
+                        DiagnosticError::from_code(code, clean_msg)
+                    })?;
+
+                    catalog
+                        .validate_selection(
+                            &theme_entry.selected_themes,
+                            &theme_entry.default_theme,
+                            "1.0.0",
+                        )
+                        .map_err(|e| {
+                            let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
+                            let msg = e.to_string();
+                            let clean_msg = if let Some(idx) = msg.find("] ") {
+                                &msg[idx + 2..]
+                            } else {
+                                &msg
+                            };
+                            DiagnosticError::from_code(code, clean_msg)
+                        })?;
+
+                    let themes_dest_dir = overlay_dst.join("themes");
+                    fs::create_dir_all(&themes_dest_dir)?;
+
+                    let mut manifest_items = Vec::new();
+                    for theme_id in &theme_entry.selected_themes {
+                        let pkg = catalog.get(theme_id).ok_or_else(|| {
+                            DiagnosticError::from_code(
+                                crate::diagnostics::THM_PACKAGE_NOT_FOUND,
+                                format!("Theme package '{}' not found in catalog", theme_id),
+                            )
+                        })?;
+
+                        let theme_target_dir = themes_dest_dir.join(theme_id);
+                        copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
+
+                        manifest_items.push(crate::build_plan::ThemeManifestItem {
+                            id: pkg.manifest.id.clone(),
+                            name: pkg.manifest.name.clone(),
+                            version: pkg.manifest.version.clone(),
+                            dir: format!("themes/{}", theme_id),
+                        });
+                    }
+
+                    let themes_manifest = crate::build_plan::ThemesManifest {
+                        default_theme_id: theme_entry.default_theme.clone(),
+                        themes: manifest_items,
+                    };
+
+                    let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
+                        .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
+                    fs::write(
+                        overlay_dst.join("themes_manifest.json"),
+                        themes_manifest_json,
+                    )?;
+                }
+
+                if shims_src.exists() {
+                    copy_dir_all(&shims_src, &shims_dst)?;
+                }
+
+                if let Some(ref fonts_dir) = fonts_src {
+                    if fonts_dir.exists() {
+                        copy_dir_all(fonts_dir, &fonts_dst)?;
+                    }
+                }
+
+                let staged_fonts = if fonts_dst.exists() {
+                    Some(fonts_dst.as_path())
+                } else {
+                    None
+                };
+                Self::compute_runtime_integrity_hash(
+                    &overlay_dst,
+                    &shims_dst,
+                    staged_fonts,
+                ).unwrap_or_default()
+            }
+        } else {
+            Self::compute_runtime_integrity_hash(
+                &overlay_src,
+                &shims_src,
+                fonts_src.as_deref(),
+            ).unwrap_or_default()
+        };
+
         let mut manifest_val = serde_json::to_value(manifest)
             .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         if !integrity_hash.is_empty() {
@@ -704,7 +859,6 @@ include(":app")
             .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
         fs::write(assets_dir.join("build-manifest.json"), &manifest_json)?;
 
-        // Copy asset-dependency-graph.json if available
         let graph_candidates = [
             project_dir.parent().map(|p| p.join("asset-dependency-graph.json")),
             Some(project_dir.join("asset-dependency-graph.json")),
@@ -718,7 +872,6 @@ include(":app")
             }
         }
 
-        // Copy asset-audit-report.json if available
         let report_candidates = [
             project_dir.parent().map(|p| p.join("asset-audit-report.json")),
             Some(project_dir.join("asset-audit-report.json")),
@@ -732,19 +885,16 @@ include(":app")
             }
         }
 
-        // Copy packed content if available
         if let Some(pack_path) = packed_content_path {
             if pack_path.exists() {
                 fs::copy(pack_path, assets_dir.join("game.pack"))?;
             }
         }
 
-        // Copy all Java / Kotlin sources (including org.libsdl.app and io.runtimepack.host)
         if let Some(host_java_src) = Self::find_template_file("android/shell/app/src/main/java") {
             copy_dir_all(&host_java_src, &src_dir)?;
         }
 
-        // Emit generated RuntimeBuildInfo.kt with computed integrity hash and flavor
         let runtime_build_info_content = format!(
             r#"package io.runtimepack.host
 
@@ -762,146 +912,15 @@ object RuntimeBuildInfo {{
         fs::create_dir_all(&host_pkg_dir)?;
         fs::write(host_pkg_dir.join("RuntimeBuildInfo.kt"), runtime_build_info_content)?;
 
-        // Copy native jniLibs
         if let Some(jni_src) = Self::find_template_file("android/shell/app/src/main/jniLibs") {
             let jni_dst = app_dir.join("src/main/jniLibs");
             copy_dir_all(&jni_src, &jni_dst)?;
         }
 
-        // Ren'Py ships a single fat RAPT runtime (librenpython.so) under
-        // runtimes/renpy/jni/<abi>/ rather than the shared shell jniLibs.
         if manifest.runtime.family == "Ren'Py" {
             if let Some(renpy_jni_src) = Self::find_template_file("runtimes/renpy/jni") {
                 let jni_dst = app_dir.join("src/main/jniLibs");
                 copy_dir_all(&renpy_jni_src, &jni_dst)?;
-            }
-        }
-
-        // Copy overlay assets (vpad.js, cheat_menu.js, index.html) only if not release
-        let overlay_dst = assets_dir.join("overlay");
-        if !is_release {
-            if overlay_src.exists() {
-                copy_dir_all(&overlay_src, &overlay_dst)?;
-            }
-            // Inject game-specific cheat profile or fallback to neutral template
-            Self::inject_cheat_profile(game_source_dir, &overlay_dst)?;
-
-            // Configure watermark injection into assets/overlay based on flavor
-            Self::configure_overlay_watermark(&overlay_dst, effective_flavor)?;
-        }
-
-        // Theme packaging and themes_manifest.json emission
-        if let Some(ref theme_entry) = manifest.themes {
-            if theme_entry.selected_themes.is_empty() {
-                return Err(DiagnosticError::from_code(
-                    crate::diagnostics::THM_PACKAGE_NOT_FOUND,
-                    "Theme selection list cannot be empty",
-                ));
-            }
-
-            if !theme_entry.selected_themes.contains(&theme_entry.default_theme) {
-                return Err(DiagnosticError::from_code(
-                    crate::diagnostics::THM_DEFAULT_NOT_PACKAGED,
-                    format!(
-                        "Default theme '{}' is not in packaged themes list: {:?}",
-                        theme_entry.default_theme, theme_entry.selected_themes
-                    ),
-                ));
-            }
-
-            let catalog_dir = Self::find_theme_catalog_path(theme_catalog_path)
-                .unwrap_or_else(|| PathBuf::from("runtimes/themes"));
-
-            if !catalog_dir.exists() {
-                return Err(DiagnosticError::from_code(
-                    crate::diagnostics::THM_PACKAGE_NOT_FOUND,
-                    format!(
-                        "Theme catalog directory does not exist: {}",
-                        catalog_dir.display()
-                    ),
-                ));
-            }
-
-            let mut catalog = crate::theme::ThemeCatalog::new();
-            catalog.discover(&catalog_dir).map_err(|e| {
-                let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
-                let msg = e.to_string();
-                let clean_msg = if let Some(idx) = msg.find("] ") {
-                    &msg[idx + 2..]
-                } else {
-                    &msg
-                };
-                DiagnosticError::from_code(code, clean_msg)
-            })?;
-
-            catalog
-                .validate_selection(
-                    &theme_entry.selected_themes,
-                    &theme_entry.default_theme,
-                    "1.0.0",
-                )
-                .map_err(|e| {
-                    let code = e.diagnostic_code().unwrap_or(crate::diagnostics::THM_PACKAGE_NOT_FOUND);
-                    let msg = e.to_string();
-                    let clean_msg = if let Some(idx) = msg.find("] ") {
-                        &msg[idx + 2..]
-                    } else {
-                        &msg
-                    };
-                    DiagnosticError::from_code(code, clean_msg)
-                })?;
-
-            if !is_release {
-                let themes_dest_dir = overlay_dst.join("themes");
-                fs::create_dir_all(&themes_dest_dir)?;
-
-                let mut manifest_items = Vec::new();
-                for theme_id in &theme_entry.selected_themes {
-                    let pkg = catalog.get(theme_id).ok_or_else(|| {
-                        DiagnosticError::from_code(
-                            crate::diagnostics::THM_PACKAGE_NOT_FOUND,
-                            format!("Theme package '{}' not found in catalog", theme_id),
-                        )
-                    })?;
-
-                    let theme_target_dir = themes_dest_dir.join(theme_id);
-                    copy_dir_all(&pkg.root_dir, &theme_target_dir)?;
-
-                    manifest_items.push(crate::build_plan::ThemeManifestItem {
-                        id: pkg.manifest.id.clone(),
-                        name: pkg.manifest.name.clone(),
-                        version: pkg.manifest.version.clone(),
-                        dir: format!("themes/{}", theme_id),
-                    });
-                }
-
-                let themes_manifest = crate::build_plan::ThemesManifest {
-                    default_theme_id: theme_entry.default_theme.clone(),
-                    themes: manifest_items,
-                };
-
-                let themes_manifest_json = serde_json::to_string_pretty(&themes_manifest)
-                    .map_err(|e| DiagnosticError::Serialization(e.to_string()))?;
-                fs::write(
-                    overlay_dst.join("themes_manifest.json"),
-                    themes_manifest_json,
-                )?;
-            }
-        }
-
-        // Copy web_shims assets (runtimepack_web_shims.js, runtimepack_asset_audit.js)
-        if !is_release {
-            if let Some(shims_src) = Self::find_template_file("android/shell/app/src/main/assets/web_shims") {
-                let shims_dst = assets_dir.join("web_shims");
-                copy_dir_all(&shims_src, &shims_dst)?;
-            }
-        }
-
-        // Copy fonts (e.g. VL-Gothic-Regular.ttf)
-        if !is_release {
-            if let Some(fonts_src) = Self::find_template_file("android/shell/app/src/main/assets/fonts") {
-                let fonts_dst = assets_dir.join("fonts");
-                copy_dir_all(&fonts_src, &fonts_dst)?;
             }
         }
 

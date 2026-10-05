@@ -1,5 +1,25 @@
 # Technical Findings
 
+## [2026-10-05] Visual Novel Maker Candidate APK Build & Artifact Hardening (Gate G Task 3 & Gate G1)
+
+### Finding 11: Gate G1 Post-Watermark Asset Integrity Digest Alignment
+- Pada `--flavor beta`, pipeline generator `AndroidProjectGenerator::emit_project_with_themes` kini mengeksekusi perhitungan integritas setelah seluruh mutasi aset selesai (`inject_cheat_profile`, `configure_overlay_watermark`, penambahan tema, shims, dan font ke `assets/`).
+- Hal ini menyelaraskan konstanta biner `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` dengan digest kalkulasi runtime Kotlin `RuntimeIntegrity.computeHash` pada nilai `5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d` (`EQUAL: True`).
+- Aplikasi tidak lagi bergantung pada toleransi exception beta di runtime Android; verifikasi integritas valid secara kriptografis.
+
+### Finding 9: Gradle Cold Daemon vs Clean Cycle on Windows
+
+- Pemanggilan pertama Gradle subprocess melalui CLI dapat mengembalikan non-zero exit code jika Gradle daemon sedang melakukan cold spawn atau terhambat file locks sementara saat task `clean`.
+- Begitu daemon tersinkronisasi, pemanggilan `assembleDebug` berjalan deterministik (36s, 38 actionable tasks executed) dan menghasilkan APK valid tanpa memerlukan modifikasi kode atau bypass build.
+
+### Finding 10: VNM Candidate APK Characteristics (Flavor Beta)
+- GPACK container `game.pack` (1,385,946,515 bytes) memiliki index dengan 100% `encryption=0`, sesuai spesifikasi `--flavor beta` di mana enkripsi ChaCha20-Poly1305 dinonaktifkan untuk memfasilitasi audit transparan.
+- File web shims `assets/web_shims/runtimepack_web_shims.js` di dalam APK terbukti 100% byte-exact terhadap source template (`247aed00...`).
+- Bytecode DEX (`classes3.dex`) memuat class `BoundedEntryStream`, `GpackStreamReader`, `GpackExtractor`, dan `RuntimeIntegrity`.
+- Baseline raw game source berisi 1,976 file (1,433.87 MB) vs referensi lama 2,279 file; user mengonfirmasi versi game adalah versi yang SAMA (bukan perbedaan versi resmi), dan selisih 303 file merupakan unknown inventory difference tanpa klaim byte parity.
+- Sesuai pembagian peran, status verifikasi fungsional dan gameplay kandidat ini adalah `NOT_TESTED`.
+
+
 ## [2026-09-30] Asset Hardening & Encrypted Overlay Architecture (B + C + D)
 
 ### Finding 7: Overlay & Web Shims Serving via GPACK In-Memory Decryption

@@ -20,7 +20,7 @@
     "name": { "type": "string" },
     "version": { "type": "string" },
     "runtime_api": { "type": "integer", "minimum": 1 },
-    "family": { "type": "string", "enum": ["rgss", "web", "renpy", "tyrano"] },
+    "family": { "type": "string", "enum": ["rgss", "web", "renpy", "tyrano", "vnmaker-web"] },
     "engines": {
       "type": "array",
       "items": { "type": "string" }

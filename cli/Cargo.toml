@@ -37,6 +37,14 @@ path = "../tests/integration/asset_audit_report_test.rs"
 name = "probe_scenario_test"
 path = "tests/probe_scenario_test.rs"
 
+[[test]]
+name = "vnmaker_detection_test"
+path = "../tests/integration/vnmaker_detection_test.rs"
+
+[[test]]
+name = "vnmaker_asset_audit_test"
+path = "../tests/integration/vnmaker_asset_audit_test.rs"
+
 [dependencies]
 runtimepack-core = { path = "../core" }
 runtimepack-pack = { path = "../pack" }
@@ -44,6 +52,7 @@ runtimepack-engine-rgss = { path = "../engines/rgss" }
 runtimepack-engine-rpgmaker-web = { path = "../engines/rpgmaker_web" }
 runtimepack-engine-renpy = { path = "../engines/renpy" }
 runtimepack-engine-tyrano = { path = "../engines/tyrano" }
+runtimepack-engine-vnmaker = { path = "../engines/vnmaker" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

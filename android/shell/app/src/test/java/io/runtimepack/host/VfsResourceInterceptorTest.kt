@@ -371,4 +371,193 @@ class VfsResourceInterceptorTest {
         assertNotNull(resp)
         assertEquals("audio/ogg", resp?.mimeType)
     }
+
+    @Test
+    fun testIsVnmProfileNormalization() {
+        val validProfiles = listOf("vnm", "VNM", "visual-novel-maker", "VisualNovelMaker", "vnmaker", "vnmaker-web", "VNM Web", "vnmaker_web")
+        for (profile in validProfiles) {
+            val interceptor = VfsResourceInterceptor(engineFamily = profile) { null }
+            org.junit.Assert.assertTrue("Profile '$profile' should be identified as VNM", interceptor.isVnmProfile())
+        }
+
+        val invalidProfiles = listOf("rpgmaker-mz", "rpgmaker-mv", "renpy", "tyrano", "", null)
+        for (profile in invalidProfiles) {
+            val interceptor = VfsResourceInterceptor(engineFamily = profile) { null }
+            org.junit.Assert.assertFalse("Profile '$profile' should NOT be identified as VNM", interceptor.isVnmProfile())
+        }
+    }
+
+    @Test
+    fun testAllowlistedWebShimsServedAndNamespaceEscapeBlocked() {
+        val shimContent = "console.log('web shims');"
+        val interceptor = VfsResourceInterceptor(engineFamily = "vnm") { path ->
+            if (path == "web_shims/runtimepack_web_shims.js") {
+                ByteArrayInputStream(shimContent.toByteArray(Charsets.UTF_8))
+            } else if (path == "web_shims/unauthorized.js") {
+                ByteArrayInputStream("secret".toByteArray(Charsets.UTF_8))
+            } else {
+                null
+            }
+        }
+
+        val allowedResp = interceptor.intercept("https://game.local/web_shims/runtimepack_web_shims.js")
+        assertNotNull(allowedResp)
+        assertEquals("application/javascript", allowedResp?.mimeType)
+        assertEquals("UTF-8", allowedResp?.encoding)
+        val servedText = allowedResp?.data?.bufferedReader()?.readText() ?: ""
+        assertEquals(shimContent, servedText)
+
+        val forbiddenResp = interceptor.intercept("https://game.local/web_shims/unauthorized.js")
+        assertNull(forbiddenResp)
+
+        val guardOffResp = interceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js")
+        assertNull(guardOffResp)
+
+        val guardContent = "console.log('guard');"
+        val guardInterceptor = VfsResourceInterceptor(engineFamily = "vnm", vnmInputGuard = "transition-aware") { path ->
+            if (path == "web_shims/runtimepack_vnm_input_guard.js") {
+                ByteArrayInputStream(guardContent.toByteArray(Charsets.UTF_8))
+            } else {
+                null
+            }
+        }
+        val guardResp = guardInterceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js")
+        assertNotNull(guardResp)
+        assertEquals("application/javascript", guardResp?.mimeType)
+        assertEquals("UTF-8", guardResp?.encoding)
+
+        val nonVnmGuardInterceptor = VfsResourceInterceptor(engineFamily = "rpgmaker-mv", vnmInputGuard = "transition-aware") { path ->
+            if (path == "web_shims/runtimepack_vnm_input_guard.js") {
+                ByteArrayInputStream(guardContent.toByteArray(Charsets.UTF_8))
+            } else {
+                null
+            }
+        }
+        assertNull(nonVnmGuardInterceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js"))
+    }
+
+    @Test
+    fun testVnmTwoBoundaryHtmlTransform() {
+        val interceptor = VfsResourceInterceptor(engineFamily = "vnmaker-web") { null }
+        val rawHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <!--{PLATFORM_LIBS}-->
+                <script type="text/javascript" src="data/lib/glMatrix.js"></script>
+                <script type="text/javascript" src="data/ENGINE.js"></script>
+                <script type="text/javascript" src="data/SCRIPTS.js"></script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val transformed = interceptor.transformVnmHtml(rawHtml)
+        org.junit.Assert.assertTrue(transformed.contains("<!-- RUNTIMEPACK_VNM_SHIMS -->"))
+        org.junit.Assert.assertTrue(transformed.contains("web_shims/runtimepack_web_shims.js"))
+        org.junit.Assert.assertTrue(transformed.contains("__runtimepackPollVnmStorage"))
+        org.junit.Assert.assertTrue(transformed.contains("__runtimepackPollVnmMessageCompat"))
+
+        val b1Idx = transformed.indexOf("web_shims/runtimepack_web_shims.js")
+        val engineIdx = transformed.indexOf("data/ENGINE.js")
+        val postEngineStorageIdx = transformed.indexOf("__runtimepackPollVnmStorage")
+        val scriptsIdx = transformed.indexOf("data/SCRIPTS.js")
+        val b2Idx = transformed.indexOf("__runtimepackPollVnmMessageCompat")
+
+        org.junit.Assert.assertTrue(b1Idx < engineIdx)
+        org.junit.Assert.assertTrue(engineIdx < postEngineStorageIdx)
+        org.junit.Assert.assertTrue(postEngineStorageIdx < scriptsIdx)
+        org.junit.Assert.assertTrue(scriptsIdx < b2Idx)
+        org.junit.Assert.assertFalse(transformed.contains("web_shims/runtimepack_vnm_input_guard.js"))
+
+        val guardTransformed = interceptor.transformVnmHtml(rawHtml, guardMode = "transition-aware")
+        org.junit.Assert.assertTrue(guardTransformed.contains("window.__runtimepack_vnm_input_guard_mode = \"transition-aware\""))
+        org.junit.Assert.assertTrue(guardTransformed.contains("web_shims/runtimepack_vnm_input_guard.js"))
+        val guardScriptsIdx = guardTransformed.indexOf("data/SCRIPTS.js")
+        val guardB2Idx = guardTransformed.indexOf("__runtimepackPollVnmMessageCompat")
+        val guardIdx = guardTransformed.indexOf("web_shims/runtimepack_vnm_input_guard.js")
+        org.junit.Assert.assertTrue(guardScriptsIdx < guardB2Idx)
+        org.junit.Assert.assertTrue(guardB2Idx < guardIdx)
+    }
+
+    @Test
+    fun testVnmHtmlDuplicateMarkerDoesNotReapply() {
+        val interceptor = VfsResourceInterceptor(engineFamily = "vnm") { null }
+        val rawHtml = """
+            <!-- RUNTIMEPACK_VNM_SHIMS -->
+            <script src="web_shims/runtimepack_web_shims.js"></script>
+            <script src="data/SCRIPTS.js"></script>
+        """.trimIndent()
+        val transformed = interceptor.transformVnmHtml(rawHtml)
+        assertEquals(rawHtml, transformed)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testVnmHtmlUnsupportedAsyncDeferRejection() {
+        val interceptor = VfsResourceInterceptor(engineFamily = "vnm") { null }
+        val rawHtml = """
+            <!DOCTYPE html><html><head>
+            <script src="data/ENGINE.js"></script>
+            <script async src="data/SCRIPTS.js"></script>
+            </head></html>
+        """.trimIndent()
+        interceptor.transformVnmHtml(rawHtml)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testVnmHtmlMissingAnchorDiagnosticRejection() {
+        val interceptor = VfsResourceInterceptor(engineFamily = "vnm") { null }
+        val rawHtml = "<!DOCTYPE html><html><head><title>No scripts</title></head></html>"
+        interceptor.transformVnmHtml(rawHtml)
+    }
+
+    @Test
+    fun testVnmInterceptServesTransformedHtmlAtRootAndIndex() {
+        val rawHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <script type="text/javascript" src="./data/ENGINE.js"></script>
+                <script type="text/javascript" src='./data/SCRIPTS.js'></script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val interceptor = VfsResourceInterceptor(
+            engineFamily = "vnm",
+            streamProvider = { path ->
+                if (path == "index.html") ByteArrayInputStream(rawHtml.toByteArray(Charsets.UTF_8)) else null
+            }
+        )
+
+        val rootResp = interceptor.intercept("https://game.local/")
+        assertNotNull(rootResp)
+        assertEquals("text/html", rootResp?.mimeType)
+        assertEquals("UTF-8", rootResp?.encoding)
+        val rootText = rootResp?.data?.bufferedReader()?.readText() ?: ""
+        org.junit.Assert.assertTrue(rootText.contains("web_shims/runtimepack_web_shims.js"))
+        org.junit.Assert.assertTrue(rootText.contains("__runtimepackPollVnmMessageCompat"))
+
+        val indexResp = interceptor.intercept("https://game.local/index.html")
+        assertNotNull(indexResp)
+        assertEquals("text/html", indexResp?.mimeType)
+        val indexText = indexResp?.data?.bufferedReader()?.readText() ?: ""
+        org.junit.Assert.assertTrue(indexText.contains("web_shims/runtimepack_web_shims.js"))
+    }
+
+    @Test
+    fun testNonVnmInterceptServesUnmodifiedHtml() {
+        val rawHtml = "<html><head><script src=\"js/rpg_core.js\"></script></head></html>"
+        val interceptor = VfsResourceInterceptor(
+            engineFamily = "rpgmaker-mz",
+            streamProvider = { path ->
+                if (path == "index.html") ByteArrayInputStream(rawHtml.toByteArray(Charsets.UTF_8)) else null
+            }
+        )
+        val resp = interceptor.intercept("https://game.local/index.html")
+        assertNotNull(resp)
+        val text = resp?.data?.bufferedReader()?.readText() ?: ""
+        assertEquals(rawHtml, text)
+    }
 }

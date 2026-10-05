@@ -40,9 +40,10 @@
     var fpsUpdateInterval = null;
     var rAFId = null;
     var modalOpen = false;
-    var activeTab = "stress"; // "stress" | "teleport" | "share"
+    var activeTab = "stress";
     var isStressTestRunning = false;
     var auditPollInterval = null;
+    var currentProblemEvents = [];
 
     // Monochrome Vector SVGs (100% Offline, Zero Emojis)
     var SVG_ICONS = {
@@ -377,8 +378,11 @@
             "            </div>" +
             "            <div id=\"diag-probe-counters\" class=\"diag-counters-row\">" +
             "                <span>Scanned: <strong id=\"diag-cnt-scanned\">0</strong></span> | " +
-            "                <span>Valid: <strong id=\"diag-cnt-valid\">0</strong></span> | " +
+            "                <span>Readable: <strong id=\"diag-cnt-valid\">0</strong></span> | " +
             "                <span>Missing: <strong id=\"diag-cnt-missing\">0</strong></span> | " +
+            "                <span>Decode Fail: <strong id=\"diag-cnt-decode-fail\">0</strong></span> | " +
+            "                <span>Unverified: <strong id=\"diag-cnt-unverified\">0</strong></span> | " +
+            "                <span>Excluded: <strong id=\"diag-cnt-excluded\">0</strong></span> | " +
             "                <span>Fallback: <strong id=\"diag-cnt-fallback\">0</strong></span>" +
             "            </div>" +
             "            <div class=\"diag-pbar-box\"><div id=\"diag-pbar-fill\" class=\"diag-pbar-fill\"></div></div>" +
@@ -408,14 +412,14 @@
             "            <div id=\"diag-export-status\" class=\"diag-status-line\" style=\"margin-top:6px;\"></div>" +
             "        </div>" +
             "    </div>" +
-            "</div>" +
-            "<!-- Live Log Console (Always Accessible) -->" +
-            "<div class=\"diag-console-section\">" +
-            "    <div class=\"diag-console-header\">" +
-            "        <span>Live Activity Console (<span id=\"diag-log-count\">0</span>)</span>" +
-            "        <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">" + SVG_ICONS.trash + " Clear</button>" +
+            "    <!-- Live Log Console -->" +
+            "    <div class=\"diag-console-section\">" +
+            "        <div class=\"diag-console-header\">" +
+            "            <span>Live Activity Console (<span id=\"diag-log-count\">0</span>)</span>" +
+            "            <button id=\"diag-btn-clear-log\" class=\"diag-btn-sm\">" + SVG_ICONS.trash + " Clear</button>" +
+            "        </div>" +
+            "        <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "    </div>" +
-            "    <div id=\"diag-log-box\" class=\"diag-log-box\"></div>" +
             "</div>";
 
         doc.body.appendChild(modal);
@@ -754,7 +758,7 @@
 
             var probeMode = mode || "sampled";
             var resolvedAction = actionName || ((probeMode === "exhaustive") ? "run_exhaustive_probe" : "run_probe");
-            var maxPollCount = (resolvedAction === "run_exhaustive_probe" || resolvedAction === "run_stress_test" || probeMode === "exhaustive") ? 260 : 60;
+            var maxPollCount = (resolvedAction === "run_exhaustive_probe" || resolvedAction === "run_stress_test" || probeMode === "exhaustive") ? 260 : 120;
             var timeoutSec = Math.round(maxPollCount * 0.25);
 
             var stStatus = doc ? doc.getElementById("diag-stress-status") : null;
@@ -789,17 +793,27 @@
             var scannedCount = 0;
             var validCount = 0;
             var missingCount = 0;
+            var decodeFailCount = 0;
+            var unverifiedCount = 0;
+            var excludedCount = 0;
             var fallbackCount = 0;
+            currentProblemEvents = [];
 
             function updateCountersUI() {
                 if (!doc) return;
                 var elScanned = doc.getElementById("diag-cnt-scanned");
                 var elValid = doc.getElementById("diag-cnt-valid");
                 var elMissing = doc.getElementById("diag-cnt-missing");
+                var elDecodeFail = doc.getElementById("diag-cnt-decode-fail");
+                var elUnverified = doc.getElementById("diag-cnt-unverified");
+                var elExcluded = doc.getElementById("diag-cnt-excluded");
                 var elFallback = doc.getElementById("diag-cnt-fallback");
                 if (elScanned) elScanned.textContent = String(scannedCount);
                 if (elValid) elValid.textContent = String(validCount);
                 if (elMissing) elMissing.textContent = String(missingCount);
+                if (elDecodeFail) elDecodeFail.textContent = String(decodeFailCount);
+                if (elUnverified) elUnverified.textContent = String(unverifiedCount);
+                if (elExcluded) elExcluded.textContent = String(excludedCount);
                 if (elFallback) elFallback.textContent = String(fallbackCount);
             }
             updateCountersUI();
@@ -846,9 +860,13 @@
                     var targetPath = ev.asset_path || ev.assetPath || "";
                     var fallbackAct = ev.fallback_action || ev.fallbackAction || "";
 
+                    var evCategory = (ev.category || "").toUpperCase();
                     var isFallback = (!!fallbackAct);
-                    var isMissing = !isFallback && (ev.stage === "FILE_EXISTS" && (evOutcome === "FAIL" || evOutcome === "FAILED" || (evMsg && evMsg.toLowerCase().indexOf("not found") !== -1)));
-                    var isFailure = (evOutcome === "FAIL" || evOutcome === "FAILED" || isFallback || evType === "FAIL" || evType === "ERROR");
+                    var isExcluded = (evCategory === "EXCLUDED_PLATFORM_BINARY");
+                    var isUnverified = (evCategory === "ENCODED_ASSET_UNVERIFIED");
+                    var isDecodeFail = (evCategory === "DECODE_FAILURE" || (ev.stage === "DECODE_SUCCESS" && (evOutcome === "FAIL" || evOutcome === "FAILED")));
+                    var isMissing = !isFallback && !isExcluded && (evCategory === "MISSING_ASSET" || (ev.stage === "FILE_EXISTS" && (evOutcome === "FAIL" || evOutcome === "FAILED" || (evMsg && evMsg.toLowerCase().indexOf("not found") !== -1))));
+                    var isFailure = isMissing || isDecodeFail || (evOutcome === "FAIL" || evOutcome === "FAILED" || isFallback || evType === "FAIL" || evType === "ERROR");
                     var isDone = (evType === "DONE" || ev.is_complete === true || ev.isComplete === true);
                     var isSynthetic = (targetPath === "root" || targetPath === "all" || evType === "START");
 
@@ -877,18 +895,42 @@
                             }
                         }
 
-                        var doneMsg = evMsg || ((failureCount > 0 || missingCount > 0)
-                            ? "Audit Complete: " + (missingCount > 0 ? missingCount + " missing asset(s)" : failureCount + " failure(s)") + " detected."
-                            : "Audit Complete: All references verified.");
-                        if (failureCount > 0 || missingCount > 0) {
+                        var doneMsg = evMsg;
+                        if (!doneMsg) {
+                            if (failureCount > 0) {
+                                doneMsg = "Audit Complete: FAILED (" + failureCount + " failure(s), " + missingCount + " missing, " + decodeFailCount + " decode failed)";
+                            } else if (unverifiedCount > 0) {
+                                doneMsg = "Audit Complete: INDETERMINATE (" + unverifiedCount + " unverified encoded graphic(s), " + excludedCount + " excluded)";
+                            } else if (excludedCount > 0) {
+                                doneMsg = "Audit Complete: WARNING (" + excludedCount + " excluded platform binary(s))";
+                            } else {
+                                doneMsg = "Audit Complete: All references verified.";
+                            }
+                        }
+
+                        if (failureCount > 0) {
                             addLogEntry("WARN", doneMsg);
                             if (stStatus) {
-                                stStatus.textContent = missingCount > 0
-                                    ? "Audit Complete with " + missingCount + " missing asset(s)!"
-                                    : "Audit Complete with " + failureCount + " failure(s).";
+                                stStatus.textContent = doneMsg;
                             }
                             if (badge) {
                                 setBadgeState(badge, "FAILED", "diag-badge-error");
+                            }
+                        } else if (unverifiedCount > 0) {
+                            addLogEntry("WARN", doneMsg);
+                            if (stStatus) {
+                                stStatus.textContent = doneMsg;
+                            }
+                            if (badge) {
+                                setBadgeState(badge, "INDETERMINATE", "diag-badge-ready");
+                            }
+                        } else if (excludedCount > 0) {
+                            addLogEntry("WARN", doneMsg);
+                            if (stStatus) {
+                                stStatus.textContent = doneMsg;
+                            }
+                            if (badge) {
+                                setBadgeState(badge, "COMPLETED", "diag-badge-success");
                             }
                         } else {
                             addLogEntry("SUCCESS", doneMsg);
@@ -907,16 +949,45 @@
                     if (!isSynthetic && (ev.stage || targetPath)) {
                         scannedCount++;
                     }
+                    if (!isSynthetic && isExcluded) {
+                        excludedCount++;
+                        currentProblemEvents.push(ev);
+                        addLogEntry("WARN", "Excluded binary: " + targetPath);
+                        updateCountersUI();
+                        return;
+                    }
+                    if (!isSynthetic && isUnverified) {
+                        unverifiedCount++;
+                        currentProblemEvents.push(ev);
+                        addLogEntry("INFO", "Unverified encoded: " + targetPath);
+                        updateCountersUI();
+                        return;
+                    }
+                    if (!isSynthetic && isDecodeFail) {
+                        decodeFailCount++;
+                        failureCount++;
+                        currentProblemEvents.push(ev);
+                        addLogEntry("ERROR", "Decode failure: " + targetPath + (evMsg ? ": " + evMsg : ""));
+                        updateCountersUI();
+                        return;
+                    }
                     if (!isSynthetic && isMissing) {
                         missingCount++;
+                        failureCount++;
+                        currentProblemEvents.push(ev);
+                        addLogEntry("ERROR", "Missing: " + targetPath);
+                        updateCountersUI();
+                        return;
                     }
                     if (!isSynthetic && isFallback) {
                         fallbackCount++;
+                        currentProblemEvents.push(ev);
                     }
 
                     if (isFailure) {
-                        if (!isSynthetic) {
+                        if (!isSynthetic && !isMissing && !isDecodeFail) {
                             failureCount++;
+                            currentProblemEvents.push(ev);
                         }
                         var note = fallbackAct ? " [" + fallbackAct + "]" : "";
                         var desc = targetPath ? targetPath + note + (evMsg ? ": " + evMsg : "") : (evMsg || "Asset verification failure");
@@ -1136,20 +1207,28 @@
 
             // Engine family detection
             var engineFamily = "unknown";
-            if (typeof globalObj.$gameMap !== "undefined" || typeof globalObj.SceneManager !== "undefined") {
-                if (typeof globalObj.Graphics !== "undefined" && typeof globalObj.Graphics.render === "function") {
-                    engineFamily = "RPG Maker MZ";
-                } else if (typeof globalObj.Utils !== "undefined" && typeof globalObj.Utils.RPGMAKER_NAME !== "undefined") {
-                    engineFamily = globalObj.Utils.RPGMAKER_NAME;
-                } else {
-                    engineFamily = "RPG Maker MV/MZ";
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getEngineFamily === "function") {
+                    var bridged = globalObj.RuntimePackVPad.getEngineFamily();
+                    if (bridged && typeof bridged === "string" && bridged.length > 0 && bridged !== "unknown") {
+                        engineFamily = bridged;
+                    }
                 }
-            } else if (typeof globalObj.TYRANO !== "undefined" || typeof globalObj.tyrano !== "undefined") {
-                engineFamily = "TyranoScript";
-            } else if (typeof globalObj.renpy !== "undefined") {
-                engineFamily = "Ren'Py";
-            } else if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.postCheatCmd === "function") {
-                engineFamily = "RGSS / mkxp-z";
+            } catch (e) {}
+            if (engineFamily === "unknown") {
+                if (typeof globalObj.$gameMap !== "undefined" || typeof globalObj.SceneManager !== "undefined") {
+                    if (typeof globalObj.Graphics !== "undefined" && typeof globalObj.Graphics.render === "function") {
+                        engineFamily = "RPG Maker MZ";
+                    } else if (typeof globalObj.Utils !== "undefined" && typeof globalObj.Utils.RPGMAKER_NAME !== "undefined") {
+                        engineFamily = globalObj.Utils.RPGMAKER_NAME;
+                    } else {
+                        engineFamily = "RPG Maker MV/MZ";
+                    }
+                } else if (typeof globalObj.TYRANO !== "undefined" || typeof globalObj.tyrano !== "undefined") {
+                    engineFamily = "TyranoScript";
+                } else if (typeof globalObj.renpy !== "undefined") {
+                    engineFamily = "Ren'Py";
+                }
             }
 
             // Game State extraction
@@ -1219,19 +1298,203 @@
                 } catch (err) {}
             }
 
+            var hostBuildInfo = null;
+            var missingHostBuildInfo = false;
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getRuntimeBuildInfo === "function") {
+                    var rawB = globalObj.RuntimePackVPad.getRuntimeBuildInfo();
+                    if (rawB && rawB !== "{}") {
+                        hostBuildInfo = JSON.parse(rawB);
+                    } else {
+                        missingHostBuildInfo = true;
+                    }
+                } else {
+                    missingHostBuildInfo = true;
+                }
+            } catch (e) {
+                missingHostBuildInfo = true;
+            }
+
+            var hostErrors = null;
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getDiagnosticErrors === "function") {
+                    var rawErr = globalObj.RuntimePackVPad.getDiagnosticErrors();
+                    if (rawErr && rawErr !== "{}") hostErrors = JSON.parse(rawErr);
+                }
+            } catch (err) {}
+
+            var auditFailures = null;
+            var missingHostFailures = false;
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getAuditFailures === "function") {
+                    var rawF = globalObj.RuntimePackVPad.getAuditFailures(2000);
+                    if (rawF && rawF !== "{}") {
+                        auditFailures = JSON.parse(rawF);
+                    } else {
+                        missingHostFailures = true;
+                    }
+                } else {
+                    missingHostFailures = true;
+                }
+            } catch (err) {
+                missingHostFailures = true;
+            }
+
+            var hostLogs = null;
+            try {
+                if (globalObj.RuntimePackVPad && typeof globalObj.RuntimePackVPad.getDiagnosticLogs === "function") {
+                    var rawL = globalObj.RuntimePackVPad.getDiagnosticLogs();
+                    if (rawL && rawL !== "{}") hostLogs = JSON.parse(rawL);
+                }
+            } catch (err) {}
+
+            var failuresSnapshot = {
+                total_failures: (auditFailures && typeof auditFailures.total_failures === "number") ? auditFailures.total_failures : currentProblemEvents.length,
+                retained_count: (auditFailures && typeof auditFailures.retained_count === "number") ? auditFailures.retained_count : currentProblemEvents.length,
+                omitted_count: (auditFailures && typeof auditFailures.omitted_count === "number") ? auditFailures.omitted_count : 0,
+                truncated: (auditFailures && auditFailures.truncated === true) ? true : false,
+                missing_host_failures: missingHostFailures,
+                items: (auditFailures && Array.isArray(auditFailures.items)) ? auditFailures.items : currentProblemEvents
+            };
+
+            var recentLogs = hostLogs || {
+                total_recorded: logBuffer.length,
+                retained_count: Math.min(logBuffer.length, 500),
+                omitted_count: Math.max(0, logBuffer.length - 500),
+                items: logBuffer.slice(-500)
+            };
+
+            var engineObj = (hostBuildInfo && hostBuildInfo.engine) ? hostBuildInfo.engine : {
+                id: engineFamily !== "unknown" ? engineFamily.toLowerCase().replace(/[^a-z0-9_-]/g, "_") : null,
+                family: engineFamily !== "unknown" ? engineFamily : null,
+                version: null
+            };
+
+            var runtimeObj = (hostBuildInfo && hostBuildInfo.runtime) ? hostBuildInfo.runtime : {
+                id: null,
+                family: null,
+                version: null,
+                backend: "webview"
+            };
+
+            var appObj = (hostBuildInfo && hostBuildInfo.app) ? hostBuildInfo.app : null;
+
             var reportPayload = {
+                schema_version: 2,
                 timestamp: new Date().toISOString(),
                 platform: (typeof navigator !== "undefined" ? navigator.userAgent : "Android"),
                 url: (typeof window !== "undefined" && window.location ? window.location.href : ""),
                 engine_family: engineFamily,
+                app: appObj,
+                engine: engineObj,
+                runtime: runtimeObj,
+                flavor: (hostBuildInfo && hostBuildInfo.flavor) || null,
+                build_timestamp: (hostBuildInfo && hostBuildInfo.build_timestamp) || null,
+                content_mode: (hostBuildInfo && hostBuildInfo.content_mode) || null,
+                content_hash: (hostBuildInfo && hostBuildInfo.content_hash) || null,
+                source_hash: (hostBuildInfo && hostBuildInfo.source_hash) || null,
+                runtime_integrity_sha256: (hostBuildInfo && hostBuildInfo.runtime_integrity_sha256) || null,
+                missing_host_build_info: missingHostBuildInfo,
                 device_telemetry: deviceTelemetry,
                 game_state: gameState,
                 combined_validation_summary: combinedSummary,
+                failures_snapshot: failuresSnapshot,
+                game_errors: hostErrors || { total_recorded: 0, retained_count: 0, omitted_count: 0, truncated_count: 0, items: [] },
+                recent_logs: recentLogs,
                 performance: { fps: fps },
-                logs: logBuffer.slice(-50)
+                logs: logBuffer.slice(-500)
             };
 
+            function utf8ByteLength(str) {
+                if (typeof TextEncoder !== "undefined") {
+                    return new TextEncoder().encode(str).length;
+                }
+                var len = 0;
+                for (var i = 0; i < str.length; i++) {
+                    var code = str.charCodeAt(i);
+                    if (code <= 0x7F) {
+                        len += 1;
+                    } else if (code <= 0x7FF) {
+                        len += 2;
+                    } else if (code >= 0xD800 && code <= 0xDBFF) {
+                        if (i + 1 < str.length) {
+                            var next = str.charCodeAt(i + 1);
+                            if (next >= 0xDC00 && next <= 0xDFFF) {
+                                i++;
+                                len += 4;
+                                continue;
+                            }
+                        }
+                        len += 3;
+                    } else {
+                        len += 3;
+                    }
+                }
+                return len;
+            }
+
+            var MAX_EXPORT_BYTES = 8 * 1024 * 1024;
             var jsonReport = JSON.stringify(reportPayload, null, 2);
+            var currentBytes = utf8ByteLength(jsonReport);
+
+            if (currentBytes > MAX_EXPORT_BYTES) {
+                reportPayload.export_truncated = true;
+
+                var logTargets = [250, 100, 50, 10, 0];
+                for (var li = 0; li < logTargets.length; li++) {
+                    var targetLen = logTargets[li];
+                    if (reportPayload.logs && reportPayload.logs.length > targetLen) {
+                        var droppedLogs = reportPayload.logs.length - targetLen;
+                        reportPayload.logs = reportPayload.logs.slice(-targetLen);
+                        if (reportPayload.recent_logs) {
+                            reportPayload.recent_logs.retained_count = targetLen;
+                            reportPayload.recent_logs.omitted_count = (reportPayload.recent_logs.omitted_count || 0) + droppedLogs;
+                            if (Array.isArray(reportPayload.recent_logs.items)) {
+                                reportPayload.recent_logs.items = reportPayload.recent_logs.items.slice(-targetLen);
+                            }
+                        }
+                        jsonReport = JSON.stringify(reportPayload, null, 2);
+                        currentBytes = utf8ByteLength(jsonReport);
+                        if (currentBytes <= MAX_EXPORT_BYTES) break;
+                    }
+                }
+
+                if (currentBytes > MAX_EXPORT_BYTES && reportPayload.failures_snapshot && Array.isArray(reportPayload.failures_snapshot.items)) {
+                    var items = reportPayload.failures_snapshot.items;
+                    var failureTargets = [1500, 1000, 500, 250, 100, 50];
+                    for (var fi = 0; fi < failureTargets.length; fi++) {
+                        var targetFailures = failureTargets[fi];
+                        if (items.length > targetFailures) {
+                            var droppedF = items.length - targetFailures;
+                            reportPayload.failures_snapshot.items = items.slice(0, targetFailures);
+                            reportPayload.failures_snapshot.retained_count = targetFailures;
+                            reportPayload.failures_snapshot.omitted_count = (reportPayload.failures_snapshot.omitted_count || 0) + droppedF;
+                            reportPayload.failures_snapshot.truncated = true;
+                            jsonReport = JSON.stringify(reportPayload, null, 2);
+                            currentBytes = utf8ByteLength(jsonReport);
+                            if (currentBytes <= MAX_EXPORT_BYTES) break;
+                        }
+                    }
+                }
+
+                if (currentBytes > MAX_EXPORT_BYTES && reportPayload.game_errors && Array.isArray(reportPayload.game_errors.items)) {
+                    var errItems = reportPayload.game_errors.items;
+                    var errTargets = [500, 250, 100, 50, 10];
+                    for (var ei = 0; ei < errTargets.length; ei++) {
+                        var targetErr = errTargets[ei];
+                        if (errItems.length > targetErr) {
+                            var droppedE = errItems.length - targetErr;
+                            reportPayload.game_errors.items = errItems.slice(-targetErr);
+                            reportPayload.game_errors.retained_count = targetErr;
+                            reportPayload.game_errors.omitted_count = (reportPayload.game_errors.omitted_count || 0) + droppedE;
+                            reportPayload.game_errors.truncated_count = (reportPayload.game_errors.truncated_count || 0) + droppedE;
+                            jsonReport = JSON.stringify(reportPayload, null, 2);
+                            currentBytes = utf8ByteLength(jsonReport);
+                            if (currentBytes <= MAX_EXPORT_BYTES) break;
+                        }
+                    }
+                }
+            }
 
             // 1. Dispatch to engine to save bug_report.json on disk
             dispatchCommand({ action: "export_bug_report" });

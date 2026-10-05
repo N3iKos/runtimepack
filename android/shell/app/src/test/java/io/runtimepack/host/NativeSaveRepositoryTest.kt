@@ -101,4 +101,101 @@ class NativeSaveRepositoryTest {
         assertTrue(bridge.deleteSlot("mz", "global"))
         assertFalse(bridge.slotExists("mz", "global"))
     }
+
+    @Test
+    fun testVnmGameUidAndSlotsPersistenceAcrossInstances() {
+        val root = tempFolder.newFolder("vnm_repo_saves")
+        val repoSession1 = NativeSaveRepository(root)
+        assertTrue(repoSession1.registerNamespace("game_uid_123"))
+
+        assertTrue(repoSession1.put("game_uid_123", "1", "slot_1_data_日本語"))
+        assertTrue(repoSession1.put("game_uid_123", "2", "slot_2_data"))
+        assertTrue(repoSession1.put("game_uid_123", "3", "slot_3_data"))
+        assertTrue(repoSession1.put("game_uid_123", "1_header", "{\"chapter\":1,\"title\":\"Prologue\"}"))
+        assertTrue(repoSession1.put("game_uid_123", "settings", "{\"volume\":100}"))
+        assertTrue(repoSession1.put("game_uid_123", "globalData", "{\"unlocked\":true}"))
+
+        val repoSession2 = NativeSaveRepository(root, setOf("game_uid_123"))
+        assertEquals("slot_1_data_日本語", repoSession2.get("game_uid_123", "1"))
+        assertEquals("slot_2_data", repoSession2.get("game_uid_123", "2"))
+        assertEquals("slot_3_data", repoSession2.get("game_uid_123", "3"))
+        assertEquals("{\"chapter\":1,\"title\":\"Prologue\"}", repoSession2.get("game_uid_123", "1_header"))
+        assertEquals("{\"volume\":100}", repoSession2.get("game_uid_123", "settings"))
+        assertEquals("{\"unlocked\":true}", repoSession2.get("game_uid_123", "globalData"))
+
+        assertTrue(repoSession2.contains("game_uid_123", "2"))
+        assertTrue(repoSession2.remove("game_uid_123", "2"))
+        assertFalse(repoSession2.contains("game_uid_123", "2"))
+        assertNull(repoSession2.get("game_uid_123", "2"))
+        assertNull(repoSession2.get("game_uid_123", "nonexistent"))
+
+        val dummySaveService = object : SaveService {
+            override fun openRead(slot: String) = null
+            override fun openWrite(slot: String) = java.io.ByteArrayOutputStream()
+            override fun exists(slot: String) = false
+            override fun list() = emptyList<String>()
+            override fun delete(slot: String) = false
+        }
+        val bridge = WebBridge(dummySaveService, repoSession2)
+        assertTrue(bridge.registerNamespace("bridge_game_uid"))
+        assertTrue(bridge.saveSlot("bridge_game_uid", "1", "data_via_bridge"))
+        assertEquals("data_via_bridge", bridge.loadSlot("bridge_game_uid", "1"))
+    }
+
+    @Test
+    fun testGetAndContainsDoNotCreateDirectoriesOnMissingLookup() {
+        val root = tempFolder.newFolder("saves_no_mkdir")
+        val repo = NativeSaveRepository(root)
+        val vnmDir = File(root, "vnm")
+        assertFalse(vnmDir.exists())
+
+        assertNull(repo.get("vnm", "nonexistent_slot"))
+        assertFalse("get on missing slot must not create namespace directory", vnmDir.exists())
+
+        assertFalse(repo.contains("vnm", "nonexistent_slot"))
+        assertFalse("contains on missing slot must not create namespace directory", vnmDir.exists())
+    }
+
+    @Test
+    fun testVnmLegacySlotNameReadingWithoutRegisterNamespace() {
+        val root = tempFolder.newFolder("vnm_legacy_saves")
+        val repo = NativeSaveRepository(root)
+        val legacySlot = "BB45114F1292564E907B88654BEDAB153D70_SaveGame_0"
+        val payload = "eyJjaGFwdGVyIjo1LCJnb2xkIjoxMjAwMH0="
+
+        assertTrue(repo.put("vnm", legacySlot, payload))
+        assertTrue(repo.contains("vnm", legacySlot))
+        assertEquals(payload, repo.get("vnm", legacySlot))
+    }
+
+    @Test
+    fun testProcessRestartUnregisteredNamespaceReadAllowedMutationsDenied() {
+        val root = tempFolder.newFolder("restart_saves")
+        val repoSession1 = NativeSaveRepository(root)
+        val uid = "bb45114f1292564e907b88654bedab153d70"
+        assertTrue(repoSession1.registerNamespace(uid))
+        val payload = "{\"chapter\":5,\"gold\":12000}"
+        assertTrue(repoSession1.put(uid, "SaveGame_0", payload))
+
+        val repoSession2 = NativeSaveRepository(root)
+
+        assertTrue("contains must be true on existing namespace without register", repoSession2.contains(uid, "SaveGame_0"))
+        assertEquals(payload, repoSession2.get(uid, "SaveGame_0"))
+
+        assertFalse("unregistered put must return false", repoSession2.put(uid, "SaveGame_1", "new_payload"))
+        assertFalse("unregistered remove must return false", repoSession2.remove(uid, "SaveGame_0"))
+        assertEquals(payload, repoSession2.get(uid, "SaveGame_0"))
+
+        assertFalse(repoSession2.contains("../root", "SaveGame_0"))
+        assertNull(repoSession2.get("../root", "SaveGame_0"))
+        assertFalse(repoSession2.contains(uid, "../escape"))
+        assertNull(repoSession2.get(uid, "../escape"))
+        assertFalse(repoSession2.contains(".hidden", "SaveGame_0"))
+        assertNull(repoSession2.get(".hidden", "SaveGame_0"))
+
+        val missingDir = File(root, "nonexistent_uid")
+        assertFalse(repoSession2.contains("nonexistent_uid", "slot1"))
+        assertNull(repoSession2.get("nonexistent_uid", "slot1"))
+        assertFalse("Missing query must create no directory", missingDir.exists())
+    }
 }

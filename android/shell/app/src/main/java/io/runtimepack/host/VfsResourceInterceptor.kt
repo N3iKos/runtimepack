@@ -8,13 +8,89 @@ import java.net.URLDecoder
 class VfsResourceInterceptor(
     val reader: GpackStreamReader?,
     val rpgMakerKey: String? = null,
+    val engineFamily: String? = null,
+    val vnmInputGuard: String = "off",
     private val streamProvider: (String) -> InputStream?
 ) {
-    constructor(reader: GpackStreamReader) : this(reader, null, { path -> reader.openStream(path) })
+    constructor(reader: GpackStreamReader) : this(reader, null, null, "off", { path -> reader.openStream(path) })
 
-    constructor(reader: GpackStreamReader, rpgMakerKey: String?) : this(reader, rpgMakerKey, { path -> reader.openStream(path) })
+    constructor(reader: GpackStreamReader, rpgMakerKey: String?) : this(reader, rpgMakerKey, null, "off", { path -> reader.openStream(path) })
 
-    constructor(streamProvider: (String) -> InputStream?) : this(null, null, streamProvider)
+    constructor(reader: GpackStreamReader, rpgMakerKey: String?, engineFamily: String?) : this(reader, rpgMakerKey, engineFamily, "off", { path -> reader.openStream(path) })
+
+    constructor(reader: GpackStreamReader, rpgMakerKey: String?, engineFamily: String?, vnmInputGuard: String) : this(reader, rpgMakerKey, engineFamily, vnmInputGuard, { path -> reader.openStream(path) })
+
+    constructor(streamProvider: (String) -> InputStream?) : this(null, null, null, "off", streamProvider)
+
+    constructor(engineFamily: String?, streamProvider: (String) -> InputStream?) : this(null, null, engineFamily, "off", streamProvider)
+
+    constructor(engineFamily: String?, vnmInputGuard: String, streamProvider: (String) -> InputStream?) : this(null, null, engineFamily, vnmInputGuard, streamProvider)
+
+    fun isVnmProfile(): Boolean = Companion.isVnmProfile(engineFamily)
+
+    fun isAllowlistedShim(path: String): Boolean {
+        if (path == "web_shims/runtimepack_web_shims.js") return true
+        if (path == "web_shims/runtimepack_vnm_input_guard.js") {
+            return isVnmProfile() && vnmInputGuard == "transition-aware"
+        }
+        return false
+    }
+
+    fun transformVnmHtml(rawHtml: String, guardMode: String = this.vnmInputGuard): String {
+        if (rawHtml.contains("<!-- RUNTIMEPACK_VNM_SHIMS -->")) {
+            return rawHtml
+        }
+
+        val scriptsRegex = Regex("""<script[^>]*src\s*=\s*["'](?:\./)?data/SCRIPTS\.js["'][^>]*>\s*</script>""", RegexOption.IGNORE_CASE)
+        val scriptsMatch = scriptsRegex.find(rawHtml)
+            ?: throw IllegalArgumentException("[RuntimePack] VNM expected script anchor not found in index.html: data/SCRIPTS.js")
+
+        if (scriptsMatch.value.contains("async", ignoreCase = true) || scriptsMatch.value.contains("defer", ignoreCase = true)) {
+            throw IllegalArgumentException("[RuntimePack] VNM unsupported async/defer script tag found on critical engine scripts")
+        }
+
+        val engineRegex = Regex("""<script[^>]*src\s*=\s*["'](?:\./)?data/ENGINE\.js["'][^>]*>\s*</script>""", RegexOption.IGNORE_CASE)
+        val engineMatch = engineRegex.find(rawHtml)
+        if (engineMatch != null && (engineMatch.value.contains("async", ignoreCase = true) || engineMatch.value.contains("defer", ignoreCase = true))) {
+            throw IllegalArgumentException("[RuntimePack] VNM unsupported async/defer script tag found on critical engine scripts")
+        }
+
+        val boundary1Tag = "<!-- RUNTIMEPACK_VNM_SHIMS -->\n    <script type=\"text/javascript\" src=\"web_shims/runtimepack_web_shims.js\"></script>\n"
+        val postEngineTag = "\n    <script type=\"text/javascript\">if (window.__runtimepackPollVnmStorage) { window.__runtimepackPollVnmStorage(window.GameStorage || (window.gs && window.gs.GameStorage)); }</script>"
+        val boundary2Tag = "\n    <script type=\"text/javascript\">if (window.__runtimepackPollVnmMessageCompat) { window.__runtimepackPollVnmMessageCompat(); } if (window.__runtimepackPollVnmStorage) { window.__runtimepackPollVnmStorage(window.GameStorage || (window.gs && window.gs.GameStorage)); } if (window.__runtimepackPollVnmAudioCompat) { window.__runtimepackPollVnmAudioCompat(); }</script>"
+        val guardTag = if (guardMode == "transition-aware") {
+            "\n    <script type=\"text/javascript\">window.__runtimepack_vnm_input_guard_mode = \"transition-aware\";</script>\n    <script type=\"text/javascript\" src=\"web_shims/runtimepack_vnm_input_guard.js\"></script>"
+        } else {
+            ""
+        }
+
+        val platformLibsRegex = Regex("""<!--\{PLATFORM_LIBS\}-->""", RegexOption.IGNORE_CASE)
+        val htmlWithBoundary1 = if (platformLibsRegex.containsMatchIn(rawHtml)) {
+            rawHtml.replace(platformLibsRegex, "$boundary1Tag    <!--{PLATFORM_LIBS}-->")
+        } else {
+            val firstScriptRegex = Regex("""<script\b""", RegexOption.IGNORE_CASE)
+            val firstScriptMatch = firstScriptRegex.find(rawHtml)
+            if (firstScriptMatch != null) {
+                rawHtml.substring(0, firstScriptMatch.range.first) + boundary1Tag + "    " + rawHtml.substring(firstScriptMatch.range.first)
+            } else {
+                throw IllegalArgumentException("[RuntimePack] VNM expected script anchor not found in index.html: no script tags")
+            }
+        }
+
+        val engineMatchAfterB1 = engineRegex.find(htmlWithBoundary1)
+        val htmlWithPostEngine = if (engineMatchAfterB1 != null) {
+            val engineEnd = engineMatchAfterB1.range.last + 1
+            htmlWithBoundary1.substring(0, engineEnd) + postEngineTag + htmlWithBoundary1.substring(engineEnd)
+        } else {
+            htmlWithBoundary1
+        }
+
+        val scriptsMatchAfterPostEngine = scriptsRegex.find(htmlWithPostEngine)
+            ?: throw IllegalArgumentException("[RuntimePack] VNM expected script anchor not found in index.html: data/SCRIPTS.js")
+
+        val endIdx = scriptsMatchAfterPostEngine.range.last + 1
+        return htmlWithPostEngine.substring(0, endIdx) + boundary2Tag + guardTag + htmlWithPostEngine.substring(endIdx)
+    }
 
     private val pluginFilenameMap: Map<String, String> by lazy {
         val map = HashMap<String, String>()
@@ -37,7 +113,18 @@ class VfsResourceInterceptor(
     }
 
     companion object {
+        fun isVnmProfile(engineFamily: String?): Boolean {
+            val raw = engineFamily?.trim()?.lowercase() ?: ""
+            val norm = raw.replace("-", "").replace("_", "").replace(" ", "")
+            return norm == "vnm" ||
+                   norm == "visualnovelmaker" ||
+                   norm == "vnmaker" ||
+                   norm == "vnmweb" ||
+                   norm == "vnmakerweb"
+        }
+
         private val LOCALHOST_REGEX = Regex("""^http://(?:localhost|127\.0\.0\.1)(?::\d+)?/""")
+        private val ALLOWLISTED_SHIMS = setOf("web_shims/runtimepack_web_shims.js")
 
         val TRANSPARENT_1X1_PNG: ByteArray = byteArrayOf(
             0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(),
@@ -182,7 +269,19 @@ class VfsResourceInterceptor(
 
     fun intercept(url: String): WebResourceResponse? {
         val logicalPath = urlToLogicalPath(url) ?: return null
+        if (logicalPath.startsWith("web_shims/")) {
+            if (!isAllowlistedShim(logicalPath)) {
+                return null
+            }
+            val shimStream = streamProvider(logicalPath) ?: return null
+            recordResourceServed(logicalPath)
+            return createResponse("application/javascript", "UTF-8", shimStream)
+        }
+        val isHtmlRequest = (logicalPath == "index.html" || logicalPath.isEmpty())
         var stream = streamProvider(logicalPath)
+        if (stream == null && isHtmlRequest) {
+            stream = streamProvider("index.html")
+        }
         if (stream == null) {
             val lower = logicalPath.lowercase()
             if (lower != logicalPath) {
@@ -190,9 +289,18 @@ class VfsResourceInterceptor(
             }
         }
         if (stream == null && reader != null) {
-            val entry = reader.getEntry(logicalPath)
+            val entry = reader.getEntry(if (logicalPath.isEmpty()) "index.html" else logicalPath)
             if (entry != null) {
                 stream = streamProvider(entry.logicalPath)
+            }
+        }
+        if (isHtmlRequest && isVnmProfile()) {
+            val rawStream = stream ?: streamProvider("index.html") ?: reader?.openStream("index.html")
+            if (rawStream != null) {
+                val rawHtml = rawStream.bufferedReader(Charsets.UTF_8).readText()
+                val transformed = transformVnmHtml(rawHtml)
+                recordResourceServed("index.html")
+                return createResponse("text/html", "UTF-8", ByteArrayInputStream(transformed.toByteArray(Charsets.UTF_8)))
             }
         }
         if (stream == null && logicalPath.contains('%')) {
@@ -322,8 +430,9 @@ class VfsResourceInterceptor(
             }
             return null
         }
-        recordResourceServed(logicalPath)
-        val mime = getMimeType(logicalPath)
+        val effectivePath = if (logicalPath.isEmpty()) "index.html" else logicalPath
+        recordResourceServed(effectivePath)
+        val mime = getMimeType(effectivePath)
         return createResponse(mime, getEncoding(mime), stream)
     }
 }

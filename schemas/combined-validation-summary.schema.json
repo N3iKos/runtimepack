@@ -56,6 +56,15 @@
         "passed_count": { "type": "integer", "minimum": 0 },
         "failed_count": { "type": "integer", "minimum": 0 },
         "warning_count": { "type": "integer", "minimum": 0 },
+        "missing_count": { "type": "integer", "minimum": 0 },
+        "decode_failed_count": { "type": "integer", "minimum": 0 },
+        "indeterminate_count": { "type": "integer", "minimum": 0 },
+        "excluded_count": { "type": "integer", "minimum": 0 },
+        "attempted_count": { "type": "integer", "minimum": 0 },
+        "stage_attempt_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
         "stage_counts": {
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 0 }

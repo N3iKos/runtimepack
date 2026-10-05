@@ -2,7 +2,10 @@ pub mod crypto;
 pub mod gpack;
 
 pub use crypto::ContentCrypto;
-pub use gpack::{GpackPacker, GpackReader, GPACK_MAGIC, GPACK_VERSION};
+pub use gpack::{
+    GpackIndexEntry, GpackPacker, GpackReader, PackagingExclusionEntry, PackagingExclusions,
+    GPACK_MAGIC, GPACK_VERSION,
+};
 
 use runtimepack_core::diagnostics::DiagnosticError;
 use runtimepack_core::domain::ContentMode;

@@ -24,6 +24,11 @@ class WebBridge(private val saveService: SaveService, private val saveRepository
     }
 
     @JavascriptInterface
+    fun registerNamespace(namespace: String): Boolean {
+        return repository.registerNamespace(namespace)
+    }
+
+    @JavascriptInterface
     fun saveSlot(namespace: String, slot: String, payload: String): Boolean {
         return repository.put(namespace, slot, payload)
     }
@@ -74,6 +79,16 @@ class WebBridge(private val saveService: SaveService, private val saveRepository
     @JavascriptInterface
     fun onFirstFrame() {
         HealthMarker.FIRST_FRAME.emit()
+    }
+
+    @JavascriptInterface
+    fun postDiagnosticError(json: String): Boolean {
+        return DiagnosticLogStore.recordJsonError(json)
+    }
+
+    @JavascriptInterface
+    fun postVnmInputSnapshot(json: String): Boolean {
+        return VnmInputGuardDiagnostics.postSnapshot(json)
     }
 
     @JavascriptInterface

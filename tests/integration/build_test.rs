@@ -567,6 +567,8 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1459,6 +1461,8 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1557,6 +1561,8 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1633,6 +1639,8 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1718,6 +1726,8 @@ fn test_emit_project_packages_cjk_fonts() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-26T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1794,7 +1804,9 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         schema_version: 1,
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
-        build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1887,12 +1899,14 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let project_dir = temp_dir.join("project");
-        let manifest = BuildManifest {
-            schema_version: 1,
-            runtimepack_version: "0.1.0".to_string(),
-            git_commit: None,
-            build_timestamp: "2026-09-23T00:00:00Z".to_string(),
-            flavor: None,
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-09-20T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
+        flavor: None,
             audit: None,
             rtp_source: None,
             themes: None,
@@ -2001,6 +2015,8 @@ fn test_emit_project_packages_asset_dependency_graph() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-25T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2167,6 +2183,8 @@ fn test_build_flavor_beta_injects_watermark() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2282,6 +2300,8 @@ fn test_build_flavor_release_omits_watermark() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -2442,6 +2462,8 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-26T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2522,6 +2544,8 @@ fn renpy_build_manifest() -> BuildManifest {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-27T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2748,6 +2772,8 @@ fn create_base_test_manifest() -> BuildManifest {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-28T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2873,6 +2899,22 @@ fn test_build_plan_embeds_selected_themes_and_manifest() {
             selected_themes: vec!["matte".to_string(), "liquid_glass".to_string()],
         })
     );
+
+    let independent_themes_hash = independent_runtime_integrity_hash(
+        &project_dir.join("app/src/main/assets/overlay"),
+        &project_dir.join("app/src/main/assets/web_shims"),
+        Some(&project_dir.join("app/src/main/assets/fonts")),
+    );
+
+    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    let content = std::fs::read_to_string(&build_info_path).unwrap();
+    let prefix = "var RUNTIME_INTEGRITY_SHA256: String = \"";
+    let start = content.find(prefix).expect("prefix found") + prefix.len();
+    let end = content[start..].find('"').expect("closing quote") + start;
+    let hash_in_code = &content[start..end];
+    assert_eq!(hash_in_code, independent_themes_hash);
+    assert_ne!(hash_in_code, "fe38ef57313aed079f2fc4eb7e04742211b7195e2f962c898b34cffd68e37905");
+    assert_ne!(hash_in_code, "5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d");
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -3320,6 +3362,8 @@ fn test_release_build_omits_plain_overlay_and_shims_assets() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -3408,6 +3452,8 @@ fn test_beta_build_preserves_plain_overlay_and_shims_assets() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -3589,6 +3635,66 @@ fn test_compute_runtime_integrity_hash_from_entries_vectors() {
     ];
     let h2_norm = compute_runtime_integrity_hash_from_entries(&v2_normalized);
     assert_eq!(h2, h2_norm, "Path normalization must produce identical hash");
+
+    let permanent_fixture = vec![
+        ("fonts/fixture.ttf".to_string(), b"FIXTURE_FONT_BYTES_12345".to_vec()),
+        ("overlay/vpad.js".to_string(), b"FIXTURE_OVERLAY_BYTES_67890".to_vec()),
+        ("web_shims/runtimepack_web_shims.js".to_string(), b"FIXTURE_SHIMS_BYTES_ABCDEF".to_vec()),
+    ];
+    let perm_hash = compute_runtime_integrity_hash_from_entries(&permanent_fixture);
+    assert_eq!(
+        perm_hash,
+        "2d409805738a036ca81289ecf97e604c6189eb618f8c6e226e8a99a6adb5023d",
+        "Permanent 3-root algorithm vector must remain invariant"
+    );
+}
+
+fn independent_runtime_integrity_hash(
+    overlay_dir: &Path,
+    shims_dir: &Path,
+    fonts_dir: Option<&Path>,
+) -> String {
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    fn visit(dir: &Path, base: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
+        if !dir.exists() {
+            return;
+        }
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    visit(&p, base, prefix, out);
+                } else if p.is_file() {
+                    if let Ok(rel) = p.strip_prefix(base) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        let logical = format!("{}/{}", prefix, rel_str.trim_start_matches('/'));
+                        if let Ok(bytes) = std::fs::read(&p) {
+                            out.push((logical, bytes));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    visit(overlay_dir, overlay_dir, "overlay", &mut entries);
+    visit(shims_dir, shims_dir, "web_shims", &mut entries);
+    if let Some(f) = fonts_dir {
+        visit(f, f, "fonts", &mut entries);
+    }
+    entries.sort_by(|a, b| {
+        let na = a.0.replace('\\', "/").trim_start_matches('/').to_lowercase();
+        let nb = b.0.replace('\\', "/").trim_start_matches('/').to_lowercase();
+        na.cmp(&nb)
+    });
+    let mut hasher = Sha256::new();
+    for (path, bytes) in entries {
+        let norm = path.replace('\\', "/").trim_start_matches('/').to_lowercase();
+        hasher.update(norm.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(&bytes);
+        hasher.update([0u8]);
+    }
+    format!("{:x}", hasher.finalize())
 }
 
 #[test]
@@ -3600,6 +3706,8 @@ fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -3662,6 +3770,22 @@ fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
     )
     .unwrap();
 
+    let app_dir = project_dir.join("app");
+    let assets_dir = app_dir.join("src/main/assets");
+    assert!(
+        !assets_dir.join("overlay").exists(),
+        "Plain overlay must be omitted from APK assets in release flavor"
+    );
+    assert!(
+        !assets_dir.join("web_shims").exists(),
+        "Plain web_shims must be omitted from APK assets in release flavor"
+    );
+
+    let overlay_src = AndroidProjectGenerator::find_overlay_src().unwrap();
+    let shims_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/web_shims").unwrap();
+    let fonts_src = AndroidProjectGenerator::find_template_file("android/shell/app/src/main/assets/fonts");
+    let expected_raw_hash = independent_runtime_integrity_hash(&overlay_src, &shims_src, fonts_src.as_deref());
+
     let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
     assert!(
         build_info_path.exists(),
@@ -3680,7 +3804,6 @@ fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
         content
     );
 
-    // Extract hash from RuntimeBuildInfo.kt
     let prefix = "var RUNTIME_INTEGRITY_SHA256: String = \"";
     let start = content.find(prefix).expect("prefix found") + prefix.len();
     let end = content[start..].find('"').expect("closing quote") + start;
@@ -3692,7 +3815,11 @@ fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
         hash_in_code
     );
 
-    // Verify manifest JSON also contains runtime_integrity_sha256
+    assert_eq!(
+        hash_in_code, expected_raw_hash,
+        "Release RuntimeBuildInfo hash must match current CLI packed input raw templates"
+    );
+
     let manifest_path = project_dir.join("app/src/main/assets/build-manifest.json");
     let manifest_raw = std::fs::read_to_string(&manifest_path).unwrap();
     let manifest_val: serde_json::Value = serde_json::from_str(&manifest_raw).unwrap();
@@ -3714,6 +3841,8 @@ fn test_emit_project_beta_flavor_runtime_build_info() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -3776,12 +3905,59 @@ fn test_emit_project_beta_flavor_runtime_build_info() {
     )
     .unwrap();
 
-    let build_info_path = project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    let app_dir = project_dir.join("app");
+    let assets_dir = app_dir.join("src/main/assets");
+    let overlay_dir = assets_dir.join("overlay");
+    let shims_dir = assets_dir.join("web_shims");
+    let fonts_dir = assets_dir.join("fonts");
+
+    let vpad_content = std::fs::read_to_string(overlay_dir.join("vpad.js")).unwrap();
+    assert!(
+        vpad_content.contains("Beta Test") && vpad_content.contains("Veldra Community"),
+        "vpad.js must contain beta watermark markup"
+    );
+    let vpad_css = std::fs::read_to_string(overlay_dir.join("vpad.css")).unwrap();
+    assert!(
+        vpad_css.contains("opacity: 0.8 !important"),
+        "vpad.css must contain beta watermark styling"
+    );
+    let index_html = std::fs::read_to_string(overlay_dir.join("index.html")).unwrap();
+    assert!(
+        index_html.contains("id=\"fnh-watermark-style\""),
+        "index.html must contain watermark style element"
+    );
+
+    let independent_staged_hash = independent_runtime_integrity_hash(
+        &overlay_dir,
+        &shims_dir,
+        Some(&fonts_dir),
+    );
+
+    let build_info_path = app_dir.join("src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
     let content = std::fs::read_to_string(&build_info_path).unwrap();
     assert!(
         content.contains("var BUILD_FLAVOR: String = \"beta\""),
         "BUILD_FLAVOR must be beta, got:\n{}",
         content
+    );
+
+    let prefix = "var RUNTIME_INTEGRITY_SHA256: String = \"";
+    let start = content.find(prefix).expect("prefix found") + prefix.len();
+    let end = content[start..].find('"').expect("closing quote") + start;
+    let hash_in_code = &content[start..end];
+
+    assert_eq!(
+        hash_in_code, independent_staged_hash,
+        "RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256 must match independent staged assets hash post-watermark"
+    );
+
+    let manifest_path = assets_dir.join("build-manifest.json");
+    let manifest_raw = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest_val: serde_json::Value = serde_json::from_str(&manifest_raw).unwrap();
+    assert_eq!(
+        manifest_val.get("runtime_integrity_sha256").and_then(|v| v.as_str()),
+        Some(independent_staged_hash.as_str()),
+        "build-manifest.json must match independent staged assets hash post-watermark"
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -3796,6 +3972,8 @@ fn test_release_project_emits_proguard_rules_and_enables_minify() {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
+        overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -3888,4 +4066,399 @@ fn test_release_project_emits_proguard_rules_and_enables_minify() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_packaging_exclusions_parity_and_predicate() {
+    use runtimepack_core::ingest::{GameSourceIndex, IndexedFile};
+    use runtimepack_pack::GpackPacker;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    let excluded_dlls = [
+        "d3dcompiler_47.dll",
+        "ffmpeg.dll",
+        "libEGL.dll",
+        "libGLESv2.dll",
+        "node.dll",
+        "nw.dll",
+        "nw_elf.dll",
+    ];
+    for dll in &excluded_dlls {
+        assert!(
+            !GpackPacker::should_include_in_pack(dll),
+            "Desktop DLL {} must be excluded by pack predicate",
+            dll
+        );
+    }
+
+    let included_resources = [
+        "data/System.json",
+        "data/archive.dat",
+        "resources/game.pak",
+        "img/picture.png",
+        "audio/bgm.ogg",
+        "icon.png",
+    ];
+    for res in &included_resources {
+        assert!(
+            GpackPacker::should_include_in_pack(res),
+            "Resource {} must remain eligible in pack predicate",
+            res
+        );
+    }
+
+    let mut files = HashMap::new();
+    for dll in &excluded_dlls {
+        files.insert(
+            dll.to_ascii_lowercase(),
+            IndexedFile {
+                logical_path: dll.to_string(),
+                relative_path: PathBuf::from(dll),
+                size_bytes: 1024,
+                source_root: None,
+            },
+        );
+    }
+    for res in &included_resources {
+        files.insert(
+            res.to_ascii_lowercase(),
+            IndexedFile {
+                logical_path: res.to_string(),
+                relative_path: PathBuf::from(res),
+                size_bytes: 2048,
+                source_root: None,
+            },
+        );
+    }
+
+    let source_index = GameSourceIndex {
+        root_path: PathBuf::from("/mock/game"),
+        files,
+        total_size_bytes: 3072,
+        source_hash: "mock_source_hash_12345".to_string(),
+        rtp_root: None,
+    };
+
+    let exclusions = GpackPacker::compute_packaging_exclusions(&source_index);
+    assert_eq!(exclusions.schema_version, 1);
+    assert_eq!(exclusions.source_hash, "mock_source_hash_12345");
+    assert_eq!(exclusions.entries.len(), excluded_dlls.len());
+
+    let excluded_paths: Vec<&str> = exclusions
+        .entries
+        .iter()
+        .map(|e| e.logical_path.as_str())
+        .collect();
+    for dll in &excluded_dlls {
+        assert!(
+            excluded_paths.contains(dll),
+            "Omitted path {} must be recorded in exclusions",
+            dll
+        );
+    }
+    for res in &included_resources {
+        assert!(
+            !excluded_paths.contains(res),
+            "Eligible path {} must not be in exclusions",
+            res
+        );
+    }
+    for entry in &exclusions.entries {
+        assert_eq!(entry.reason, "EXCLUDED_PLATFORM_BINARY");
+    }
+}
+
+#[test]
+fn test_cli_overlay_mode_defaults_to_full_and_validates_flags() {
+    let help_output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg("--help")
+        .output()
+        .expect("Must run runtimepack build --help");
+    let help_text = String::from_utf8_lossy(&help_output.stdout);
+    assert!(help_text.contains("--overlay-mode"));
+    assert!(help_text.contains("[default: full]"));
+
+    let temp_dir = test_temp_dir("cli-overlay-validation");
+    let fixture = temp_dir.join("mv_game");
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let invalid_out = temp_dir.join("out_invalid");
+    let invalid_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&invalid_out)
+        .arg("--overlay-mode")
+        .arg("unknown-mode")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!invalid_res.status.success());
+    let stderr_invalid = String::from_utf8_lossy(&invalid_res.stderr);
+    assert!(stderr_invalid.contains("[BLD-101]"));
+
+    let non_vnm_out = temp_dir.join("out_non_vnm");
+    let non_vnm_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&non_vnm_out)
+        .arg("--overlay-mode")
+        .arg("passive-watermark")
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!non_vnm_res.status.success());
+    let stderr_non_vnm = String::from_utf8_lossy(&non_vnm_res.stderr);
+    assert!(stderr_non_vnm.contains("[BLD-101]"));
+    assert!(!non_vnm_out.join("game.pack").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_manifest_serde_omitted_overlay_mode_defaults_to_full() {
+    let base_json = r#"{
+        "schema_version": 1,
+        "runtimepack_version": "0.1.0",
+        "build_timestamp": "2026-10-05T00:00:00Z",
+        "flavor": "beta",
+        "app": {
+            "name": "Old Game",
+            "package": "com.example.old",
+            "version_name": "1.0.0",
+            "version_code": 1
+        },
+        "engine": {
+            "id": "rpgmaker_mv",
+            "confidence": "EXACT",
+            "overridden": false
+        },
+        "runtime": {
+            "id": "web-mv",
+            "version": "1.0.0",
+            "family": "RPG Maker Web",
+            "runtime_api": 1,
+            "capabilities": []
+        },
+        "content": {
+            "mode": "packed",
+            "content_hash": "dummy",
+            "file_count": 1,
+            "total_bytes": 100
+        },
+        "android": {
+            "abis": ["arm64-v8a"],
+            "min_sdk": 26,
+            "target_sdk": 34,
+            "permissions": []
+        },
+        "provenance": {
+            "source_hash": "src",
+            "config_hash": "cfg",
+            "toolchain": {}
+        }
+    }"#;
+
+    let manifest: BuildManifest = serde_json::from_str(base_json).unwrap();
+    assert_eq!(manifest.overlay_mode, "full");
+    assert_eq!(manifest.vnm_input_guard, "off");
+
+    let passive_json = base_json.replace(
+        "\"flavor\": \"beta\",",
+        "\"flavor\": \"beta\",\n\"overlay_mode\": \"passive-watermark\",\n\"vnm_input_guard\": \"transition-aware\",",
+    );
+    let manifest_passive: BuildManifest = serde_json::from_str(&passive_json).unwrap();
+    assert_eq!(manifest_passive.overlay_mode, "passive-watermark");
+    assert_eq!(manifest_passive.vnm_input_guard, "transition-aware");
+}
+
+#[test]
+fn test_cli_vnm_input_guard_defaults_to_off_and_validates_flags() {
+    let help_output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg("--help")
+        .output()
+        .expect("Must run runtimepack build --help");
+    let help_text = String::from_utf8_lossy(&help_output.stdout);
+    assert!(help_text.contains("--vnm-input-guard"));
+    assert!(help_text.contains("[default: off]"));
+
+    let temp_dir = test_temp_dir("cli-vnm-input-guard-validation");
+    let fixture = temp_dir.join("mv_game");
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let invalid_out = temp_dir.join("out_invalid_guard");
+    let invalid_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&invalid_out)
+        .arg("--vnm-input-guard")
+        .arg("unknown-guard")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!invalid_res.status.success());
+    let stderr_invalid = String::from_utf8_lossy(&invalid_res.stderr);
+    assert!(stderr_invalid.contains("[BLD-101]"));
+
+    let non_vnm_out = temp_dir.join("out_non_vnm_guard");
+    let non_vnm_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&non_vnm_out)
+        .arg("--vnm-input-guard")
+        .arg("transition-aware")
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!non_vnm_res.status.success());
+    let stderr_non_vnm = String::from_utf8_lossy(&non_vnm_res.stderr);
+    assert!(stderr_non_vnm.contains("[BLD-101]"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_vnm_beta_passive_emits_minimal_overlay_and_deterministic_hash() {
+    let temp_dir = test_temp_dir("vnm-beta-passive-overlay");
+    let project_dir = temp_dir.join("project");
+    let manifest = BuildManifest {
+        schema_version: 1,
+        runtimepack_version: "0.1.0".to_string(),
+        git_commit: None,
+        build_timestamp: "2026-10-05T00:00:00Z".to_string(),
+        overlay_mode: "passive-watermark".to_string(),
+        vnm_input_guard: "off".to_string(),
+        flavor: Some("beta".to_string()),
+        audit: None,
+        rtp_source: None,
+        themes: None,
+        app: AppConfig {
+            name: "VNM Passive Test".to_string(),
+            package: "io.runtimepack.test.vnm.passive".to_string(),
+            version_name: "1.0.0".to_string(),
+            version_code: 1,
+        },
+        engine: EngineManifestEntry {
+            id: "Visual Novel Maker".to_string(),
+            confidence: "EXACT".to_string(),
+            overridden: false,
+            detected_version: None,
+        },
+        runtime: RuntimeManifestEntry {
+            id: "vnmaker-web".to_string(),
+            version: "0.1.0".to_string(),
+            family: "Web".to_string(),
+            runtime_api: 1,
+            capabilities: vec![],
+        },
+        content: ContentManifestEntry {
+            mode: ContentMode::Packed.to_string(),
+            content_hash: "dummyhash".to_string(),
+            file_count: 1,
+            total_bytes: 100,
+        },
+        android: AndroidManifestEntry {
+            abis: vec!["arm64-v8a".to_string()],
+            min_sdk: 26,
+            target_sdk: 34,
+            permissions: vec![],
+        },
+        provenance: ProvenanceManifestEntry {
+            source_hash: "dummy_src".to_string(),
+            config_hash: "dummy_cfg".to_string(),
+            apk_hash: None,
+            flavor: Some("beta".to_string()),
+            audit: None,
+            rtp_source: None,
+            themes: None,
+            toolchain: ToolchainProvenance {
+                agp_version: Some("8.3.0".to_string()),
+                gradle_version: Some("8.7".to_string()),
+                jdk_version: Some("17".to_string()),
+                android_sdk_platform: Some("34".to_string()),
+                ndk_version: Some("26.1.10909125".to_string()),
+            },
+        },
+    };
+
+    AndroidProjectGenerator::emit_project_with_themes(
+        &project_dir,
+        &manifest,
+        None,
+        None,
+        Some("beta"),
+        None,
+    )
+    .unwrap();
+
+    let overlay_html_path = project_dir.join("app/src/main/assets/overlay/index.html");
+    assert!(overlay_html_path.exists());
+    let overlay_html = std::fs::read_to_string(&overlay_html_path).unwrap();
+    assert!(overlay_html.contains("Beta Test"));
+    assert!(overlay_html.contains("Veldra Community"));
+    assert!(overlay_html.contains("pointer-events: none !important;"));
+
+    assert!(!project_dir.join("app/src/main/assets/overlay/vpad.js").exists());
+    assert!(!project_dir.join("app/src/main/assets/overlay/cheat_menu.js").exists());
+    assert!(!project_dir.join("app/src/main/assets/overlay/themes").exists());
+
+    let written_manifest_path = project_dir.join("app/src/main/assets/build-manifest.json");
+    assert!(written_manifest_path.exists());
+    let written_manifest: BuildManifest =
+        serde_json::from_str(&std::fs::read_to_string(&written_manifest_path).unwrap()).unwrap();
+    assert_eq!(written_manifest.overlay_mode, "passive-watermark");
+
+    let runtime_build_info_path =
+        project_dir.join("app/src/main/java/io/runtimepack/host/RuntimeBuildInfo.kt");
+    assert!(runtime_build_info_path.exists());
+    let runtime_build_info_code = std::fs::read_to_string(&runtime_build_info_path).unwrap();
+
+    let staged_overlay = project_dir.join("app/src/main/assets/overlay");
+    let staged_shims = project_dir.join("app/src/main/assets/web_shims");
+    let staged_fonts = project_dir.join("app/src/main/assets/fonts");
+    let fonts_param = if staged_fonts.exists() {
+        Some(staged_fonts.as_path())
+    } else {
+        None
+    };
+    let oracle_hash =
+        AndroidProjectGenerator::compute_runtime_integrity_hash(&staged_overlay, &staged_shims, fonts_param)
+            .unwrap();
+
+    assert!(runtime_build_info_code.contains(&oracle_hash));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
 

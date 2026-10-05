@@ -24,7 +24,7 @@
       "type": "object",
       "properties": {
         "mode": { "type": "string", "enum": ["auto", "forced"], "default": "auto" },
-        "id": { "type": "string", "enum": ["rpgmaker-xp", "rpgmaker-vx", "rpgmaker-vxace", "rpgmaker-mv", "rpgmaker-mz", "renpy", "tyrano"] }
+        "id": { "type": "string", "enum": ["rpgmaker-xp", "rpgmaker-vx", "rpgmaker-vxace", "rpgmaker-mv", "rpgmaker-mz", "renpy", "tyrano", "visual-novel-maker"] }
       }
     },
     "android": {

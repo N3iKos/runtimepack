@@ -11,6 +11,7 @@ pub enum EngineId {
     RpgMakerMz,
     RenPy,
     Tyrano,
+    VisualNovelMaker,
     Unknown,
 }
 
@@ -24,6 +25,7 @@ impl fmt::Display for EngineId {
             EngineId::RpgMakerMz => write!(f, "RPG Maker MZ"),
             EngineId::RenPy => write!(f, "Ren'Py"),
             EngineId::Tyrano => write!(f, "TyranoBuilder / TyranoScript"),
+            EngineId::VisualNovelMaker => write!(f, "Visual Novel Maker"),
             EngineId::Unknown => write!(f, "Unknown"),
         }
     }
@@ -38,6 +40,7 @@ impl EngineId {
             EngineId::RpgMakerMv | EngineId::RpgMakerMz => Some(RuntimeFamily::WebRpgMaker),
             EngineId::RenPy => Some(RuntimeFamily::RenPy),
             EngineId::Tyrano => Some(RuntimeFamily::TyranoWeb),
+            EngineId::VisualNovelMaker => Some(RuntimeFamily::VnMakerWeb),
             EngineId::Unknown => None,
         }
     }
@@ -50,6 +53,8 @@ pub enum RuntimeFamily {
     WebRpgMaker,
     RenPy,
     TyranoWeb,
+    #[serde(rename = "vnmaker-web")]
+    VnMakerWeb,
 }
 
 impl fmt::Display for RuntimeFamily {
@@ -59,6 +64,7 @@ impl fmt::Display for RuntimeFamily {
             RuntimeFamily::WebRpgMaker => write!(f, "RPG Maker Web"),
             RuntimeFamily::RenPy => write!(f, "Ren'Py"),
             RuntimeFamily::TyranoWeb => write!(f, "Tyrano Web"),
+            RuntimeFamily::VnMakerWeb => write!(f, "VNM Web"),
         }
     }
 }

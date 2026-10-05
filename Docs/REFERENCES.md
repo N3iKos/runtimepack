@@ -231,6 +231,71 @@ Supports:
 - Python code execution blocks: `init python:`, `python:`, `$ <stmt>`.
 - Python import restrictions for standalone mobile runtimes: native C extensions (`.pyd`, `.so`, Windows `.dll`) and unsupported native imports (e.g. `ctypes`, `win32api`) cannot run on Android ARM64 pure-Python runtimes.
 
+### S29 — Visual Novel Maker HTML5 Export Specifications and Legacy Architecture
+URL: https://asset.visualnovelmaker.com/help/Engine_Getting_Started.htm
+URL: https://asset.visualnovelmaker.com/help/engine_doc/classes/gs.Graphics.html
+URL: https://asset.visualnovelmaker.com/help/engine_doc/classes/gs.GameStorage.html
+URL: https://asset.visualnovelmaker.com/help/game_script_doc/classes/Component_MessageBehavior.html
+URL: https://asset.visualnovelmaker.com/help/Create_Game_Package.htm
+
+Supports:
+- Visual Novel Maker uses an HTML5 JavaScript framework ("Basic Engine") separating core engine components (`data/ENGINE.js`) from game behaviors and scene scripts (`data/SCRIPTS.js`).
+- Verified core engine export contains `window.gs` namespace initialization and `GameStorage` persistence management.
+- Verified game scripts export contains `vn.Component_MessageBehavior` and `gs.Application`.
+- Entry point `index.html` loads platform libraries and scripts in defined order, referencing `data/ENGINE.js` and `data/SCRIPTS.js`.
+- Legacy desktop packaging produces a web-application bundle with `package.json` (`main: "index.html"`).
+- Supported experimental export profile identifies this specific legacy export layout verified from fresh game research; does not imply universal support for all past and future VNM generations.
+
+### S30 — Visual Novel Maker Static Asset Manifest and Encryption Baseline
+URL: local://docs/research/VNM_PORTING_POSTMORTEM_AND_RECOMMENDATIONS.md
+URL: https://asset.visualnovelmaker.com/help/Resource_Standards.htm
+URL: https://asset.visualnovelmaker.com/help/Create_Game_Package.htm
+
+Supports:
+- Visual Novel Maker encrypted exports contain encrypted asset tables in `data/RESOURCES.json.js` and `data/SUMMARIES.json.js`.
+- Opaque/encrypted manifests cannot be statically resolved without encryption keys and game execution; static audit must report INDETERMINATE with incomplete reference scope.
+- Unreferenced asset files cannot be inferred as orphans while manifest resolution is indeterminate.
+- Native Node.js modules (`.node`) and unsupported native desktop libraries (`.dll`, `.so`) are incompatible with Android WebView.
+
+### S31 — JSZip NodeBuffer and ArrayBuffer Specifications
+URL: https://github.com/Stuk/jszip
+URL: https://stuk.github.io/jszip/documentation/api_jszip/generate.html
+
+Supports:
+- JSZip uses `new Buffer(data, encoding)` and `Buffer.isBuffer(b)`.
+- When type is `"nodebuffer"`, output satisfies `Buffer.isBuffer` and provides Uint8Array/Buffer methods (`slice`, `toString`, `copy`, `alloc`, `from`).
+- Multibyte UTF-8 and base64 transformations must maintain exact byte fidelity.
+
+### S32 — Visual Novel Maker Storage and NW.js Window Contract Baseline
+URL: local://fresh-game-inspection/data/ENGINE.js
+
+Supports:
+- `GameStorage` in `data/ENGINE.js` routes persistence via `window.nw` and `require("fs")` when `$PARAMS.isOffline && !$PARAMS.platform.isSteamOS && null != window.nw`, else fallback to `localStorage.getItem($PARAMS.uid + "_" + e)`.
+- `nw.Window.get()` provides `isFullscreen`, `setResizable`, `enterFullscreen`, `leaveFullscreen`, and event handling `on("resize", ...)`.
+
+### S33 — Web Audio API AudioScheduledSourceNode Lifecycle and WebIDL onended Setter Specifications
+URL: https://www.w3.org/TR/webaudio/#AudioScheduledSourceNode
+
+Supports:
+- Calling `stop()` on an `AudioScheduledSourceNode` before `start()` has been invoked throws `InvalidStateError`.
+- `onended` is an IDL attribute on `AudioScheduledSourceNode` whose setter accepts an event handler callback.
+- Stale or asynchronous `onended` callbacks running after reference disposal must be detached or guarded from manipulating nulled destination or restarting unreferenced loops.
+
+### S34 — Visual Novel Maker Voice Duration and Skip Lifecycle Specifications
+URL: local://fresh-game-inspection/data/SCRIPTS.js
+
+Supports:
+- Line 11501: `vn.Component_MessageBehavior.prototype.voiceDuration` accesses `this.voice.source.buffer.duration` and `this.voice.source.playbackRate.value`.
+- When `this.voice` has been disposed, `voice.source` is null, causing `TypeError: Cannot read properties of null (reading 'buffer')`.
+- When `this.tempSettings.skip` is true, the method returns `1` frame.
+
+### S35 — Visual Novel Maker Synchronous HTML5 Script Execution Order
+URL: local://fresh-game-inspection/index.html
+
+Supports:
+- `index.html` loads libraries synchronously in `<head>` before `data/ENGINE.js` and `data/SCRIPTS.js`.
+- Shims must execute before `data/ENGINE.js`, and message behavior hooks must execute immediately following `data/SCRIPTS.js` before DOM-ready `Main.start()`.
+
 ## Source hygiene
 
 Implementation agents must not introduce new external claims without adding an Sxx entry.

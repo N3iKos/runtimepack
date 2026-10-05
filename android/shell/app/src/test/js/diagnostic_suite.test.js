@@ -716,4 +716,256 @@ function createDOMContext() {
     assert.strictEqual(hexMatches, null, `diagnostic_suite.js must have zero presentation hex colors, found: ${hexMatches}`);
 }
 
+// Test 15: Distinct UI Counters for Scanned, Readable, Missing, DecodeFail, Unverified, Excluded
+{
+    console.log("Test 15: Distinct UI Counters for Scanned, Readable, Missing, DecodeFail, Unverified, Excluded");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 999;
+    };
+    sandbox.clearInterval = function () {};
+
+    let auditEventsQueue = [];
+    sandbox.RuntimePackVPad = {
+        startAudit: function () { return JSON.stringify({ status: "STARTED" }); },
+        getAuditEvents: function (afterSeq) {
+            const evs = auditEventsQueue.filter(e => (e.sequence_id || 0) > afterSeq);
+            return JSON.stringify(evs);
+        },
+        getAuditReport: function () { return "{}"; }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    const cntScanned = sandbox.document.getElementById("diag-cnt-scanned");
+    const cntValid = sandbox.document.getElementById("diag-cnt-valid");
+    const cntMissing = sandbox.document.getElementById("diag-cnt-missing");
+    const cntDecodeFail = sandbox.document.getElementById("diag-cnt-decode-fail");
+    const cntUnverified = sandbox.document.getElementById("diag-cnt-unverified");
+    const cntExcluded = sandbox.document.getElementById("diag-cnt-excluded");
+    const cntFallback = sandbox.document.getElementById("diag-cnt-fallback");
+    const stStatus = sandbox.document.getElementById("diag-stress-status");
+    const badge = sandbox.document.getElementById("diag-step-badge");
+
+    assert(cntDecodeFail, "diag-cnt-decode-fail element must exist");
+    assert(cntUnverified, "diag-cnt-unverified element must exist");
+    assert(cntExcluded, "diag-cnt-excluded element must exist");
+
+    sandbox.DiagnosticSuite.executeAuditOrProbe("run_exhaustive_probe");
+
+    auditEventsQueue = [
+        { sequence_id: 1, stage: "FILE_EXISTS", asset_path: "d3dcompiler_47.dll", category: "EXCLUDED_PLATFORM_BINARY", outcome: "WARNING" },
+        { sequence_id: 2, stage: "DECODE_SUCCESS", asset_path: "resources/Graphics/bg/1.jpg", category: "ENCODED_ASSET_UNVERIFIED", outcome: "INDETERMINATE" },
+        { sequence_id: 3, stage: "DECODE_SUCCESS", asset_path: "img/broken.png", category: "DECODE_FAILURE", outcome: "FAIL" },
+        { sequence_id: 4, stage: "FILE_EXISTS", asset_path: "img/missing.png", category: "MISSING_ASSET", outcome: "FAIL" },
+        { sequence_id: 5, stage: "FILE_READABLE", asset_path: "audio/se.ogg", outcome: "PASS" },
+        { sequence_id: 6, stage: "DECODE_SUCCESS", asset_path: "icon.png", outcome: "PASS" }
+    ];
+    intervalCallback();
+
+    assert.strictEqual(cntScanned.textContent, "6", "Scanned count must be 6");
+    assert.strictEqual(cntValid.textContent, "2", "Valid count must be 2 (audio + icon)");
+    assert.strictEqual(cntMissing.textContent, "1", "Missing count must be 1");
+    assert.strictEqual(cntDecodeFail.textContent, "1", "Decode fail count must be 1");
+    assert.strictEqual(cntUnverified.textContent, "1", "Unverified count must be 1");
+    assert.strictEqual(cntExcluded.textContent, "1", "Excluded count must be 1");
+
+    // Feed DONE event
+    auditEventsQueue.push({
+        sequence_id: 7,
+        stage: "RUNTIME_USE_SUCCESS",
+        asset_path: "all",
+        outcome: "INDETERMINATE",
+        is_complete: true,
+        message: "DONE: Probe completed with indeterminate assets (1 unverified, 0 missing)"
+    });
+    intervalCallback();
+
+    assert(stStatus.textContent.includes("INDETERMINATE") || stStatus.textContent.includes("unverified"),
+        `Status must reflect INDETERMINATE with unverified counts, got: ${stStatus.textContent}`);
+}
+
+// Test 16: Bug Report Schema 2 Export with Preserved Problem Events Despite Success-Log Flood
+{
+    console.log("Test 16: Bug Report Schema 2 Export with Preserved Problem Events Despite Success-Log Flood");
+    const { sandbox } = createDOMContext();
+
+    let intervalCallback = null;
+    sandbox.setInterval = function (fn, ms) {
+        intervalCallback = fn;
+        return 1001;
+    };
+    sandbox.clearInterval = function () {};
+
+    let exportedPayload = null;
+    let auditEventsQueue = [];
+
+    sandbox.RuntimePackVPad = {
+        startAudit: function () { return JSON.stringify({ status: "STARTED" }); },
+        getAuditEvents: function (afterSeq) {
+            const evs = auditEventsQueue.filter(e => (e.sequence_id || 0) > afterSeq);
+            return JSON.stringify(evs);
+        },
+        getAuditReport: function () { return "{}"; },
+        getCombinedSummary: function () {
+            return JSON.stringify({
+                schema_version: 1,
+                static_outcome: "PASS",
+                runtime_outcome: "INDETERMINATE",
+                combined_outcome: "INDETERMINATE"
+            });
+        },
+        getDiagnosticErrors: function () {
+            return JSON.stringify({
+                total_recorded: 1,
+                retained_count: 1,
+                omitted_count: 0,
+                truncated_count: 0,
+                items: [
+                    { message: "Uncaught ReferenceError at ENGINE.js:1:49411", file: "ENGINE.js", line: 1 }
+                ]
+            });
+        },
+        getRuntimeBuildInfo: function () {
+            return JSON.stringify({
+                app: { name: "TestGame", package: "com.test.game", version_name: "1.0.0", version_code: 1 },
+                engine: { id: "visual-novel-maker", confidence: "EXACT", overridden: false, version: null },
+                runtime: { id: "vnmaker-web", family: "VNM Web", version: "1.0.0", runtime_api: 1, backend: "webview" },
+                flavor: "beta",
+                build_timestamp: "2026-10-05T00:00:00Z",
+                content_mode: "packed",
+                content_hash: "21079d20c44e2f38df7afc0eeca978efe148593e0539140b944ff40b5d60df60",
+                source_hash: "dcfd5c07ab2b14bead3f23ff1ff6eb466487e452a225302f37c38c20579e2c60",
+                runtime_integrity_sha256: "5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d"
+            });
+        },
+        getAuditFailures: function (limit) {
+            return JSON.stringify({
+                total_failures: 3,
+                retained_count: 3,
+                omitted_count: 0,
+                truncated: false,
+                items: auditEventsQueue
+            });
+        },
+        shareBugReport: function (jsonStr) {
+            exportedPayload = JSON.parse(jsonStr);
+        }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    sandbox.DiagnosticSuite.executeAuditOrProbe("run_exhaustive_probe");
+
+    // 1. Send 3 problem events early
+    auditEventsQueue = [
+        { sequence_id: 1, stage: "FILE_EXISTS", asset_path: "d3dcompiler_47.dll", category: "EXCLUDED_PLATFORM_BINARY", outcome: "WARNING" },
+        { sequence_id: 2, stage: "DECODE_SUCCESS", asset_path: "resources/Graphics/bg/1.jpg", category: "ENCODED_ASSET_UNVERIFIED", outcome: "INDETERMINATE" },
+        { sequence_id: 3, stage: "DECODE_SUCCESS", asset_path: "img/broken.png", category: "DECODE_FAILURE", outcome: "FAIL" }
+    ];
+    intervalCallback();
+
+    // 2. Flood with 300 passing logs into the 250 logBuffer
+    for (let i = 4; i <= 304; i++) {
+        sandbox.DiagnosticSuite.log(`Passing audio stream check ${i}`, "AUDIT");
+    }
+
+    // 3. Export bug report
+    sandbox.DiagnosticSuite.exportBugReport();
+
+    assert(exportedPayload, "Bug report payload must have been shared");
+    assert.strictEqual(exportedPayload.schema_version, 2, "Bug report schema_version must be 2");
+    assert.strictEqual(exportedPayload.engine.id, "visual-novel-maker", "Engine ID must be visual-novel-maker");
+    assert.strictEqual(exportedPayload.runtime.id, "vnmaker-web", "Runtime ID must be vnmaker-web");
+    assert.strictEqual(exportedPayload.runtime.family, "VNM Web", "Runtime family must be VNM Web");
+    assert.strictEqual(exportedPayload.flavor, "beta", "Flavor must be beta");
+    assert.strictEqual(exportedPayload.content_hash, "21079d20c44e2f38df7afc0eeca978efe148593e0539140b944ff40b5d60df60");
+    assert.strictEqual(exportedPayload.missing_host_build_info, false);
+    assert(exportedPayload.game_errors, "Must include game_errors block");
+    assert.strictEqual(exportedPayload.game_errors.items.length, 1, "Must contain captured game error");
+    assert.strictEqual(exportedPayload.failures_snapshot.items.length, 3,
+        "failures_snapshot MUST retain all 3 problem events despite logBuffer flood of 300 entries");
+    assert(exportedPayload.failures_snapshot.items.some(e => e.asset_path === "d3dcompiler_47.dll"), "Must include excluded DLL");
+    assert(exportedPayload.failures_snapshot.items.some(e => e.asset_path === "resources/Graphics/bg/1.jpg"), "Must include unverified image");
+    assert(exportedPayload.failures_snapshot.items.some(e => e.asset_path === "img/broken.png"), "Must include broken image");
+    assert.strictEqual(exportedPayload.game_state, null, "Game state / save payload must be null (no save export)");
+}
+
+// Test 17: Diagnostic Suite Asset Parity (android asset vs preview)
+{
+    console.log("Test 17: Diagnostic Suite Asset Parity (android asset vs preview)");
+    const p1 = path.resolve(__dirname, "../../main/assets/overlay/diagnostic_suite.js");
+    const p2 = path.resolve(__dirname, "../../../../../../preview/diagnostic_suite.js");
+    const c1 = fs.readFileSync(p1, "utf-8");
+    const c2 = fs.readFileSync(p2, "utf-8");
+    assert.strictEqual(c1, c2, "preview/diagnostic_suite.js must be byte-identical to android asset");
+}
+
+// Test 18: Progressive Trimming & Multilingual CJK/Emoji UTF-8 Handling
+{
+    console.log("Test 18: Progressive Trimming & Multilingual CJK/Emoji UTF-8 Handling");
+    const { sandbox } = createDOMContext();
+
+    let sharedJson = null;
+    sandbox.RuntimePackVPad = {
+        getRuntimeBuildInfo: function () {
+            return JSON.stringify({
+                app: { name: "ゲーム", package: "com.test.cjk", version_name: "1.0", version_code: 1 },
+                engine: { id: "visual-novel-maker", confidence: "EXACT", overridden: false, version: null },
+                runtime: { id: "vnmaker-web", family: "VNM Web", version: "1.0.0", runtime_api: 1, backend: "webview" },
+                flavor: "beta",
+                content_mode: "packed",
+                content_hash: "mock_hash"
+            });
+        },
+        getAuditFailures: function (limit) {
+            const items = [];
+            for (let i = 0; i < 1800; i++) {
+                items.push({
+                    sequence_id: i,
+                    stage: "DECODE_SUCCESS",
+                    asset_path: `resources/Graphics/キャラクター/画像_${i}_😀.png`,
+                    outcome: "INDETERMINATE",
+                    error_message: "VNM prepared graphic requires GS.DataPreparer; CJK 日本語 テスト 😀" + "X".repeat(5000)
+                });
+            }
+            return JSON.stringify({
+                total_failures: 1800,
+                retained_count: 1800,
+                omitted_count: 0,
+                truncated: false,
+                items: items
+            });
+        },
+        getDiagnosticErrors: function () { return "{}"; },
+        getDiagnosticLogs: function () { return "{}"; },
+        shareBugReport: function (jsonStr) {
+            sharedJson = jsonStr;
+        }
+    };
+
+    vm.runInContext(diagCode, sandbox);
+    sandbox.DiagnosticSuite.init();
+
+    for (let i = 0; i < 500; i++) {
+        sandbox.DiagnosticSuite.log(`Log message ${i} with emoji 🎮 and CJK テスト`, "INFO");
+    }
+
+    sandbox.DiagnosticSuite.exportBugReport();
+
+    assert(sharedJson, "Oversized bug report must be progressively trimmed and shared");
+    const utf8Bytes = Buffer.from(sharedJson, "utf-8").length;
+    assert(utf8Bytes <= 8 * 1024 * 1024, `Progressively trimmed report must be <= 8 MiB, was ${utf8Bytes}`);
+
+    const parsed = JSON.parse(sharedJson);
+    assert.strictEqual(parsed.export_truncated, true, "export_truncated flag must be set");
+    assert(parsed.failures_snapshot.items.length > 0, "Must retain problem items up to budget");
+    assert(parsed.failures_snapshot.truncated, "failures_snapshot.truncated must be true when trimmed");
+}
+
 console.log("All Diagnostic Suite JS unit tests passed successfully!");

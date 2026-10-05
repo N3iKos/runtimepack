@@ -157,12 +157,122 @@
 ---
 
 ## CAP-WEB-016 — Late-binding polling and lifecycle coordinator
-- Engine: Umum (MV / MZ / Tyrano) | Trigger: Pemuatan skrip engine secara asinkron atau urutan tag HTML yang bervariasi antar-game
+- Engine: Umum (MV / MZ / Tyrano / VNM) | Trigger: Pemuatan skrip engine secara asinkron atau urutan tag HTML yang bervariasi antar-game
 - Symptom (tanpa patch): Shim dieksekusi sebelum modul game selesai didefinisikan, mengakibatkan patch tidak terpasang jika dieksekusi sekali di awal
 - Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`pollPatches`) menjalankan polling berkala (10ms) untuk memeriksa dan mengaplikasikan patch segera saat modul engine tersedia, serta berhenti otomatis setelah stabil
-- Evidence: Mendukung game RPG Maker MV/MZ baik yang menggunakan script tag standar maupun modular/asynchronous loading
+- Evidence: Mendukung game RPG Maker MV/MZ dan Visual Novel Maker baik yang menggunakan script tag standar maupun modular/asynchronous loading
 - Regression test: `web_shims.test.js` suite `pollPatches lifecycle`
 - Diagnostic: Terpasangnya penanda `__runtimepack_*_patched` pada objek engine global
+
+---
+
+## CAP-WEB-017 — Binary Buffer polyfill for bundled libraries
+- Engine: Umum / VNM | Trigger: Pemanggilan `new Buffer(data, encoding)`, `Buffer.from`, `Buffer.alloc`, `Buffer.isBuffer`, atau `slice` oleh pustaka bundel seperti JSZip
+- Symptom (tanpa patch): `TypeError: Buffer is not a constructor` atau kegagalan saat JSZip memproduksi payload bertipe `nodebuffer`
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`Buffer`) mengimplementasikan callable constructor berbasis `Uint8Array`, penanganan UTF-8 multibyte via TextEncoder/TextDecoder, enkoding base64/hex/binary/ascii, dan metode `slice`/`toString`/`copy`/`concat`
+- Evidence: S31; pengujian roundtrip JSZip `nodebuffer` dengan ekstraksi arsip dan byte equality
+- Regression test: `android/shell/app/src/test/js/jszip_buffer_regression.test.js`
+- Diagnostic: Flag `_isBuffer === true` dan `Buffer.isBuffer(buf) === true`
+
+---
+
+## CAP-WEB-018 — NW.js window adapter
+- Engine: VNM / Umum | Trigger: Pemanggilan `nw.Window.get()` untuk `setResizable`, `enterFullscreen`, `leaveFullscreen`, `isFullscreen`, dan registrasi event `on("resize")`
+- Symptom (tanpa patch): `TypeError: r.setResizable is not a function`, inkonsistensi state layar penuh, atau hilangnya event resize
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`nwShim.Window.get`) mengembalikan instance singleton persisten dengan pelacakan state `isFullscreen`/`isFullScreen`, `setResizable`, dan event emitter `on`/`emit`/`removeListener`
+- Evidence: S32; verifikasi panggilan `data/ENGINE.js` terhadap `nw.Window.get()`
+- Regression test: `android/shell/app/src/test/js/vnm_window_adapter.test.js`
+- Diagnostic: Pelaporan state konsisten pada `nw.Window.get().isFullscreen`
+
+---
+
+## CAP-WEB-019 — Visual Novel Maker durable gs.GameStorage native bridge adapter
+- Engine: Visual Novel Maker | Trigger: Pemuatan dan penyimpanan data permainan (`setData`, `getData`, `setObject`, `getObject`, `exists`, `remove`, `clear`) pada `gs.GameStorage`
+- Symptom (tanpa patch): Data save diarahkan ke filesystem desktop melalui `require("fs")` no-op atau `localStorage` WebView yang terhapus saat proses restart
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`patchVnmStorage`) mengalihkan seluruh slot save (slots 1..n, headers, settings, globalData) ke bridge `RuntimePackNative` (`saveSlot`, `loadSlot`, `slotExists`, `deleteSlot`, `listSlots`) dengan namespace game UID `$PARAMS.uid` dan penanganan fail-loud `RT-SAVE-FAIL`
+- Evidence: S29, S32; simulasi multi-session VM pada save repository dengan byte fidelity
+- Regression test: `android/shell/app/src/test/js/vnm_save_storage.test.js` & `NativeSaveRepositoryTest.kt`
+- Diagnostic: Error `[RuntimePack] RT-SAVE-FAIL: native saveSlot failed for slot: <name>`
+
+---
+
+## CAP-WEB-020 — Guarded voiceDuration delegation for Component_MessageBehavior
+- Engine: Visual Novel Maker | Trigger: Kalkulasi durasi pesan suara pada `vn.Component_MessageBehavior.prototype.voiceDuration`
+- Symptom (tanpa patch): Saat dialog suara selesai diputar dan referensi suara di-dispose, pemanggilan `voiceDuration` memicu `TypeError: Cannot read properties of null (reading 'buffer')` atau crash saat skip
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`patchVnmMessageCompat`) membungkus `voiceDuration`: mengevaluasi `tempSettings.skip` segera (mengembalikan 1 frame sebelum akses null), mengembalikan timing degraded 0 dengan one-shot diagnostic jika voice gate aktif namun source/buffer null, mendelegasikan pemanggilan orisinal pada kondisi normal, dan memetakan hasil non-finite ke 0
+- Evidence: S34; verifikasi baris 11501 `data/SCRIPTS.js`
+- Regression test: `android/shell/app/src/test/js/vnm_startup_lifecycle.test.js`
+- Diagnostic: Peringatan one-shot `[CAP-WEB-020] voice source or buffer absent during voice duration calculation, returning degraded timing 0`
+
+---
+
+## CAP-WEB-021 — Synchronous two-boundary served HTML startup transform
+- Engine: Visual Novel Maker | Trigger: Penyajian berkas awal `index.html` dan bootstrap script permainan
+- Symptom (tanpa patch): Pemuatan skrip asynchronously atau injeksi shim yang terlambat menyebabkan crash sebelum library atau shim tersedia
+- Implementation: `VfsResourceInterceptor.kt` (`transformVnmHtml`) menyisipkan Boundary 1 (tag script `runtimepack_web_shims.js`) secara sinkron sebelum library game/ENGINE dieksekusi, dan Boundary 2 (hook `__runtimepackPollVnmMessageCompat()`) tepat setelah tag blocking `data/SCRIPTS.js` sebelum DOM-ready; memvalidasi ketiadaan atribut `async`/`defer` pada script krusial dan memeriksa duplikasi marker
+- Evidence: S29, S35; inspeksi urutan script `index.html`
+- Regression test: `VfsResourceInterceptorTest.kt` & `android/shell/app/src/test/js/vnm_startup_lifecycle.test.js`
+- Diagnostic: `IllegalArgumentException` terstruktur jika anchor script hilang atau terdapat tag `async`/`defer` ilegal
+
+---
+
+## CAP-WEB-022 — Web Audio lifecycle and WebIDL onended setter ownership
+- Engine: Visual Novel Maker | Trigger: Siklus hidup pemutaran dan penghentian suara (`gs.AudioBuffer`, `gs.AudioBufferReference`, `gs.AudioBufferStream`), serta penugasan handler `onended`
+- Symptom (tanpa patch): Pemanggilan `stop()` sebelum `start()` melempar `InvalidStateError`; callback `onended` lama yang dieksekusi setelah referensi di-dispose mengakses properti `null` atau membangkitkan loop lama yang mati; referensi pending (`audioBuffer === null`) melempar `TypeError: Cannot read properties of null (reading 'error')` saat `Audio.pause()` (kolom 49411) atau `stopAllSounds` (kolom 52688)
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`patchVnmAudio`) membungkus `gs.Audio.addAudioBuffer` dan meregistrasi per-instance non-enumerable descriptor (`isPlaying`, `volume`, `playbackRate`) pada instance VNM yang dikenali tanpa mengubah descriptor prototype non-configurable; mengembalikan false/inactive pada pending null buffer; menyimpan setter pending di WeakMap sidecar untuk diaplikasikan setelah inisialisasi; membungkus `stop`, `play`, `resume`, `initialize`, dan `dispose` dengan validasi owner/invalidation, membatasi `stop()` pada unstarted native node, serta menjaga delegasi orisinal pada valid state
+- Evidence: S33; verifikasi siklus hidup `gs.AudioBuffer`, `gs.AudioBufferReference`, dan `gs.AudioBufferStream` di `data/ENGINE.js` (hash `928372395b6e82020d693653468aa1a02e1326a924dcfac7b7c6d0739b107885`)
+- Regression test: `android/shell/app/src/test/js/vnm_audio_lifecycle.test.js`
+- Diagnostic: Peringatan one-shot `[CAP-WEB-022]` terstruktur
+
+---
+
+## CAP-WEB-023 — Virtual Pad exclusive touch stream and focus lifecycle
+- Engine: Umum / Android Host | Trigger: Interaksi sentuhan virtual overlay (`vpad.js`), pergeseran hitbox kontrol, pembukaan modal, dan transisi aplikasi
+- Symptom (tanpa patch): Sentuhan pada kontrol game overlay tercuri oleh canvas game di bawahnya; perubahan koordinat hitbox di tengah gesture memutus stream sentuhan; sentuhan eye toggle / toolbar mencuri fokus game; deferred focus runnable dari modal lama mencuri fokus setelah modal baru dibuka; key stuck saat transisi
+- Implementation: `WebActivity.kt` menginisialisasi `overlayWebView` dengan `isFocusable = false` dan `isFocusableInTouchMode = false` secara default; request focus pada overlay hanya diberikan saat input teks aktif di UI thread; pelepasan kunci virtual (`releaseActiveKeys`) saat modal dibuka atau eye toggle diaktifkan tanpa injeksi Space (key 32); pengembalian fokus game yang aman via `requestGameFocusSafe` dengan pelacakan generasi monotonik `focusGeneration`; gesture ownership tetap eksklusif sepanjang `MOVE`/`UP`/`CANCEL`
+- Evidence: S24; pengujian event gesture dan fokus WebView
+- Regression test: `WebActivityTest.kt` & `android/shell/app/src/test/js/vnm_overlay_focus_lifecycle.test.js`
+- Diagnostic: Pelacakan generasi fokus monotonik dan flag `isTouchCapturedByGame`
+
+---
+
+## CAP-WEB-024 — Visual Novel Maker touchcancel safety and passive direct touch dispatch
+- Engine: Visual Novel Maker / Android Host | Trigger: Pembatalan gesture sentuh (`MotionEvent.ACTION_CANCEL`), interupsi modal/toolbar, atau penggunaan profil build `--overlay-mode passive-watermark`
+- Symptom (tanpa patch): Pada VNM `ENGINE.js`, ketiadaan listener `touchcancel` menyebabkan `Mouse.buttons[1]` tersangkut pada nilai 1 permanen jika gesture dibatalkan sebelum `touchend`, mengunci status klik mouse game dan menggagalkan tap berikutnya; pada mode overlay penuh, IPC feedback tanpa batas frekuensi membebani rendering thread
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`installVnmTouchCancelSafety`) mengaitkan listener `touchcancel` idempoten pada window capture phase untuk mereset `Input.Mouse` (`clear()`, `buttonDown = false`, `buttonUp = false`, `buttons` array di-nol-kan) tanpa manipulasi paksa focus/blur atau keyup; `WebActivity.kt` mendukung `overlayMode: "passive-watermark"` dengan direct return `dispatchTouchEventToGame(event)` melewati resolusi hitbox/feedback; mode `full` menerapkan latest-sample coalescing pada event `MOVE` (<= 60 dispatches/detik) dengan preservasi event terminal `DOWN`/`UP`/`CANCEL`
+- Evidence: S24, S29; pembongkaran bytecode DEX APK referensi `TFPC-TLFMB` (`isPassiveOverlay`) dan verifikasi `Input.Mouse` di `data/ENGINE.js`
+- Regression test: `WebActivityTest.kt` (`testPassiveOverlayDirectTouchDispatch`, `testFullModeBoundedMoveFeedbackCoalescing`, `testHistoricalManifestMissingOverlayModeDefaultsToFull`), `android/shell/app/src/test/js/vnm_overlay_focus_lifecycle.test.js` (suite VNM TouchCancel Safety), `tests/integration/build_test.rs` (`test_cli_overlay_mode_defaults_to_full_and_validates_flags`, `test_vnm_beta_passive_emits_minimal_overlay_and_deterministic_hash`)
+- Diagnostic: Flag `isPassiveOverlay` pada `WebActivity`, `__runtimepack_vnm_touchcancel_installed` pada `window`, dan `overlay_mode` pada `build-manifest.json`
+
+---
+
+## CAP-WEB-025 — Visual Novel Maker AudioManager in-place null/hole reference sanitization
+- Engine: Visual Novel Maker / Web | Trigger: Pemutaran atau penghentian audio (`playSound`, `playVoice`, `stopSound`, `stopAllVoices`, `stopAllSounds`) pasca-muat save data dengan entri `soundReferences` null/undefined/hole
+- Symptom (tanpa patch): Pada VNM `SCRIPTS.js` baris 3811, iterasi `soundReferences[name]` langsung mengevaluasi `!r.isPlaying`; jika array memuat elemen `null` hasil deserialisasi save lama, terjadi crash seketika `TypeError: Cannot read properties of null (reading 'isPlaying')`
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` menyematkan wrapper idempoten pada `gs.AudioManager.prototype` dan singleton `window.AudioManager` yang secara in-place membersihkan HANYA elemen `null`/`undefined`/holes sebelum mendelegasikan panggilan asli tanpa menulis ulang method, mempertahankan identitas array, pending reference `audioBuffer=null`, volume/rate, dan membiarkan native error asli tetap terlempar
+- Evidence: S24, S30; rekonstruksi crash Chapter 5 dan audit kode sumber `data/SCRIPTS.js`
+- Regression test: `android/shell/app/src/test/js/vnm_audio_lifecycle.test.js` (suite Task 2A)
+- Diagnostic: Peringatan one-shot `[CAP-WEB-025]` terstruktur dengan log diagnostic error `WEB-025`
+
+---
+
+## CAP-WEB-026 — Visual Novel Maker legacy read-only Base64 save fallback with non-destructive preservation
+- Engine: Visual Novel Maker / Android Host | Trigger: Pembacaan save data legacy format Base64 UTF-8 dari namespace `vnm` ketika record UID kontemporer belum ada
+- Symptom (tanpa patch): Save lama tersimpan dalam namespace `vnm` dengan key `encodeURIComponent(uid + "_" + slotKey)` berformat Base64 UTF-8; runtime kontemporer hanya memeriksa namespace `uid` plain JSON sehingga progres lama hilang atau tidak terdeteksi
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_web_shims.js` (`patchVnmStorage`) mengimplementasikan fallback baca-saja berurutan: record kontemporer (termasuk record kosong/korup) mendominasi mutlak tanpa fallback; fallback ke `vnm` hanya dieksekusi jika record kontemporer absen, dengan validasi Base64 ketat dan decode UTF-8; tidak ada mutasi tulis, cache setItem, atau penghapusan ke namespace legacy; `NativeSaveRepository.kt` memisahkan path baca (`createDir = false`) agar pencarian slot tidak menghasilkan folder kosong
+- Evidence: S24, S30; pembongkaran bytecode DEX APK referensi `TFPC-TLFMB` (`NativeSaveRepository`) dan dump asset `runtimepack_web_shims.js`
+- Regression test: `android/shell/app/src/test/js/vnm_save_storage.test.js` (suite Task 2B), `android/shell/app/src/test/java/io/runtimepack/host/NativeSaveRepositoryTest.kt` (`testGetAndContainsDoNotCreateDirectoriesOnMissingLookup`, `testVnmLegacySlotNameReadingWithoutRegisterNamespace`)
+- Diagnostic: Log `[CAP-WEB-026]` jika payload Base64 corrupt, error code `WEB-026`
+
+---
+
+## CAP-WEB-027 — Visual Novel Maker transition-aware dialogue advance input guard
+- Engine: Visual Novel Maker / Android Host | Trigger: Pointer dialogue advance saat transisi layar visual aktif (`Graphics.transitionData`) di bawah penekanan cepat atau multi-touch
+- Symptom (tanpa patch): Berpotensi memicu double-advance atau transisi teks prematur saat grafis transisi sedang dirender; input gesture beruntun mengeksekusi branch continue maupun mutasi wait/draw
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_vnm_input_guard.js` membungkus `gs.Component_MessageTextRenderer.prototype.setupEventHandlers` secara idempoten dan mengintersepsi registrasi event `mouseUp` untuk `renderer.object`; menekan callback renderer selama `Graphics.transitionData` terkonfirmasi aktif (`duration > 0 && currentAlpha < 255`) tanpa replay atau mutasi flags input, fail-open jika pilihan/video/prompt aktif; didukung observer berkala dan bridge native bounded `postVnmInputSnapshot` pada host
+- Evidence: Gate 4 plan, audit authentic `SCRIPTS.js` 9901–9952, 9994–10007, 29521 dan logika transisi `ENGINE.js`
+- Regression test: `android/shell/app/src/test/js/vnm_extreme_input_guard.test.js` & `VnmInputGuardDiagnosticsTest.kt`
+- Diagnostic: Snapshot `schema_version=1`, counter `blocked_dialogue_count`, `delegated_dialogue_count`, `unknown_state_count`
 
 ---
 

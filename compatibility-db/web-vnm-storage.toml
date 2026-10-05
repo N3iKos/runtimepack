@@ -1,0 +1,6 @@
+id = "web-vnm-storage"
+engines = ["visual-novel-maker"]
+symbol = "gs.GameStorage"
+requires_capability = "web.vnm.storage"
+severity_if_missing = "degraded"
+description = "Visual Novel Maker GameStorage persistence adapter over native save repository"

@@ -59,39 +59,74 @@ internal fun currentIsoTimestamp(): String {
     return sdf.format(Date())
 }
 
+object AssetAuditCategory {
+    const val MISSING_ASSET = "MISSING_ASSET"
+    const val FILE_UNREADABLE = "FILE_UNREADABLE"
+    const val DECODE_FAILURE = "DECODE_FAILURE"
+    const val ENCODED_ASSET_UNVERIFIED = "ENCODED_ASSET_UNVERIFIED"
+    const val EXCLUDED_PLATFORM_BINARY = "EXCLUDED_PLATFORM_BINARY"
+    const val VERIFICATION_LIMIT = "VERIFICATION_LIMIT"
+    const val INTEGRITY_FAILURE = "INTEGRITY_FAILURE"
+}
+
+class VerificationLimitException(message: String) : Exception(message)
+
 fun interface BitmapProbeDecoder {
     fun decodeAndVerify(stream: InputStream): Boolean
 }
 
 object DefaultBitmapProbeDecoder : BitmapProbeDecoder {
+    const val MAX_PIXELS = 4_000_000L
+    const val MAX_MARK_BUFFER_BYTES = 1024 * 1024
+
     override fun decodeAndVerify(stream: InputStream): Boolean {
-        return try {
-            val bytes = stream.readBytes()
-            if (bytes.size < 4) return false
+        val buffered = if (stream.markSupported()) stream else java.io.BufferedInputStream(stream, MAX_MARK_BUFFER_BYTES)
+        buffered.mark(MAX_MARK_BUFFER_BYTES)
 
-            var androidBmpSuccess = false
+        val boundsOpts = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+
+        try {
+            android.graphics.BitmapFactory.decodeStream(buffered, null, boundsOpts)
+        } catch (oom: OutOfMemoryError) {
+            throw VerificationLimitException("OOM while checking image bounds: ${oom.message}")
+        }
+
+        val w = boundsOpts.outWidth
+        val h = boundsOpts.outHeight
+        if (w <= 0 || h <= 0) {
+            return false
+        }
+
+        val totalPixels = w.toLong() * h.toLong()
+        if (totalPixels > MAX_PIXELS) {
+            throw VerificationLimitException("Image resolution (${w}x${h} = ${totalPixels}px) exceeds probe limit of 4M pixels")
+        }
+
+        try {
+            buffered.reset()
+        } catch (e: Exception) {
+            throw VerificationLimitException("Stream reset exceeded buffer budget of 1 MiB: ${e.message}")
+        }
+
+        val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = false
+            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+        }
+
+        val bmp = try {
+            android.graphics.BitmapFactory.decodeStream(buffered, null, decodeOpts)
+        } catch (oom: OutOfMemoryError) {
+            throw VerificationLimitException("OOM during bitmap decode: ${oom.message}")
+        }
+
+        return if (bmp != null) {
             try {
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bmp != null) {
-                    try {
-                        bmp.recycle()
-                    } catch (_: Throwable) {}
-                    androidBmpSuccess = true
-                }
+                bmp.recycle()
             } catch (_: Throwable) {}
-            if (androidBmpSuccess) return true
-
-            // Fallback for JVM mock test environment or specific supported image header formats:
-            val header = bytes
-            val isPng = header.size >= 8 && header[0] == 0x89.toByte() && header[1] == 0x50.toByte() && header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
-            val isJpg = header.size >= 3 && header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()
-            val isGif = header.size >= 3 && header[0] == 'G'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte()
-            val isBmp = header.size >= 2 && header[0] == 'B'.code.toByte() && header[1] == 'M'.code.toByte()
-            val isRiff = header.size >= 12 && header[0] == 'R'.code.toByte() && header[1] == 'I'.code.toByte() && header[2] == 'F'.code.toByte() && header[3] == 'F'.code.toByte()
-            val isRpgmvp = header.size >= 5 && header[0] == 'R'.code.toByte() && header[1] == 'P'.code.toByte() && header[2] == 'G'.code.toByte() && header[3] == 'M'.code.toByte() && header[4] == 'V'.code.toByte()
-
-            isPng || isJpg || isGif || isBmp || isRiff || isRpgmvp
-        } catch (_: Throwable) {
+            true
+        } else {
             false
         }
     }
@@ -106,7 +141,9 @@ data class RuntimeAuditEvent(
     val fallback_action: String? = null,
     val error_message: String? = null,
     val source_location: String? = null,
-    val is_complete: Boolean? = null
+    val is_complete: Boolean? = null,
+    val category: String? = null,
+    val audit_id: String? = null
 ) {
     val sequenceId: Long get() = sequence_id
     val timestampNs: Long get() = timestamp_ns
@@ -141,6 +178,16 @@ data class RuntimeAuditEvent(
         }
         if (is_complete != null) {
             sb.append(",\"is_complete\":").append(is_complete)
+        }
+        if (category != null) {
+            sb.append(",\"category\":\"").append(escapeJson(category)).append("\"")
+        } else {
+            sb.append(",\"category\":null")
+        }
+        if (audit_id != null) {
+            sb.append(",\"audit_id\":\"").append(escapeJson(audit_id)).append("\"")
+        } else {
+            sb.append(",\"audit_id\":null")
         }
         sb.append("}")
         return sb.toString()
@@ -194,6 +241,8 @@ data class RuntimeAuditEvent(
                 val error = extractString("error_message")
                 val sourceLoc = extractString("source_location")
                 val isComplete = extractBoolean("is_complete")
+                val category = extractString("category")
+                val auditId = extractString("audit_id")
 
                 RuntimeAuditEvent(
                     sequence_id = seq,
@@ -204,7 +253,9 @@ data class RuntimeAuditEvent(
                     fallback_action = fallback,
                     error_message = error,
                     source_location = sourceLoc,
-                    is_complete = isComplete
+                    is_complete = isComplete,
+                    category = category,
+                    audit_id = auditId
                 )
             } catch (_: Exception) {
                 null
@@ -296,6 +347,12 @@ data class RuntimeValidationReport(
     val passed_count: Int,
     val failed_count: Int,
     val warning_count: Int,
+    val missing_count: Int = 0,
+    val decode_failed_count: Int = 0,
+    val indeterminate_count: Int = 0,
+    val excluded_count: Int = 0,
+    val attempted_count: Int = 0,
+    val stage_attempt_counts: Map<String, Int> = emptyMap(),
     val stage_counts: Map<String, Int>,
     val fallbacks_detected: List<String>,
     val checkpoint_restored: Boolean = false,
@@ -315,6 +372,14 @@ data class RuntimeValidationReport(
         sb.append("\"passed_count\":").append(passed_count).append(",")
         sb.append("\"failed_count\":").append(failed_count).append(",")
         sb.append("\"warning_count\":").append(warning_count).append(",")
+        sb.append("\"missing_count\":").append(missing_count).append(",")
+        sb.append("\"decode_failed_count\":").append(decode_failed_count).append(",")
+        sb.append("\"indeterminate_count\":").append(indeterminate_count).append(",")
+        sb.append("\"excluded_count\":").append(excluded_count).append(",")
+        sb.append("\"attempted_count\":").append(attempted_count).append(",")
+        sb.append("\"stage_attempt_counts\":{")
+        sb.append(stage_attempt_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
+        sb.append("},")
         sb.append("\"stage_counts\":{")
         sb.append(stage_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
         sb.append("},")
@@ -349,6 +414,12 @@ data class RuntimeSummaryInfo(
     val passed_count: Int,
     val failed_count: Int,
     val warning_count: Int,
+    val missing_count: Int = 0,
+    val decode_failed_count: Int = 0,
+    val indeterminate_count: Int = 0,
+    val excluded_count: Int = 0,
+    val attempted_count: Int = 0,
+    val stage_attempt_counts: Map<String, Int> = emptyMap(),
     val stage_counts: Map<String, Int>,
     val fallbacks_detected: List<String>
 ) {
@@ -360,6 +431,14 @@ data class RuntimeSummaryInfo(
         sb.append("\"passed_count\":").append(passed_count).append(",")
         sb.append("\"failed_count\":").append(failed_count).append(",")
         sb.append("\"warning_count\":").append(warning_count).append(",")
+        sb.append("\"missing_count\":").append(missing_count).append(",")
+        sb.append("\"decode_failed_count\":").append(decode_failed_count).append(",")
+        sb.append("\"indeterminate_count\":").append(indeterminate_count).append(",")
+        sb.append("\"excluded_count\":").append(excluded_count).append(",")
+        sb.append("\"attempted_count\":").append(attempted_count).append(",")
+        sb.append("\"stage_attempt_counts\":{")
+        sb.append(stage_attempt_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
+        sb.append("},")
         sb.append("\"stage_counts\":{")
         sb.append(stage_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
         sb.append("},")
@@ -437,6 +516,8 @@ data class CombinedValidationSummary(
     }
 }
 
+const val CURRENT_PROBE_PROFILE_VERSION = 2
+
 data class ProbeCheckpoint(
     val audit_id: String,
     val mode: String,
@@ -448,7 +529,16 @@ data class ProbeCheckpoint(
     val failed_count: Int,
     val warning_count: Int,
     val fallbacks_detected: List<String>,
-    val timestamp_ms: Long = System.currentTimeMillis()
+    val timestamp_ms: Long = System.currentTimeMillis(),
+    val missing_count: Int = 0,
+    val decode_failed_count: Int = 0,
+    val indeterminate_count: Int = 0,
+    val excluded_count: Int = 0,
+    val attempted_count: Int = 0,
+    val stage_attempt_counts: Map<String, Int> = emptyMap(),
+    val source_hash: String? = null,
+    val profile_version: Int? = null,
+    val inventory_fingerprint: String? = null
 ) {
     fun toJson(): String {
         val sb = StringBuilder()
@@ -461,9 +551,32 @@ data class ProbeCheckpoint(
         sb.append("\"stage_counts\":{")
         sb.append(stage_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
         sb.append("},")
+        sb.append("\"stage_attempt_counts\":{")
+        sb.append(stage_attempt_counts.entries.joinToString(",") { "\"${escapeJson(it.key)}\":${it.value}" })
+        sb.append("},")
         sb.append("\"passed_count\":").append(passed_count).append(",")
         sb.append("\"failed_count\":").append(failed_count).append(",")
         sb.append("\"warning_count\":").append(warning_count).append(",")
+        sb.append("\"missing_count\":").append(missing_count).append(",")
+        sb.append("\"decode_failed_count\":").append(decode_failed_count).append(",")
+        sb.append("\"indeterminate_count\":").append(indeterminate_count).append(",")
+        sb.append("\"excluded_count\":").append(excluded_count).append(",")
+        sb.append("\"attempted_count\":").append(attempted_count).append(",")
+        if (source_hash != null) {
+            sb.append("\"source_hash\":\"").append(escapeJson(source_hash)).append("\",")
+        } else {
+            sb.append("\"source_hash\":null,")
+        }
+        if (profile_version != null) {
+            sb.append("\"profile_version\":").append(profile_version).append(",")
+        } else {
+            sb.append("\"profile_version\":null,")
+        }
+        if (inventory_fingerprint != null) {
+            sb.append("\"inventory_fingerprint\":\"").append(escapeJson(inventory_fingerprint)).append("\",")
+        } else {
+            sb.append("\"inventory_fingerprint\":null,")
+        }
         sb.append("\"fallbacks_detected\":[")
         sb.append(fallbacks_detected.joinToString(",") { "\"${escapeJson(it)}\"" })
         sb.append("],")
@@ -475,64 +588,34 @@ data class ProbeCheckpoint(
     companion object {
         fun fromJson(jsonStr: String): ProbeCheckpoint? {
             return try {
-                fun extractString(key: String): String? {
-                    val pattern = Regex("\"$key\"\\s*:\\s*(?:\"((?:\\\\\"|[^\"])*)\"|null)")
-                    val match = pattern.find(jsonStr) ?: return null
-                    if (match.groupValues[1].isEmpty() && match.value.contains("null")) return null
-                    return match.groupValues[1]
-                        .replace("\\\"", "\"")
-                        .replace("\\\\", "\\")
-                }
+                val root = MiniJson.parseObject(jsonStr) ?: return null
+                val auditId = root.getString("audit_id") ?: return null
+                val mode = root.getString("mode") ?: return null
+                val currentIndex = root.getInt("current_index") ?: return null
+                val totalAssets = root.getInt("total_assets") ?: return null
+                val lastPath = root.getString("last_processed_path") ?: ""
 
-                fun extractInt(key: String): Int? {
-                    val pattern = Regex("\"$key\"\\s*:\\s*([0-9]+)")
-                    val match = pattern.find(jsonStr) ?: return null
-                    return match.groupValues[1].toIntOrNull()
-                }
+                val stageCounts = root.getObject("stage_counts")?.let { obj ->
+                    obj.keys().associateWith { obj.getInt(it) ?: 0 }
+                } ?: emptyMap()
 
-                fun extractLong(key: String): Long? {
-                    val pattern = Regex("\"$key\"\\s*:\\s*([0-9]+)")
-                    val match = pattern.find(jsonStr) ?: return null
-                    return match.groupValues[1].toLongOrNull()
-                }
+                val stageAttemptCounts = root.getObject("stage_attempt_counts")?.let { obj ->
+                    obj.keys().associateWith { obj.getInt(it) ?: 0 }
+                } ?: emptyMap()
 
-                fun extractStringMap(key: String): Map<String, Int> {
-                    val map = mutableMapOf<String, Int>()
-                    val objPattern = Regex("\"$key\"\\s*:\\s*\\{([^}]*)\\}")
-                    val objMatch = objPattern.find(jsonStr) ?: return map
-                    val inner = objMatch.groupValues[1]
-                    val itemPattern = Regex("\"([^\"]+)\"\\s*:\\s*([0-9]+)")
-                    for (m in itemPattern.findAll(inner)) {
-                        val k = m.groupValues[1]
-                        val v = m.groupValues[2].toIntOrNull() ?: 0
-                        map[k] = v
-                    }
-                    return map
-                }
-
-                fun extractStringArray(key: String): List<String> {
-                    val list = mutableListOf<String>()
-                    val arrPattern = Regex("\"$key\"\\s*:\\s*\\[([^\\]]*)\\]")
-                    val arrMatch = arrPattern.find(jsonStr) ?: return list
-                    val inner = arrMatch.groupValues[1]
-                    val itemPattern = Regex("\"((?:\\\\\"|[^\"])*)\"")
-                    for (m in itemPattern.findAll(inner)) {
-                        list.add(m.groupValues[1].replace("\\\"", "\""))
-                    }
-                    return list
-                }
-
-                val auditId = extractString("audit_id") ?: return null
-                val mode = extractString("mode") ?: return null
-                val currentIndex = extractInt("current_index") ?: return null
-                val totalAssets = extractInt("total_assets") ?: return null
-                val lastPath = extractString("last_processed_path") ?: ""
-                val stageCounts = extractStringMap("stage_counts")
-                val passed = extractInt("passed_count") ?: 0
-                val failed = extractInt("failed_count") ?: 0
-                val warning = extractInt("warning_count") ?: 0
-                val fallbacks = extractStringArray("fallbacks_detected")
-                val ts = extractLong("timestamp_ms") ?: System.currentTimeMillis()
+                val passed = root.getInt("passed_count") ?: 0
+                val failed = root.getInt("failed_count") ?: 0
+                val warning = root.getInt("warning_count") ?: 0
+                val missing = root.getInt("missing_count") ?: 0
+                val decodeFailed = root.getInt("decode_failed_count") ?: 0
+                val indeterminate = root.getInt("indeterminate_count") ?: 0
+                val excluded = root.getInt("excluded_count") ?: 0
+                val attempted = root.getInt("attempted_count") ?: 0
+                val sourceHash = root.getString("source_hash")
+                val profileVersion = root.getInt("profile_version")
+                val inventoryFingerprint = root.getString("inventory_fingerprint")
+                val fallbacks = root.getArray("fallbacks_detected")?.strings() ?: emptyList()
+                val ts = root.getLong("timestamp_ms") ?: System.currentTimeMillis()
 
                 ProbeCheckpoint(
                     audit_id = auditId,
@@ -545,7 +628,16 @@ data class ProbeCheckpoint(
                     failed_count = failed,
                     warning_count = warning,
                     fallbacks_detected = fallbacks,
-                    timestamp_ms = ts
+                    timestamp_ms = ts,
+                    missing_count = missing,
+                    decode_failed_count = decodeFailed,
+                    indeterminate_count = indeterminate,
+                    excluded_count = excluded,
+                    attempted_count = attempted,
+                    stage_attempt_counts = stageAttemptCounts,
+                    source_hash = sourceHash,
+                    profile_version = profileVersion,
+                    inventory_fingerprint = inventoryFingerprint
                 )
             } catch (_: Exception) {
                 null

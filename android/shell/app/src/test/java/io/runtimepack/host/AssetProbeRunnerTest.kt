@@ -8,6 +8,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -25,6 +26,12 @@ class AssetProbeRunnerTest {
     private lateinit var gameDir: File
     private lateinit var stateDir: File
 
+    private val testBitmapDecoder = BitmapProbeDecoder { stream ->
+        val buf = ByteArray(8)
+        val read = stream.read(buf)
+        read >= 8 && buf[0] == 0x89.toByte() && buf[1] == 0x50.toByte() && buf[2] == 0x4E.toByte() && buf[3] == 0x47.toByte()
+    }
+
     @Before
     fun setUp() {
         AssetAuditService.reset()
@@ -38,11 +45,10 @@ class AssetProbeRunnerTest {
         val files = mutableListOf<File>()
         for (i in 1..count) {
             val f = File(dir, "asset_$i.$ext")
-            // Write a small dummy PNG header (8 bytes) or dummy bytes
             if (ext == "png") {
                 f.writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
             } else if (ext == "ogg") {
-                f.writeBytes(byteArrayOf(0x4F, 0x67, 0x67, 0x53, 0x00, 0x02)) // OggS
+                f.writeBytes(byteArrayOf(0x4F, 0x67, 0x67, 0x53, 0x00, 0x02))
             } else {
                 f.writeText("dummy content $i", Charsets.UTF_8)
             }
@@ -64,26 +70,25 @@ class AssetProbeRunnerTest {
             stateDir = stateDir,
             engine = "rpg-maker-mv",
             mode = ProbeMode.SAMPLED,
-            sampleLimitPerCategory = 2
+            sampleLimitPerCategory = 2,
+            bitmapDecoder = testBitmapDecoder
         )
 
         val report = runner.run()
 
         assertEquals(RuntimeAuditOutcome.PASS, report.outcome)
         assertEquals(ProbeMode.SAMPLED, report.mode)
-        // With 5 categories (img/characters, img/tilesets are image, audio, font, data) and limit 2 per category,
-        // it should select bounded representative samples (<= 10 items total)
         assertTrue("Probed count should be bounded by sample limit", report.total_probed in 5..10)
         assertTrue(report.passed_count > 0)
         assertEquals(0, report.failed_count)
 
-        // Deterministic check: second run should produce identical probed items in identical order
         val runner2 = AssetProbeRunner(
             gameDir = gameDir,
             stateDir = stateDir,
             engine = "rpg-maker-mv",
             mode = ProbeMode.SAMPLED,
-            sampleLimitPerCategory = 2
+            sampleLimitPerCategory = 2,
+            bitmapDecoder = testBitmapDecoder
         )
         val report2 = runner2.run()
         assertEquals(report.total_probed, report2.total_probed)
@@ -106,6 +111,7 @@ class AssetProbeRunnerTest {
             engine = "rgss",
             mode = ProbeMode.EXHAUSTIVE,
             checkpointInterval = 50,
+            bitmapDecoder = testBitmapDecoder,
             onAssetProbed = { count ->
                 if (count == 50 && checkpointFile.exists()) {
                     checkpointExistedMidRun.set(true)
@@ -149,7 +155,9 @@ class AssetProbeRunnerTest {
     fun testExhaustiveModeResumesFromCheckpoint() {
         createDummyAssets(120, "img/sprites", "png")
 
-        // Manually write a checkpoint indicating 60 items have already been processed
+        val allAssets = (1..120).map { "img/sprites/asset_$it.png" }.sorted()
+        val fingerprint = AssetProbeRunner.computeFingerprint(allAssets)
+
         val auditDir = File(stateDir, "audit")
         auditDir.mkdirs()
         val checkpointFile = File(auditDir, "probe_checkpoint.json")
@@ -160,16 +168,20 @@ class AssetProbeRunnerTest {
                 "current_index": 60,
                 "total_assets": 120,
                 "last_processed_path": "img/sprites/asset_60.png",
-                "stage_counts": { "FILE_EXISTS": 60, "DECODE_SUCCESS": 60 },
+                "stage_counts": { "FILE_EXISTS": 60, "FILE_READABLE": 60, "DECODE_SUCCESS": 60 },
                 "passed_count": 60,
                 "failed_count": 0,
                 "warning_count": 0,
                 "fallbacks_detected": [],
-                "timestamp_ms": 1000000
+                "timestamp_ms": 1000000,
+                "source_hash": "test-source-hash-123",
+                "profile_version": 2,
+                "inventory_fingerprint": "$fingerprint"
             }
         """.trimIndent()
         checkpointFile.writeText(sampleCheckpointJson, Charsets.UTF_8)
 
+        AssetAuditService.setCurrentRunId("test-audit-001")
         val processedCount = AtomicInteger(0)
         val runner = AssetProbeRunner(
             gameDir = gameDir,
@@ -177,13 +189,15 @@ class AssetProbeRunnerTest {
             engine = "rgss",
             mode = ProbeMode.EXHAUSTIVE,
             checkpointInterval = 50,
+            bitmapDecoder = testBitmapDecoder,
+            auditIdOverride = "test-audit-001",
+            expectedSourceHash = "test-source-hash-123",
             onAssetProbed = { processedCount.incrementAndGet() }
         )
 
         val report = runner.run()
 
         assertTrue("Report should indicate checkpoint was restored", report.checkpoint_restored)
-        // Should have only processed the remaining 60 assets
         assertEquals(60, processedCount.get())
         assertEquals(120, report.total_probed)
     }
@@ -282,7 +296,8 @@ class AssetProbeRunnerTest {
             gameDir = gameDir,
             stateDir = stateDir,
             engine = "rpg-maker-mv",
-            mode = ProbeMode.EXHAUSTIVE
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
         )
 
         val report = runner.run()
@@ -332,7 +347,8 @@ class AssetProbeRunnerTest {
         AssetAuditService.init(filesDir, "rpg-maker-mv")
         val rep = AssetAuditService.runProbe(
             mode = ProbeMode.SAMPLED,
-            sampleLimitPerCategory = 5
+            sampleLimitPerCategory = 5,
+            bitmapDecoder = testBitmapDecoder
         )
 
         assertEquals(RuntimeAuditOutcome.PASS, rep.outcome)
@@ -422,7 +438,8 @@ class AssetProbeRunnerTest {
             gameDir = gameDir,
             stateDir = stateDir,
             engine = "rgss",
-            mode = ProbeMode.EXHAUSTIVE
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
         )
 
         val report = runner.run()
@@ -475,6 +492,7 @@ class AssetProbeRunnerTest {
                 stateDir = stateDir,
                 engine = "rpg-maker-mv",
                 mode = ProbeMode.EXHAUSTIVE,
+                bitmapDecoder = testBitmapDecoder,
                 gpackReader = reader
             )
 
@@ -490,9 +508,261 @@ class AssetProbeRunnerTest {
             assertTrue(probedPaths.contains("audio/bgm.ogg"))
             assertEquals(2, report.stage_counts["FILE_EXISTS"])
             assertEquals(2, report.stage_counts["FILE_READABLE"])
-            assertEquals(2, report.stage_counts["INTEGRITY_VERIFIED"])
+            assertEquals(0, report.stage_counts["INTEGRITY_VERIFIED"] ?: 0)
             assertEquals(1, report.stage_counts["DECODE_SUCCESS"])
         }
+    }
+
+    @Test
+    fun testExcludedDllsWithExclusionsMetadataDoNotCreateMissing() {
+        val graphFile = File(stateDir, "audit/asset-dependency-graph.json")
+        graphFile.parentFile.mkdirs()
+        graphFile.writeText("""
+            {
+                "schema_version": 1,
+                "engine": "visual-novel-maker",
+                "nodes": [
+                    { "logical_path": "d3dcompiler_47.dll" },
+                    { "logical_path": "node.dll" },
+                    { "logical_path": "nw.dll" },
+                    { "logical_path": "icon.png" },
+                    { "logical_path": "resources/missing_pic.png" }
+                ]
+            }
+        """.trimIndent(), Charsets.UTF_8)
+
+        val exclusionsFile = File(stateDir, "audit/packaging-exclusions.json")
+        exclusionsFile.writeText("""
+            {
+                "schema_version": 1,
+                "source_hash": "mock_hash_123",
+                "entries": [
+                    { "logical_path": "d3dcompiler_47.dll", "reason": "EXCLUDED_PLATFORM_BINARY" },
+                    { "logical_path": "node.dll", "reason": "EXCLUDED_PLATFORM_BINARY" },
+                    { "logical_path": "nw.dll", "reason": "EXCLUDED_PLATFORM_BINARY" }
+                ]
+            }
+        """.trimIndent(), Charsets.UTF_8)
+
+        val iconFile = File(gameDir, "icon.png")
+        iconFile.writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "visual-novel-maker",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
+        )
+
+        val report = runner.run()
+
+        assertEquals(3, report.excluded_count)
+        assertEquals(1, report.missing_count)
+        assertEquals(1, report.failed_count)
+        assertEquals(1, report.passed_count)
+        assertEquals(RuntimeAuditOutcome.FAIL, report.outcome)
+
+        val excludedEvents = report.events.filter { it.category == AssetAuditCategory.EXCLUDED_PLATFORM_BINARY }
+        assertEquals(3, excludedEvents.size)
+        for (ev in excludedEvents) {
+            assertEquals(RuntimeAuditOutcome.WARNING, ev.outcome)
+            assertEquals(RuntimeAuditStage.FILE_EXISTS, ev.stage)
+        }
+
+        val missingEvents = report.events.filter { it.category == AssetAuditCategory.MISSING_ASSET }
+        assertEquals(1, missingEvents.size)
+        assertEquals("resources/missing_pic.png", missingEvents[0].asset_path)
+    }
+
+    @Test
+    fun testStaticAuditReportLoadedFromAssetsOrGpackWithoutRegexTrap() {
+        val auditDir = File(stateDir, "audit")
+        auditDir.mkdirs()
+        val staticReportFile = File(auditDir, "asset-audit-report.json")
+        staticReportFile.writeText("""
+            {
+                "schema_version": 1,
+                "engine": "visual-novel-maker",
+                "mode": "STANDARD",
+                "outcome": "PASS",
+                "stats": {
+                    "nodes": 1976,
+                    "references": 890,
+                    "findings": 0
+                },
+                "findings": [
+                    {
+                        "code": "CMP-106",
+                        "outcome": "FAIL",
+                        "message": "Nested outcome text inside finding object"
+                    }
+                ]
+            }
+        """.trimIndent(), Charsets.UTF_8)
+
+        File(gameDir, "valid.json").writeText("{}", Charsets.UTF_8)
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "visual-novel-maker",
+            mode = ProbeMode.EXHAUSTIVE
+        )
+
+        val report = runner.run()
+        val summaryFile = File(auditDir, "combined-validation-summary.json")
+        assertTrue(summaryFile.exists())
+        val summaryText = summaryFile.readText(Charsets.UTF_8)
+
+        assertTrue(summaryText.contains("\"static_outcome\":\"PASS\"") || summaryText.contains("\"static_outcome\": \"PASS\""))
+        assertTrue(summaryText.contains("\"engine\":\"visual-novel-maker\"") || summaryText.contains("\"engine\": \"visual-novel-maker\""))
+        assertTrue(summaryText.contains("\"nodes\":1976") || summaryText.contains("\"nodes\": 1976"))
+        assertTrue(summaryText.contains("\"references\":890") || summaryText.contains("\"references\": 890"))
+        assertTrue(summaryText.contains("\"findings\":0") || summaryText.contains("\"findings\": 0"))
+    }
+
+    @Test
+    fun testVnmEncryptedGraphicsClassifiedAsEncodedAssetUnverified() {
+        val auditDir = File(stateDir, "audit")
+        auditDir.mkdirs()
+        val profFile = File(auditDir, "vnm-preparation-profile.json")
+        profFile.writeText("""
+            {
+                "schema_version": 1,
+                "engine": "visual-novel-maker",
+                "source_hash": "test_hash",
+                "status": "Enabled",
+                "reason": "Static SCRIPTS configuration specifies needsPreparation=true"
+            }
+        """.trimIndent(), Charsets.UTF_8)
+
+        val graphicsDir = File(gameDir, "resources/Graphics/Backgrounds/bg")
+        graphicsDir.mkdirs()
+        val encJpg = File(graphicsDir, "bg400c.jpg")
+        encJpg.writeBytes(byteArrayOf(0xF5.toByte(), 0xF3.toByte(), 0xC9.toByte(), 0x8F.toByte(), 0x0B, 0x1A, 0x61, 0x70))
+
+        val encPng = File(graphicsDir, "Moonlight.png")
+        encPng.writeBytes(byteArrayOf(0x83.toByte(), 0x7B, 0x78, 0x28, 0x06, 0x00, 0x31, 0x3C))
+
+        val plainIcon = File(gameDir, "icon.png")
+        plainIcon.writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+
+        val otherDir = File(gameDir, "img/other")
+        otherDir.mkdirs()
+        val corruptImg = File(otherDir, "corrupt.png")
+        corruptImg.writeBytes(byteArrayOf(0x01, 0x02, 0x03, 0x04))
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "visual-novel-maker",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
+        )
+
+        val report = runner.run()
+
+        assertEquals(2, report.indeterminate_count)
+        assertEquals(1, report.passed_count)
+        assertEquals(1, report.failed_count)
+        assertEquals(1, report.decode_failed_count)
+
+        val unverified = report.events.filter { it.category == AssetAuditCategory.ENCODED_ASSET_UNVERIFIED }
+        assertEquals(2, unverified.size)
+        for (ev in unverified) {
+            assertEquals(RuntimeAuditOutcome.INDETERMINATE, ev.outcome)
+            assertEquals(RuntimeAuditStage.DECODE_SUCCESS, ev.stage)
+        }
+
+        val decodeFailures = report.events.filter { it.category == AssetAuditCategory.DECODE_FAILURE }
+        assertEquals(1, decodeFailures.size)
+        assertEquals("img/other/corrupt.png", decodeFailures[0].asset_path)
+
+        // Test disabled profile: bad magic on resources/Graphics becomes real DECODE_FAILURE
+        profFile.writeText("""{"status": "Disabled"}""", Charsets.UTF_8)
+        val runnerDisabled = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "visual-novel-maker",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
+        )
+        val repDisabled = runnerDisabled.run()
+        assertEquals(3, repDisabled.failed_count)
+        assertEquals(3, repDisabled.decode_failed_count)
+        assertEquals(0, repDisabled.indeterminate_count)
+
+        // Test unknown profile: bad magic on resources/Graphics becomes FORMAT_UNVERIFIED
+        profFile.writeText("""{"status": "Unknown"}""", Charsets.UTF_8)
+        val runnerUnknown = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "visual-novel-maker",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
+        )
+        val repUnknown = runnerUnknown.run()
+        assertEquals(2, repUnknown.indeterminate_count)
+        val formatUnverified = repUnknown.events.filter { it.category == "FORMAT_UNVERIFIED" }
+        assertEquals(2, formatUnverified.size)
+    }
+
+    @Test
+    fun testIntegrityVerifiedRemovedFromLengthChecks() {
+        createDummyAssets(5, "img/chars", "png")
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "rpg-maker-mv",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder
+        )
+
+        val report = runner.run()
+        assertEquals(RuntimeAuditOutcome.PASS, report.outcome)
+        assertEquals(0, report.stage_counts["INTEGRITY_VERIFIED"] ?: 0)
+        assertEquals(5, report.stage_counts["FILE_EXISTS"])
+        assertEquals(5, report.stage_counts["FILE_READABLE"])
+    }
+
+    @Test
+    fun testProbeCheckpointInvalidation() {
+        val auditDir = File(stateDir, "audit")
+        auditDir.mkdirs()
+        val cpFile = File(auditDir, "probe_checkpoint.json")
+
+        createDummyAssets(10, "img/sprites", "png")
+
+        val staleCp = ProbeCheckpoint(
+            audit_id = "old-run-123",
+            mode = "EXHAUSTIVE",
+            current_index = 5,
+            total_assets = 10,
+            last_processed_path = "img/sprites/asset_5.png",
+            stage_counts = mapOf("FILE_EXISTS" to 5),
+            passed_count = 5,
+            failed_count = 0,
+            warning_count = 0,
+            fallbacks_detected = emptyList(),
+            timestamp_ms = System.currentTimeMillis(),
+            source_hash = "wrong_source_hash"
+        )
+        cpFile.writeText(staleCp.toJson(), Charsets.UTF_8)
+
+        val runner = AssetProbeRunner(
+            gameDir = gameDir,
+            stateDir = stateDir,
+            engine = "rpg-maker-mv",
+            mode = ProbeMode.EXHAUSTIVE,
+            bitmapDecoder = testBitmapDecoder,
+            expectedSourceHash = "expected_source_hash_456"
+        )
+
+        val report = runner.run()
+        assertFalse("Stale checkpoint must not be restored", report.checkpoint_restored)
+        assertEquals(10, report.passed_count)
     }
 
     private fun createTestGpack(files: List<Pair<String, ByteArray>>): ByteArray {

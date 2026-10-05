@@ -1,0 +1,6 @@
+id = "web-vnm-voice"
+engines = ["visual-novel-maker"]
+symbol = "vn.Component_MessageBehavior.prototype.voiceDuration"
+requires_capability = "web.vnm.voice_compat"
+severity_if_missing = "degraded"
+description = "Visual Novel Maker voiceDuration guard delegation for missing buffer/disposed audio references"

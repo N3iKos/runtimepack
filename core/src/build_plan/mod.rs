@@ -216,12 +216,24 @@ impl ProjectConfig {
     }
 }
 
+fn default_overlay_mode() -> String {
+    "full".to_string()
+}
+
+fn default_vnm_input_guard() -> String {
+    "off".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildManifest {
     pub schema_version: u32,
     pub runtimepack_version: String,
     pub git_commit: Option<String>,
     pub build_timestamp: String,
+    #[serde(default = "default_overlay_mode")]
+    pub overlay_mode: String,
+    #[serde(default = "default_vnm_input_guard")]
+    pub vnm_input_guard: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flavor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -324,6 +324,39 @@ impl RuntimeRegistry {
                 notice_bundle: Some("licenses/tyrano".to_string()),
             }),
         });
+
+        self.register(RuntimeManifest {
+            manifest_version: 1,
+            id: "vnmaker-web".to_string(),
+            name: "RuntimePack Visual Novel Maker Web Adapter".to_string(),
+            version: "0.1.0".to_string(),
+            runtime_api: 1,
+            family: RuntimeFamily::VnMakerWeb,
+            engines: vec![EngineId::VisualNovelMaker],
+            abis: vec![Abi::Arm64V8a],
+            android: RuntimeAndroidConfig {
+                min_sdk: 26,
+                target_sdk: 34,
+            },
+            artifacts: Some(RuntimeArtifacts {
+                android_module: Some("adapter-vnmaker".to_string()),
+                aar_path: None,
+            }),
+            capabilities: vec![
+                "fs.vfs.read".to_string(),
+                "fs.save.write".to_string(),
+                "input.keyboard".to_string(),
+                "input.pointer".to_string(),
+                "web.local_origin".to_string(),
+                "web.javascript".to_string(),
+                "web.webgl".to_string(),
+                "web.webaudio".to_string(),
+            ],
+            licenses: Some(RuntimeLicenses {
+                license_id: Some("MIT OR Apache-2.0".to_string()),
+                notice_bundle: Some("licenses/vnmaker".to_string()),
+            }),
+        });
     }
 }
 

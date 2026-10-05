@@ -6,6 +6,7 @@ use runtimepack_engine_renpy::RenPyDetector;
 use runtimepack_engine_rgss::{RpgMakerVxAceDetector, RpgMakerVxDetector, RpgMakerXpDetector};
 use runtimepack_engine_rpgmaker_web::{RpgMakerMvDetector, RpgMakerMzDetector};
 use runtimepack_engine_tyrano::TyranoDetector;
+use runtimepack_engine_vnmaker::VnMakerDetector;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -269,6 +270,7 @@ fn create_detector_registry() -> DetectorRegistry {
     registry.register(Box::new(RpgMakerMzDetector));
     registry.register(Box::new(RenPyDetector));
     registry.register(Box::new(TyranoDetector));
+    registry.register(Box::new(VnMakerDetector));
     registry
 }
 

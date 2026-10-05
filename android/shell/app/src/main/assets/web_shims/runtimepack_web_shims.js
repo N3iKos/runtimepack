@@ -1,12 +1,49 @@
 (function(root) {
-    // [CAP-WEB-012] Global unhandled error and rejection listeners
     if (typeof root.window !== "undefined" && typeof root.window.addEventListener === "function") {
         root.window.addEventListener("error", function(e) {
+            try {
+                var errObj = {
+                    message: (e && e.message) ? e.message : String(e),
+                    file: (e && e.filename) ? e.filename : "",
+                    line: (e && typeof e.lineno === "number") ? e.lineno : 0,
+                    column: (e && typeof e.colno === "number") ? e.colno : 0,
+                    stack: (e && e.error && e.error.stack) ? e.error.stack : "",
+                    kind: "error",
+                    source: "GAME"
+                };
+                var jsonStr = JSON.stringify(errObj);
+                if (root.RuntimePackWeb && typeof root.RuntimePackWeb.postDiagnosticError === "function") {
+                    root.RuntimePackWeb.postDiagnosticError(jsonStr);
+                } else if (root.RuntimePackNative && typeof root.RuntimePackNative.postDiagnosticError === "function") {
+                    root.RuntimePackNative.postDiagnosticError(jsonStr);
+                } else if (root.RuntimePackVPad && typeof root.RuntimePackVPad.postDiagnosticError === "function") {
+                    root.RuntimePackVPad.postDiagnosticError(jsonStr);
+                }
+            } catch (_) {}
             if (root.console && typeof root.console.error === "function") {
                 root.console.error("[RuntimePack Global Error]", e.message, "at", e.filename, ":", e.lineno, ":", e.colno, e.error && e.error.stack ? e.error.stack : "");
             }
         });
         root.window.addEventListener("unhandledrejection", function(e) {
+            try {
+                var reason = e ? e.reason : null;
+                var msg = reason ? (reason.message || String(reason)) : "Unhandled Promise Rejection";
+                var stack = reason && reason.stack ? reason.stack : "";
+                var errObj = {
+                    message: msg,
+                    stack: stack,
+                    kind: "unhandledrejection",
+                    source: "GAME"
+                };
+                var jsonStr = JSON.stringify(errObj);
+                if (root.RuntimePackWeb && typeof root.RuntimePackWeb.postDiagnosticError === "function") {
+                    root.RuntimePackWeb.postDiagnosticError(jsonStr);
+                } else if (root.RuntimePackNative && typeof root.RuntimePackNative.postDiagnosticError === "function") {
+                    root.RuntimePackNative.postDiagnosticError(jsonStr);
+                } else if (root.RuntimePackVPad && typeof root.RuntimePackVPad.postDiagnosticError === "function") {
+                    root.RuntimePackVPad.postDiagnosticError(jsonStr);
+                }
+            } catch (_) {}
             if (root.console && typeof root.console.error === "function") {
                 root.console.error("[RuntimePack Unhandled Rejection]", e.reason);
             }
@@ -660,20 +697,77 @@
         }
     };
 
+    var windowListeners = {};
+    var windowState = {
+        isFullscreen: false,
+        isFullScreen: false,
+        resizable: true
+    };
+    var nwWindowInstance = {
+        get isFullscreen() {
+            return windowState.isFullscreen;
+        },
+        set isFullscreen(v) {
+            windowState.isFullscreen = !!v;
+            windowState.isFullScreen = !!v;
+        },
+        get isFullScreen() {
+            return windowState.isFullscreen;
+        },
+        set isFullScreen(v) {
+            windowState.isFullscreen = !!v;
+            windowState.isFullScreen = !!v;
+        },
+        setResizable: function(r) {
+            windowState.resizable = !!r;
+        },
+        enterFullscreen: function() {
+            windowState.isFullscreen = true;
+            windowState.isFullScreen = true;
+        },
+        leaveFullscreen: function() {
+            windowState.isFullscreen = false;
+            windowState.isFullScreen = false;
+        },
+        on: function(event, handler) {
+            if (!event || typeof handler !== "function") return;
+            if (!windowListeners[event]) windowListeners[event] = [];
+            windowListeners[event].push(handler);
+        },
+        removeListener: function(event, handler) {
+            if (!event || !windowListeners[event]) return;
+            windowListeners[event] = windowListeners[event].filter(function(h) { return h !== handler; });
+        },
+        removeAllListeners: function(event) {
+            if (event) {
+                delete windowListeners[event];
+            } else {
+                windowListeners = {};
+            }
+        },
+        emit: function(event) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (windowListeners[event]) {
+                windowListeners[event].slice().forEach(function(h) {
+                    try {
+                        h.apply(nwWindowInstance, args);
+                    } catch (e) {
+                        console.error("[RuntimePack nw.Window] listener error:", e);
+                    }
+                });
+            }
+        },
+        showDevTools: function() {},
+        show: function() {},
+        hide: function() {},
+        focus: function() {},
+        blur: function() {}
+    };
+
     var nwShim = {
         Window: {
             get: function() {
-                return {
-                    isFullScreen: false,
-                    enterFullscreen: function() {},
-                    leaveFullscreen: function() {},
-                    on: function() {},
-                    showDevTools: function() {},
-                    show: function() {},
-                    hide: function() {},
-                    focus: function() {},
-                    blur: function() {}
-                };
+                return nwWindowInstance;
             }
         },
         App: {
@@ -709,24 +803,315 @@
     }
 
     if (typeof root.Buffer === "undefined") {
-        var BufferMock = {
-            from: function(data, enc) {
-                return {
-                    toString: function() { return String(data || ""); }
-                };
-            },
-            concat: function(arr) {
-                return {
-                    toString: function() { return ""; }
-                };
-            },
-            alloc: function(size) {
-                return new Uint8Array(size);
+        function Buffer(arg, byteOffset, length) {
+            if (!(this instanceof Buffer)) {
+                return new Buffer(arg, byteOffset, length);
             }
+            if (typeof arg === "number") {
+                var size = Math.max(0, arg | 0);
+                var u8 = new Uint8Array(size);
+                Object.setPrototypeOf(u8, Buffer.prototype);
+                return u8;
+            }
+            return Buffer.from(arg, byteOffset, length);
+        }
+
+        Object.setPrototypeOf(Buffer.prototype, Uint8Array.prototype);
+        Object.setPrototypeOf(Buffer, Uint8Array);
+
+        Buffer.prototype._isBuffer = true;
+
+        Buffer.isBuffer = function(b) {
+            return !!(b && (b instanceof Buffer || b._isBuffer === true));
         };
-        root.Buffer = BufferMock;
+
+        var normalizeEncoding = function(enc) {
+            var e = String(enc || "utf8").toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (e === "utf8") return "utf8";
+            if (e === "base64") return "base64";
+            if (e === "hex") return "hex";
+            if (e === "binary" || e === "latin1") return "binary";
+            if (e === "ascii") return "ascii";
+            throw new TypeError("Unknown encoding: " + enc);
+        };
+
+        var utf8Encode = function(str) {
+            if (typeof TextEncoder !== "undefined") {
+                return new TextEncoder().encode(str);
+            }
+            var utf8 = [];
+            for (var i = 0; i < str.length; i++) {
+                var charcode = str.charCodeAt(i);
+                if (charcode < 0x80) utf8.push(charcode);
+                else if (charcode < 0x800) {
+                    utf8.push(0xc0 | (charcode >> 6),
+                              0x80 | (charcode & 0x3f));
+                } else if (charcode < 0xd800 || charcode >= 0xe000) {
+                    utf8.push(0xe0 | (charcode >> 12),
+                              0x80 | ((charcode >> 6) & 0x3f),
+                              0x80 | (charcode & 0x3f));
+                } else {
+                    i++;
+                    charcode = 0x10000 + (((charcode & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+                    utf8.push(0xf0 | (charcode >> 18),
+                              0x80 | ((charcode >> 12) & 0x3f),
+                              0x80 | ((charcode >> 6) & 0x3f),
+                              0x80 | (charcode & 0x3f));
+                }
+            }
+            return new Uint8Array(utf8);
+        };
+
+        var utf8Decode = function(bytes, start, end) {
+            var s = start || 0;
+            var e = (end === undefined) ? bytes.length : end;
+            var sub = bytes.subarray(s, e);
+            if (typeof TextDecoder !== "undefined") {
+                return new TextDecoder("utf-8").decode(sub);
+            }
+            var out = "";
+            var i = 0;
+            while (i < sub.length) {
+                var c = sub[i++];
+                if (c < 0x80) {
+                    out += String.fromCharCode(c);
+                } else if (c > 0xbf && c < 0xe0) {
+                    var c2 = sub[i++];
+                    out += String.fromCharCode(((c & 0x1f) << 6) | (c2 & 0x3f));
+                } else if (c >= 0xe0 && c < 0xf0) {
+                    var c2 = sub[i++];
+                    var c3 = sub[i++];
+                    out += String.fromCharCode(((c & 0x0f) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f));
+                } else {
+                    var c2 = sub[i++];
+                    var c3 = sub[i++];
+                    var c4 = sub[i++];
+                    var codepoint = (((c & 0x07) << 18) | ((c2 & 0x3f) << 12) | ((c3 & 0x3f) << 6) | (c4 & 0x3f)) - 0x10000;
+                    out += String.fromCharCode(0xd800 + (codepoint >> 10), 0xdc00 + (codepoint & 0x3ff));
+                }
+            }
+            return out;
+        };
+
+        var base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        var base64Lookup = new Uint8Array(256);
+        for (var bIdx = 0; bIdx < base64Chars.length; bIdx++) {
+            base64Lookup[base64Chars.charCodeAt(bIdx)] = bIdx;
+        }
+
+        var base64Encode = function(bytes, start, end) {
+            var s = start || 0;
+            var e = (end === undefined) ? bytes.length : end;
+            var sub = bytes.subarray(s, e);
+            var btoaFn = (typeof btoa === "function") ? btoa : ((typeof root.btoa === "function") ? root.btoa : null);
+            if (btoaFn) {
+                var bin = "";
+                for (var i = 0; i < sub.length; i++) {
+                    bin += String.fromCharCode(sub[i]);
+                }
+                return btoaFn(bin);
+            }
+            var len = sub.length;
+            var extraBytes = len % 3;
+            var output = "";
+            var i = 0;
+            var temp, length = len - extraBytes;
+            for (i = 0; i < length; i += 3) {
+                temp = (sub[i] << 16) + (sub[i + 1] << 8) + sub[i + 2];
+                output += (base64Chars[(temp >> 18) & 63] +
+                           base64Chars[(temp >> 12) & 63] +
+                           base64Chars[(temp >> 6) & 63] +
+                           base64Chars[temp & 63]);
+            }
+            if (extraBytes === 1) {
+                temp = sub[len - 1];
+                output += (base64Chars[temp >> 2] +
+                           base64Chars[(temp << 4) & 63] +
+                           "==");
+            } else if (extraBytes === 2) {
+                temp = (sub[len - 2] << 8) + sub[len - 1];
+                output += (base64Chars[temp >> 10] +
+                           base64Chars[(temp >> 4) & 63] +
+                           base64Chars[(temp << 2) & 63] +
+                           "=");
+            }
+            return output;
+        };
+
+        var base64Decode = function(str) {
+            var atobFn = (typeof atob === "function") ? atob : ((typeof root.atob === "function") ? root.atob : null);
+            if (atobFn) {
+                var bin = atobFn(str);
+                var bytes = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) {
+                    bytes[i] = bin.charCodeAt(i);
+                }
+                return bytes;
+            }
+            var clean = String(str || "").trim();
+            var len = clean.length;
+            var placeHolders = (clean.charAt(len - 1) === "=") ? ((clean.charAt(len - 2) === "=") ? 2 : 1) : 0;
+            var bytes = new Uint8Array((len * 3 / 4) - placeHolders);
+            var l = (placeHolders > 0) ? len - 4 : len;
+            var cur = 0;
+            for (var i = 0; i < l; i += 4) {
+                var c1 = base64Lookup[clean.charCodeAt(i)];
+                var c2 = base64Lookup[clean.charCodeAt(i + 1)];
+                var c3 = base64Lookup[clean.charCodeAt(i + 2)];
+                var c4 = base64Lookup[clean.charCodeAt(i + 3)];
+                bytes[cur++] = (c1 << 2) | (c2 >> 4);
+                bytes[cur++] = ((c2 & 15) << 4) | (c3 >> 2);
+                bytes[cur++] = ((c3 & 3) << 6) | c4;
+            }
+            if (placeHolders === 1) {
+                var c1 = base64Lookup[clean.charCodeAt(i)];
+                var c2 = base64Lookup[clean.charCodeAt(i + 1)];
+                var c3 = base64Lookup[clean.charCodeAt(i + 2)];
+                bytes[cur++] = (c1 << 2) | (c2 >> 4);
+                bytes[cur++] = ((c2 & 15) << 4) | (c3 >> 2);
+            } else if (placeHolders === 2) {
+                var c1 = base64Lookup[clean.charCodeAt(i)];
+                var c2 = base64Lookup[clean.charCodeAt(i + 1)];
+                bytes[cur++] = (c1 << 2) | (c2 >> 4);
+            }
+            return bytes;
+        };
+
+        var hexEncode = function(bytes, start, end) {
+            var s = start || 0;
+            var e = (end === undefined) ? bytes.length : end;
+            var out = "";
+            for (var i = s; i < e; i++) {
+                var hex = bytes[i].toString(16);
+                out += (hex.length === 1 ? "0" + hex : hex);
+            }
+            return out;
+        };
+
+        var hexDecode = function(str) {
+            var clean = String(str || "").replace(/[^0-9a-fA-F]/g, "");
+            var len = clean.length & ~1;
+            var bytes = new Uint8Array(len / 2);
+            for (var i = 0; i < len; i += 2) {
+                bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16);
+            }
+            return bytes;
+        };
+
+        Buffer.from = function(data, byteOffset, length) {
+            if (typeof data === "string") {
+                var encType = normalizeEncoding(byteOffset);
+                var raw;
+                if (encType === "utf8") raw = utf8Encode(data);
+                else if (encType === "base64") raw = base64Decode(data);
+                else if (encType === "hex") raw = hexDecode(data);
+                else if (encType === "binary" || encType === "ascii") {
+                    raw = new Uint8Array(data.length);
+                    for (var i = 0; i < data.length; i++) {
+                        raw[i] = data.charCodeAt(i) & 0xff;
+                    }
+                }
+                var b = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+                Object.setPrototypeOf(b, Buffer.prototype);
+                return b;
+            }
+            if (data instanceof ArrayBuffer) {
+                var offset = (byteOffset === undefined) ? 0 : (byteOffset | 0);
+                var len = (length === undefined) ? (data.byteLength - offset) : (length | 0);
+                var b = new Uint8Array(data, offset, len);
+                Object.setPrototypeOf(b, Buffer.prototype);
+                return b;
+            }
+            if (ArrayBuffer.isView(data) || (data && typeof data.byteLength === "number" && data.buffer)) {
+                var copy = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                var b = new Uint8Array(copy);
+                Object.setPrototypeOf(b, Buffer.prototype);
+                return b;
+            }
+            if (Array.isArray(data)) {
+                var b = new Uint8Array(data);
+                Object.setPrototypeOf(b, Buffer.prototype);
+                return b;
+            }
+            if (typeof data === "number") {
+                throw new TypeError("The first argument must not be a number");
+            }
+            var b = new Uint8Array(0);
+            Object.setPrototypeOf(b, Buffer.prototype);
+            return b;
+        };
+
+        Buffer.alloc = function(size, fill, enc) {
+            var b = new Buffer(size);
+            if (fill !== undefined) {
+                b.fill(fill, enc);
+            }
+            return b;
+        };
+
+        Buffer.concat = function(list, totalLength) {
+            if (!Array.isArray(list)) {
+                throw new TypeError("list argument must be an Array");
+            }
+            var len = 0;
+            if (totalLength === undefined) {
+                for (var i = 0; i < list.length; i++) {
+                    len += (list[i] ? list[i].length : 0);
+                }
+            } else {
+                len = totalLength | 0;
+            }
+            var result = Buffer.alloc(len);
+            var pos = 0;
+            for (var i = 0; i < list.length; i++) {
+                var item = list[i];
+                if (!item) continue;
+                var copyLen = Math.min(item.length, len - pos);
+                if (copyLen <= 0) break;
+                result.set(item.subarray(0, copyLen), pos);
+                pos += copyLen;
+            }
+            return result;
+        };
+
+        Buffer.prototype.toString = function(enc, start, end) {
+            var encType = normalizeEncoding(enc);
+            if (encType === "utf8") return utf8Decode(this, start, end);
+            if (encType === "base64") return base64Encode(this, start, end);
+            if (encType === "hex") return hexEncode(this, start, end);
+            var s = start || 0;
+            var e = (end === undefined) ? this.length : end;
+            var out = "";
+            for (var i = s; i < e; i++) {
+                out += String.fromCharCode(this[i]);
+            }
+            return out;
+        };
+
+        Buffer.prototype.slice = function(start, end) {
+            var len = this.length;
+            var s = (start === undefined) ? 0 : (start < 0 ? Math.max(0, len + start) : Math.min(len, start));
+            var e = (end === undefined) ? len : (end < 0 ? Math.max(0, len + end) : Math.min(len, end));
+            if (e < s) e = s;
+            var b = new Uint8Array(this.buffer, this.byteOffset + s, e - s);
+            Object.setPrototypeOf(b, Buffer.prototype);
+            return b;
+        };
+
+        Buffer.prototype.fill = function(val, enc) {
+            var fillByte = 0;
+            if (typeof val === "number") {
+                fillByte = val & 0xff;
+            } else if (typeof val === "string") {
+                fillByte = val.charCodeAt(0) & 0xff;
+            }
+            Uint8Array.prototype.fill.call(this, fillByte);
+            return this;
+        };
+
+        root.Buffer = Buffer;
         if (typeof root.window !== "undefined") {
-            root.window.Buffer = BufferMock;
+            root.window.Buffer = Buffer;
         }
     }
 
@@ -1500,6 +1885,799 @@
         };
     }
 
+    function patchVnmAudio() {
+        var AudioNodeProto = (typeof AudioBufferSourceNode !== "undefined" && AudioBufferSourceNode.prototype)
+            || (typeof root.AudioBufferSourceNode !== "undefined" && root.AudioBufferSourceNode.prototype)
+            || (typeof window !== "undefined" && window.AudioBufferSourceNode && window.AudioBufferSourceNode.prototype);
+        if (AudioNodeProto) {
+            var origStart = AudioNodeProto.start;
+            if (origStart && !origStart.__runtimepack_started_guarded) {
+                AudioNodeProto.start = function() {
+                    var res = origStart.apply(this, arguments);
+                    this.__rp_started = true;
+                    return res;
+                };
+                AudioNodeProto.start.__runtimepack_started_guarded = true;
+            }
+            var origStop = AudioNodeProto.stop;
+            if (origStop && !origStop.__runtimepack_stop_guarded) {
+                AudioNodeProto.stop = function(when) {
+                    if (!this.__rp_started) {
+                        return;
+                    }
+                    return origStop.apply(this, arguments);
+                };
+                AudioNodeProto.stop.__runtimepack_stop_guarded = true;
+            }
+            var desc = Object.getOwnPropertyDescriptor(AudioNodeProto, "onended");
+            if (!desc && typeof AudioScheduledSourceNode !== "undefined") {
+                desc = Object.getOwnPropertyDescriptor(AudioScheduledSourceNode.prototype, "onended");
+            }
+            if (desc && desc.set && !desc.set.__runtimepack_onended_wrapped) {
+                var origSetter = desc.set;
+                var origGetter = desc.get;
+                var wrappedSetter = function(fn) {
+                    if (typeof fn !== "function") {
+                        return origSetter.call(this, fn);
+                    }
+                    var node = this;
+                    var wrapped = function(event) {
+                        if (node.__rp_invalidated || (node.__rp_owner && node.__rp_owner.__rp_disposed)) {
+                            return;
+                        }
+                        return fn.apply(this, arguments);
+                    };
+                    return origSetter.call(this, wrapped);
+                };
+                wrappedSetter.__runtimepack_onended_wrapped = true;
+                Object.defineProperty(AudioNodeProto, "onended", {
+                    get: origGetter,
+                    set: wrappedSetter,
+                    configurable: true,
+                    enumerable: true
+                });
+            }
+        }
+        var gsObj = (typeof window !== "undefined" && window.gs) || root.gs;
+        var GSObj = (typeof window !== "undefined" && window.GS) || root.GS;
+        if (gsObj || GSObj) {
+            var vnmPendingSidecar = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+            var patchedInstances = typeof WeakSet !== "undefined" ? new WeakSet() : null;
+            var getPendingSidecar = function(ref) {
+                if (vnmPendingSidecar) {
+                    var s = vnmPendingSidecar.get(ref);
+                    if (!s) {
+                        s = {};
+                        vnmPendingSidecar.set(ref, s);
+                    }
+                    return s;
+                }
+                if (!ref.__rp_pending_sidecar) {
+                    Object.defineProperty(ref, "__rp_pending_sidecar", {
+                        value: {},
+                        writable: true,
+                        configurable: true,
+                        enumerable: false
+                    });
+                }
+                return ref.__rp_pending_sidecar;
+            };
+
+            var warnedAudioKeys = {};
+            var logAudioDiag = function(key, msg) {
+                if (!warnedAudioKeys[key]) {
+                    warnedAudioKeys[key] = true;
+                    console.warn("[CAP-WEB-022] " + msg);
+                }
+            };
+
+            var RefProto = (gsObj && gsObj.AudioBufferReference && gsObj.AudioBufferReference.prototype)
+                || (GSObj && GSObj.AudioBufferReference && GSObj.AudioBufferReference.prototype);
+
+            var origRefIsPlayingDesc = RefProto && Object.getOwnPropertyDescriptor(RefProto, "isPlaying");
+            var origRefIsPlayingGetter = origRefIsPlayingDesc && origRefIsPlayingDesc.get;
+
+            var origRefVolumeDesc = RefProto && Object.getOwnPropertyDescriptor(RefProto, "volume");
+            var origRefVolumeGetter = origRefVolumeDesc && origRefVolumeDesc.get;
+            var origRefVolumeSetter = origRefVolumeDesc && origRefVolumeDesc.set;
+
+            var origRefPlaybackRateDesc = RefProto && Object.getOwnPropertyDescriptor(RefProto, "playbackRate");
+            var origRefPlaybackRateGetter = origRefPlaybackRateDesc && origRefPlaybackRateDesc.get;
+            var origRefPlaybackRateSetter = origRefPlaybackRateDesc && origRefPlaybackRateDesc.set;
+
+            var StreamProto = (gsObj && gsObj.AudioBufferStream && gsObj.AudioBufferStream.prototype)
+                || (GSObj && GSObj.AudioBufferStream && GSObj.AudioBufferStream.prototype);
+
+            var origStreamIsPlayingDesc = StreamProto && Object.getOwnPropertyDescriptor(StreamProto, "isPlaying");
+            var origStreamIsPlayingGetter = origStreamIsPlayingDesc && origStreamIsPlayingDesc.get;
+
+            var isAudioBufferReference = function(obj) {
+                if (!obj || typeof obj !== "object") return false;
+                var RefClass = (gsObj && gsObj.AudioBufferReference) || (GSObj && GSObj.AudioBufferReference);
+                if (RefClass && obj instanceof RefClass) return true;
+                return typeof obj.initialize === "function" && ("audioBuffer" in obj) && ("playing" in obj);
+            };
+
+            var isAudioBufferStream = function(obj) {
+                if (!obj || typeof obj !== "object") return false;
+                var StreamClass = (gsObj && gsObj.AudioBufferStream) || (GSObj && GSObj.AudioBufferStream);
+                if (StreamClass && obj instanceof StreamClass) return true;
+                return ("audioStream" in obj) && ("fadeInVolume" in obj);
+            };
+
+            var patchAudioInstance = function(inst) {
+                if (!inst || typeof inst !== "object") return;
+                if (patchedInstances) {
+                    if (patchedInstances.has(inst)) return;
+                    patchedInstances.add(inst);
+                } else {
+                    if (inst.__rp_instance_patched) return;
+                    Object.defineProperty(inst, "__rp_instance_patched", {
+                        value: true,
+                        enumerable: false,
+                        configurable: true,
+                        writable: true
+                    });
+                }
+
+                if (isAudioBufferReference(inst)) {
+                    var ownIsPlaying = Object.getOwnPropertyDescriptor(inst, "isPlaying");
+                    if (!ownIsPlaying || ownIsPlaying.configurable) {
+                        Object.defineProperty(inst, "isPlaying", {
+                            get: function() {
+                                if (this.__rp_disposed) return false;
+                                if (!this.audioBuffer) return false;
+                                if (this.audioBuffer.error) return false;
+                                return origRefIsPlayingGetter
+                                    ? origRefIsPlayingGetter.call(this)
+                                    : (null != this.context ? Boolean(this.playing) : (this.source ? !this.source.paused : false));
+                            },
+                            enumerable: false,
+                            configurable: true
+                        });
+                    } else {
+                        logAudioDiag("own_is_playing_unsupported", "Unsupported own non-configurable isPlaying descriptor on reference");
+                    }
+
+                    var ownVolume = Object.getOwnPropertyDescriptor(inst, "volume");
+                    if (!ownVolume || ownVolume.configurable) {
+                        Object.defineProperty(inst, "volume", {
+                            get: function() {
+                                if (this.__rp_disposed) return 100;
+                                if (!this.audioBuffer) {
+                                    var sc = getPendingSidecar(this);
+                                    return sc.queuedVolume !== undefined ? sc.queuedVolume : 100;
+                                }
+                                return origRefVolumeGetter
+                                    ? origRefVolumeGetter.call(this)
+                                    : (this.audioBuffer.error ? 100 : (null != this.context ? (this.gainNode && this.gainNode.gain ? this.gainNode.gain.value : 100) : (this.source ? this.source.volume : 100)));
+                            },
+                            set: function(v) {
+                                if (this.__rp_disposed) return;
+                                if (!this.audioBuffer) {
+                                    getPendingSidecar(this).queuedVolume = v;
+                                    return;
+                                }
+                                if (origRefVolumeSetter) {
+                                    origRefVolumeSetter.call(this, v);
+                                } else if (!this.audioBuffer.error) {
+                                    if (null != this.context && this.gainNode && this.gainNode.gain) {
+                                        this.gainNode.gain.value = v;
+                                    } else if (this.source) {
+                                        this.source.volume = v;
+                                    }
+                                }
+                            },
+                            enumerable: false,
+                            configurable: true
+                        });
+                    } else {
+                        logAudioDiag("own_volume_unsupported", "Unsupported own non-configurable volume descriptor on reference");
+                    }
+
+                    var ownPlaybackRate = Object.getOwnPropertyDescriptor(inst, "playbackRate");
+                    if (!ownPlaybackRate || ownPlaybackRate.configurable) {
+                        Object.defineProperty(inst, "playbackRate", {
+                            get: function() {
+                                if (this.__rp_disposed) return undefined;
+                                if (!this.audioBuffer) {
+                                    var sc = getPendingSidecar(this);
+                                    return sc.queuedPlaybackRate !== undefined ? sc.queuedPlaybackRate : undefined;
+                                }
+                                return origRefPlaybackRateGetter
+                                    ? origRefPlaybackRateGetter.call(this)
+                                    : (this.audioBuffer.error ? undefined : (this.context ? ((this.source && this.source.playbackRate ? this.source.playbackRate.value : undefined) || 100) : (this.source ? this.source.playbackRate : 100)));
+                            },
+                            set: function(r) {
+                                if (this.__rp_disposed) return;
+                                if (!this.audioBuffer) {
+                                    getPendingSidecar(this).queuedPlaybackRate = r;
+                                    return;
+                                }
+                                if (origRefPlaybackRateSetter) {
+                                    origRefPlaybackRateSetter.call(this, r);
+                                } else if (!this.audioBuffer.error && this.source) {
+                                    if (this.context && this.source.playbackRate) {
+                                        this.source.playbackRate.value = r;
+                                    } else {
+                                        this.source.playbackRate = r;
+                                    }
+                                }
+                            },
+                            enumerable: false,
+                            configurable: true
+                        });
+                    } else {
+                        logAudioDiag("own_playback_rate_unsupported", "Unsupported own non-configurable playbackRate descriptor on reference");
+                    }
+                } else if (isAudioBufferStream(inst)) {
+                    var ownStreamPlaying = Object.getOwnPropertyDescriptor(inst, "isPlaying");
+                    if (!ownStreamPlaying || ownStreamPlaying.configurable) {
+                        Object.defineProperty(inst, "isPlaying", {
+                            get: function() {
+                                if (this.__rp_disposed || this.disposed || !this.audioStream) return false;
+                                return origStreamIsPlayingGetter ? origStreamIsPlayingGetter.call(this) : !this.audioStream.paused;
+                            },
+                            enumerable: false,
+                            configurable: true
+                        });
+                    } else {
+                        logAudioDiag("own_stream_is_playing_unsupported", "Unsupported own non-configurable isPlaying descriptor on stream");
+                    }
+                }
+            };
+
+            var audioManager = (gsObj && gsObj.Audio) || (GSObj && GSObj.Audio);
+            var AudioProto = (audioManager && Object.getPrototypeOf(audioManager))
+                || (gsObj && gsObj.Audio && gsObj.Audio.constructor && gsObj.Audio.constructor.prototype);
+
+            if (AudioProto && AudioProto.addAudioBuffer && !AudioProto.addAudioBuffer.__runtimepack_add_wrapped) {
+                var origProtoAddAudioBuffer = AudioProto.addAudioBuffer;
+                AudioProto.addAudioBuffer = function(buf) {
+                    patchAudioInstance(buf);
+                    return origProtoAddAudioBuffer.apply(this, arguments);
+                };
+                AudioProto.addAudioBuffer.__runtimepack_add_wrapped = true;
+            }
+
+            if (audioManager && audioManager.addAudioBuffer && !audioManager.addAudioBuffer.__runtimepack_add_wrapped) {
+                var origInstAddAudioBuffer = audioManager.addAudioBuffer;
+                audioManager.addAudioBuffer = function(buf) {
+                    patchAudioInstance(buf);
+                    return origInstAddAudioBuffer.apply(this, arguments);
+                };
+                audioManager.addAudioBuffer.__runtimepack_add_wrapped = true;
+            }
+
+            if (audioManager && Array.isArray(audioManager.audioBuffers)) {
+                for (var bi = 0; bi < audioManager.audioBuffers.length; bi++) {
+                    patchAudioInstance(audioManager.audioBuffers[bi]);
+                }
+            }
+
+            if (RefProto) {
+                if (RefProto.initialize && !RefProto.initialize.__runtimepack_init_wrapped) {
+                    var origRefInitialize = RefProto.initialize;
+                    RefProto.initialize = function() {
+                        if (this.__rp_disposed) {
+                            return;
+                        }
+                        if (!this.audioBuffer) {
+                            logAudioDiag("ref_init_null_buf", "AudioBufferReference.initialize called with null audioBuffer");
+                            return;
+                        }
+                        if (this.audioBuffer.error) {
+                            return;
+                        }
+                        var res = origRefInitialize.apply(this, arguments);
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_owner", {
+                                value: this,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        var sc = getPendingSidecar(this);
+                        if (sc.queuedVolume !== undefined) {
+                            var qv = sc.queuedVolume;
+                            delete sc.queuedVolume;
+                            this.volume = qv;
+                        }
+                        if (sc.queuedPlaybackRate !== undefined) {
+                            var qr = sc.queuedPlaybackRate;
+                            delete sc.queuedPlaybackRate;
+                            this.playbackRate = qr;
+                        }
+                        return res;
+                    };
+                    RefProto.initialize.__runtimepack_init_wrapped = true;
+                }
+
+                if (RefProto.stop && !RefProto.stop.__runtimepack_stop_wrapped) {
+                    var origRefStop = RefProto.stop;
+                    RefProto.stop = function() {
+                        if (this.__rp_disposed || !this.audioBuffer || this.audioBuffer.error || !this.source) {
+                            if (!this.audioBuffer) {
+                                logAudioDiag("ref_stop_null_buf", "AudioBufferReference.stop safely ignored on pending null buffer");
+                            }
+                            return;
+                        }
+                        return origRefStop.apply(this, arguments);
+                    };
+                    RefProto.stop.__runtimepack_stop_wrapped = true;
+                }
+
+                if (RefProto.play && !RefProto.play.__runtimepack_play_wrapped) {
+                    var origRefPlay = RefProto.play;
+                    RefProto.play = function() {
+                        if (this.__rp_disposed || !this.audioBuffer || this.audioBuffer.error || (this.context && !this.source)) {
+                            if (!this.audioBuffer) {
+                                logAudioDiag("ref_play_null_buf", "AudioBufferReference.play safely ignored on pending null buffer");
+                            }
+                            return;
+                        }
+                        var res = origRefPlay.apply(this, arguments);
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_owner", {
+                                value: this,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        return res;
+                    };
+                    RefProto.play.__runtimepack_play_wrapped = true;
+                }
+
+                if (RefProto.resume && !RefProto.resume.__runtimepack_resume_wrapped) {
+                    var origRefResume = RefProto.resume;
+                    RefProto.resume = function() {
+                        if (this.__rp_disposed || !this.audioBuffer || this.audioBuffer.error || (this.context && !this.source)) {
+                            if (!this.audioBuffer) {
+                                logAudioDiag("ref_resume_null_buf", "AudioBufferReference.resume safely ignored on pending null buffer");
+                            }
+                            return;
+                        }
+                        var res = origRefResume.apply(this, arguments);
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_owner", {
+                                value: this,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        return res;
+                    };
+                    RefProto.resume.__runtimepack_resume_wrapped = true;
+                }
+
+                if (RefProto.dispose && !RefProto.dispose.__runtimepack_dispose_wrapped) {
+                    var origRefDispose = RefProto.dispose;
+                    RefProto.dispose = function() {
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_invalidated", {
+                                value: true,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        Object.defineProperty(this, "__rp_disposed", {
+                            value: true,
+                            enumerable: false,
+                            configurable: true,
+                            writable: true
+                        });
+                        return origRefDispose.apply(this, arguments);
+                    };
+                    RefProto.dispose.__runtimepack_dispose_wrapped = true;
+                }
+            }
+
+            if (StreamProto) {
+                if (StreamProto.dispose && !StreamProto.dispose.__runtimepack_stream_dispose_wrapped) {
+                    var origStreamDispose = StreamProto.dispose;
+                    StreamProto.dispose = function() {
+                        Object.defineProperty(this, "__rp_disposed", {
+                            value: true,
+                            enumerable: false,
+                            configurable: true,
+                            writable: true
+                        });
+                        return origStreamDispose.apply(this, arguments);
+                    };
+                    StreamProto.dispose.__runtimepack_stream_dispose_wrapped = true;
+                }
+
+                if (StreamProto.stop && !StreamProto.stop.__runtimepack_stream_stop_wrapped) {
+                    var origStreamStop = StreamProto.stop;
+                    StreamProto.stop = function() {
+                        if (this.__rp_disposed || this.disposed || !this.audioStream) {
+                            return;
+                        }
+                        return origStreamStop.apply(this, arguments);
+                    };
+                    StreamProto.stop.__runtimepack_stream_stop_wrapped = true;
+                }
+            }
+
+            var BufProto = (gsObj && gsObj.AudioBuffer && gsObj.AudioBuffer.prototype)
+                || (GSObj && GSObj.AudioBuffer && GSObj.AudioBuffer.prototype);
+
+            if (BufProto) {
+                if (BufProto.dispose && !BufProto.dispose.__runtimepack_dispose_wrapped) {
+                    var origBufDispose = BufProto.dispose;
+                    BufProto.dispose = function() {
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_invalidated", {
+                                value: true,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        Object.defineProperty(this, "__rp_disposed", {
+                            value: true,
+                            enumerable: false,
+                            configurable: true,
+                            writable: true
+                        });
+                        return origBufDispose.apply(this, arguments);
+                    };
+                    BufProto.dispose.__runtimepack_dispose_wrapped = true;
+                }
+
+                if (BufProto.play && !BufProto.play.__runtimepack_play_wrapped) {
+                    var origBufPlay = BufProto.play;
+                    BufProto.play = function() {
+                        var res = origBufPlay.apply(this, arguments);
+                        if (this.source) {
+                            Object.defineProperty(this.source, "__rp_owner", {
+                                value: this,
+                                enumerable: false,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        return res;
+                    };
+                    BufProto.play.__runtimepack_play_wrapped = true;
+                }
+            }
+
+            var sanitizeSoundPoolInPlace = function(arr) {
+                if (!Array.isArray(arr)) return 0;
+                var removed = 0;
+                for (var i = arr.length - 1; i >= 0; i--) {
+                    if (arr[i] === null || arr[i] === undefined) {
+                        arr.splice(i, 1);
+                        removed++;
+                    }
+                }
+                return removed;
+            };
+
+            var warnedPoolKeys = {};
+            var logPoolDiag = function(key, msg) {
+                if (!warnedPoolKeys[key]) {
+                    warnedPoolKeys[key] = true;
+                    if (typeof console !== "undefined" && typeof console.warn === "function") {
+                        console.warn("[CAP-WEB-025] " + msg);
+                    }
+                    var bridge = (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                        || root.RuntimePackNative
+                        || (typeof window !== "undefined" && window.RuntimePackNative);
+                    if (bridge && typeof bridge.postDiagnosticError === "function") {
+                        try {
+                            bridge.postDiagnosticError("WEB-025", msg);
+                        } catch (e) {}
+                    }
+                }
+            };
+
+            var sanitizeSoundNamePool = function(target, name) {
+                if (!target || !target.soundReferences) return;
+                var soundKey = (name && typeof name === "object" && name.name != null) ? name.name : name;
+                if (soundKey && Array.isArray(target.soundReferences[soundKey])) {
+                    var count = sanitizeSoundPoolInPlace(target.soundReferences[soundKey]);
+                    if (count > 0) {
+                        logPoolDiag("sanitized_pool_" + soundKey, "Sanitized " + count + " null/hole reference(s) from pool: " + soundKey);
+                    }
+                }
+            };
+
+            var sanitizeAllSoundPools = function(target) {
+                if (!target || !target.soundReferences) return;
+                var total = 0;
+                for (var k in target.soundReferences) {
+                    if (Object.prototype.hasOwnProperty.call(target.soundReferences, k)) {
+                        total += sanitizeSoundPoolInPlace(target.soundReferences[k]);
+                    }
+                }
+                if (total > 0) {
+                    logPoolDiag("sanitized_all_pools", "Sanitized " + total + " null/hole reference(s) across sound pools");
+                }
+            };
+
+            var wrapAudioManagerTarget = function(target) {
+                if (!target) return;
+
+                if (typeof target.playSound === "function" && !target.playSound.__runtimepack_pool_safe) {
+                    var origPlaySound = target.playSound;
+                    target.playSound = function(name, volume, rate, musicEffect, voice, loopSound) {
+                        sanitizeSoundNamePool(this, name);
+                        return origPlaySound.apply(this, arguments);
+                    };
+                    target.playSound.__runtimepack_pool_safe = true;
+                }
+
+                if (typeof target.stopSound === "function" && !target.stopSound.__runtimepack_pool_safe) {
+                    var origStopSound = target.stopSound;
+                    target.stopSound = function(name) {
+                        sanitizeSoundNamePool(this, name);
+                        return origStopSound.apply(this, arguments);
+                    };
+                    target.stopSound.__runtimepack_pool_safe = true;
+                }
+
+                if (typeof target.stopAllVoices === "function" && !target.stopAllVoices.__runtimepack_pool_safe) {
+                    var origStopAllVoices = target.stopAllVoices;
+                    target.stopAllVoices = function() {
+                        sanitizeAllSoundPools(this);
+                        return origStopAllVoices.apply(this, arguments);
+                    };
+                    target.stopAllVoices.__runtimepack_pool_safe = true;
+                }
+
+                if (typeof target.stopAllSounds === "function" && !target.stopAllSounds.__runtimepack_pool_safe) {
+                    var origStopAllSounds = target.stopAllSounds;
+                    target.stopAllSounds = function() {
+                        sanitizeAllSoundPools(this);
+                        return origStopAllSounds.apply(this, arguments);
+                    };
+                    target.stopAllSounds.__runtimepack_pool_safe = true;
+                }
+            };
+
+            var amProto = (gsObj && gsObj.AudioManager && gsObj.AudioManager.prototype)
+                || (GSObj && GSObj.AudioManager && GSObj.AudioManager.prototype);
+            if (amProto) {
+                wrapAudioManagerTarget(amProto);
+            }
+            var winAm = (typeof window !== "undefined" && window.AudioManager) || (typeof root !== "undefined" && root.AudioManager);
+            if (winAm) {
+                wrapAudioManagerTarget(Object.getPrototypeOf(winAm));
+                wrapAudioManagerTarget(winAm);
+            }
+        }
+    }
+
+    function patchVnmStorage(storage) {
+        if (!storage || storage.__runtimepack_vnm_save_patched) return;
+        storage.__runtimepack_vnm_save_patched = true;
+
+        var getNamespace = function() {
+            if (typeof root.$PARAMS !== "undefined" && root.$PARAMS && root.$PARAMS.uid) {
+                return String(root.$PARAMS.uid);
+            }
+            if (typeof window !== "undefined" && window.$PARAMS && window.$PARAMS.uid) {
+                return String(window.$PARAMS.uid);
+            }
+            return "vnm";
+        };
+
+        var getBridge = function() {
+            return (typeof root.window !== "undefined" && root.window.RuntimePackNative)
+                || root.RuntimePackNative
+                || (typeof window !== "undefined" && window.RuntimePackNative);
+        };
+
+        var decodeStrictBase64Utf8 = function(b64) {
+            if (typeof b64 !== "string" || !b64) return null;
+            var trimmed = b64.trim();
+            if (trimmed.length === 0 || trimmed.length % 4 !== 0) return null;
+            if (!/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed)) return null;
+            try {
+                if (typeof Buffer !== "undefined") {
+                    var buf = Buffer.from(trimmed, "base64");
+                    if (typeof TextDecoder !== "undefined") {
+                        var decoder = new TextDecoder("utf-8", { fatal: true });
+                        return decoder.decode(buf);
+                    }
+                    return buf.toString("utf8");
+                }
+                var atobFn = (typeof atob === "function") ? atob : (typeof window !== "undefined" && typeof window.atob === "function" ? window.atob : null);
+                if (atobFn) {
+                    var binary = atobFn(trimmed);
+                    var bytes = new Uint8Array(binary.length);
+                    for (var i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    if (typeof TextDecoder !== "undefined") {
+                        var decoder2 = new TextDecoder("utf-8", { fatal: true });
+                        return decoder2.decode(bytes);
+                    }
+                    return decodeURIComponent(escape(binary));
+                }
+            } catch (e) {
+                return null;
+            }
+            return null;
+        };
+
+        storage.exists = function(slotKey) {
+            var rawKey = String(slotKey);
+            var bridge = getBridge();
+            if (bridge && typeof bridge.slotExists === "function") {
+                var ns = getNamespace();
+                if (bridge.slotExists(ns, rawKey)) {
+                    return true;
+                }
+                if (ns && ns !== "vnm") {
+                    var legacySlot = encodeURIComponent(ns + "_" + rawKey);
+                    if (bridge.slotExists("vnm", legacySlot)) {
+                        var rawLegacy = bridge.loadSlot("vnm", legacySlot);
+                        if (rawLegacy !== null && rawLegacy !== undefined) {
+                            return decodeStrictBase64Utf8(String(rawLegacy)) !== null;
+                        }
+                    }
+                }
+                return false;
+            }
+            if (bridge && typeof bridge.loadSlot === "function") {
+                return storage.getData(slotKey) !== null;
+            }
+            return null !== localStorage.getItem(getNamespace() + "_" + rawKey);
+        };
+
+        storage.remove = function(slotKey) {
+            var bridge = getBridge();
+            if (bridge && typeof bridge.deleteSlot === "function") {
+                var ns = getNamespace();
+                if (typeof bridge.registerNamespace === "function") {
+                    bridge.registerNamespace(ns);
+                }
+                bridge.deleteSlot(ns, String(slotKey));
+            }
+            localStorage.removeItem(getNamespace() + "_" + slotKey);
+        };
+
+        storage.setData = function(slotKey, data) {
+            var strVal = String(data === undefined || data === null ? "" : data);
+            var bridge = getBridge();
+            if (bridge && typeof bridge.saveSlot === "function") {
+                var ns = getNamespace();
+                if (typeof bridge.registerNamespace === "function") {
+                    bridge.registerNamespace(ns);
+                }
+                var ok = bridge.saveSlot(ns, String(slotKey), strVal);
+                if (!ok) {
+                    throw new Error("[RuntimePack] RT-SAVE-FAIL: native saveSlot failed for slot: " + slotKey);
+                }
+                return ok;
+            }
+            localStorage.setItem(getNamespace() + "_" + slotKey, strVal);
+            return true;
+        };
+
+        storage.getData = function(slotKey) {
+            var rawKey = String(slotKey);
+            var bridge = getBridge();
+            if (bridge && typeof bridge.loadSlot === "function") {
+                var ns = getNamespace();
+                var hasCurrent = false;
+                if (typeof bridge.slotExists === "function") {
+                    hasCurrent = !!bridge.slotExists(ns, rawKey);
+                }
+                if (hasCurrent) {
+                    var currentVal = bridge.loadSlot(ns, rawKey);
+                    if (currentVal === null || currentVal === undefined) {
+                        throw new Error("[RuntimePack] RT-LOAD-FAIL: native slotExists was true but loadSlot returned null for slot: " + rawKey);
+                    }
+                    return String(currentVal);
+                }
+                if (!hasCurrent && typeof bridge.slotExists !== "function") {
+                    var directVal = bridge.loadSlot(ns, rawKey);
+                    if (directVal !== null && directVal !== undefined) {
+                        return String(directVal);
+                    }
+                }
+                if (ns && ns !== "vnm") {
+                    var legacySlot = encodeURIComponent(ns + "_" + rawKey);
+                    var hasLegacy = false;
+                    if (typeof bridge.slotExists === "function") {
+                        hasLegacy = !!bridge.slotExists("vnm", legacySlot);
+                    }
+                    if (hasLegacy || typeof bridge.slotExists !== "function") {
+                        var rawLegacy = bridge.loadSlot("vnm", legacySlot);
+                        if (rawLegacy !== null && rawLegacy !== undefined) {
+                            var decoded = decodeStrictBase64Utf8(String(rawLegacy));
+                            if (decoded === null) {
+                                if (typeof console !== "undefined" && typeof console.warn === "function") {
+                                    console.warn("[CAP-WEB-026] Corrupt legacy Base64 UTF-8 save record for slot: " + rawKey);
+                                }
+                                if (typeof bridge.postDiagnosticError === "function") {
+                                    try {
+                                        bridge.postDiagnosticError("WEB-026", "Corrupt legacy Base64 UTF-8 save record for slot: " + rawKey);
+                                    } catch (e) {}
+                                }
+                                return null;
+                            }
+                            return decoded;
+                        }
+                    }
+                }
+                return null;
+            }
+            return localStorage.getItem(getNamespace() + "_" + rawKey);
+        };
+
+        storage.setObject = function(slotKey, obj) {
+            var str = JSON.stringify(obj);
+            return storage.setData(slotKey, str);
+        };
+
+        storage.getObject = function(slotKey) {
+            var str = storage.getData(slotKey);
+            if (str === null || str === undefined || str === "") return null;
+            try {
+                return JSON.parse(str);
+            } catch (e) {
+                console.warn(slotKey + " corrupted.");
+                console.warn(e);
+                return null;
+            }
+        };
+
+        storage.clear = function() {
+            var ns = getNamespace();
+            var prefix = ns + "_";
+            var bridge = getBridge();
+            if (bridge && typeof bridge.listSlots === "function" && typeof bridge.deleteSlot === "function") {
+                var listJson = bridge.listSlots(ns);
+                if (typeof listJson !== "string") {
+                    throw new Error("[RuntimePack] RT-SAVE-FAIL: listSlots returned invalid response for namespace: " + ns);
+                }
+                var list = JSON.parse(listJson);
+                if (!Array.isArray(list)) {
+                    throw new Error("[RuntimePack] RT-SAVE-FAIL: listSlots did not return array for namespace: " + ns);
+                }
+                for (var i = 0; i < list.length; i++) {
+                    var ok = bridge.deleteSlot(ns, list[i]);
+                    if (!ok) {
+                        throw new Error("[RuntimePack] RT-SAVE-FAIL: failed to delete slot: " + list[i]);
+                    }
+                    if (typeof localStorage !== "undefined" && localStorage && typeof localStorage.removeItem === "function") {
+                        localStorage.removeItem(prefix + list[i]);
+                    }
+                }
+            }
+            if (typeof localStorage !== "undefined" && localStorage) {
+                if (typeof localStorage.length === "number" && typeof localStorage.key === "function" && typeof localStorage.removeItem === "function") {
+                    var toRemove = [];
+                    for (var k = 0; k < localStorage.length; k++) {
+                        var kName = localStorage.key(k);
+                        if (kName && kName.indexOf(prefix) === 0) {
+                            toRemove.push(kName);
+                        }
+                    }
+                    for (var r = 0; r < toRemove.length; r++) {
+                        localStorage.removeItem(toRemove[r]);
+                    }
+                } else if (typeof localStorage.removeItem === "function") {
+                    for (var prop in localStorage) {
+                        if (Object.prototype.hasOwnProperty.call(localStorage, prop) && prop.indexOf(prefix) === 0) {
+                            localStorage.removeItem(prop);
+                        }
+                    }
+                }
+            }
+        };
+    }
+
     root.__runtimepackPollEngineInput = patchEngineInput;
     if (typeof root.window !== "undefined") {
         root.window.__runtimepackPollEngineInput = patchEngineInput;
@@ -1511,6 +2689,97 @@
     root.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
     if (typeof root.window !== "undefined") {
         root.window.__runtimepackPollHalfMoveCompat = patchHalfMoveCompat;
+    }
+    function patchVnmMessageCompat() {
+        var vnObj = (typeof window !== "undefined" && window.vn) || root.vn;
+        if (!vnObj || !vnObj.Component_MessageBehavior || !vnObj.Component_MessageBehavior.prototype) {
+            return;
+        }
+        var proto = vnObj.Component_MessageBehavior.prototype;
+        if (typeof proto.voiceDuration !== "function" || proto.voiceDuration.__runtimepack_voice_patched) {
+            return;
+        }
+        var origVoiceDuration = proto.voiceDuration;
+        var warnedDegraded = false;
+        var warnedNonFinite = false;
+
+        var wrappedVoiceDuration = function() {
+            if (this.tempSettings && this.tempSettings.skip) {
+                return 1;
+            }
+            var isVoiceGateActive = (this.voice != null) && this.settings && this.settings.autoMessage && (this.settings.autoMessage.waitForVoice || this.settings.timeMessageToVoice);
+            if (isVoiceGateActive) {
+                if (!this.voice.source || !this.voice.source.buffer || !this.voice.source.playbackRate) {
+                    if (!warnedDegraded) {
+                        warnedDegraded = true;
+                        if (typeof console !== "undefined" && console.warn) {
+                            console.warn("[CAP-WEB-020] voice source or buffer absent during voice duration calculation, returning degraded timing 0");
+                        }
+                    }
+                    return 0;
+                }
+            }
+            var result = origVoiceDuration.apply(this, arguments);
+            if (typeof result === "number" && !isFinite(result)) {
+                if (!warnedNonFinite) {
+                    warnedNonFinite = true;
+                    if (typeof console !== "undefined" && console.warn) {
+                        console.warn("[CAP-WEB-020] non-finite voice duration result mapped to 0");
+                    }
+                }
+                return 0;
+            }
+            return result;
+        };
+
+        wrappedVoiceDuration.__runtimepack_voice_patched = true;
+        proto.voiceDuration = wrappedVoiceDuration;
+    }
+
+    root.__runtimepackPollVnmStorage = patchVnmStorage;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollVnmStorage = patchVnmStorage;
+    }
+    root.__runtimepackPollVnmAudioCompat = patchVnmAudio;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollVnmAudioCompat = patchVnmAudio;
+    }
+    root.__runtimepackPollVnmMessageCompat = patchVnmMessageCompat;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackPollVnmMessageCompat = patchVnmMessageCompat;
+    }
+
+    function installVnmTouchCancelSafety() {
+        var targetWindow = typeof window !== "undefined" ? window : (typeof root.window !== "undefined" ? root.window : null);
+        if (!targetWindow || targetWindow.__runtimepack_vnm_touchcancel_installed) {
+            return;
+        }
+        if (typeof targetWindow.addEventListener !== "function") {
+            return;
+        }
+        targetWindow.__runtimepack_vnm_touchcancel_installed = true;
+
+        targetWindow.addEventListener("touchcancel", function(e) {
+            var inputObj = targetWindow.Input || (targetWindow.gs && targetWindow.gs.Input) || (typeof root !== "undefined" && root.Input);
+            var mouse = inputObj && inputObj.Mouse;
+            if (mouse) {
+                if (typeof mouse.clear === "function") {
+                    mouse.clear();
+                }
+                mouse.buttonDown = false;
+                mouse.buttonUp = false;
+                if (mouse.buttons) {
+                    for (var i = 0; i < mouse.buttons.length; i++) {
+                        mouse.buttons[i] = 0;
+                    }
+                }
+            }
+        }, true);
+    }
+
+    root.__runtimepackInstallVnmTouchCancelSafety = installVnmTouchCancelSafety;
+    if (typeof root.window !== "undefined") {
+        root.window.__runtimepackInstallVnmTouchCancelSafety = installVnmTouchCancelSafety;
     }
 
     // [CAP-WEB-016] Late-binding polling and lifecycle coordinator
@@ -1539,6 +2808,22 @@
         if (root.Sprite_Button || (typeof window !== "undefined" && window.Sprite_Button)) {
             patchHalfMoveCompat();
         }
+        var gsStorage = (typeof window !== "undefined" && (window.GameStorage || (window.gs && window.gs.GameStorage))) || root.GameStorage || (root.gs && root.gs.GameStorage);
+        if (gsStorage) {
+            patchVnmStorage(gsStorage);
+        }
+        var gsGlobal = (typeof window !== "undefined" && (window.gs || window.GS)) || root.gs || root.GS;
+        if (gsGlobal && (gsGlobal.Audio || gsGlobal.AudioBuffer || gsGlobal.AudioBufferReference || gsGlobal.AudioBufferStream)) {
+            patchVnmAudio();
+        }
+        var vnObj = (typeof window !== "undefined" && window.vn) || root.vn;
+        if (vnObj && vnObj.Component_MessageBehavior) {
+            patchVnmMessageCompat();
+        }
+        var isVnmDetected = Boolean(vnObj || gsGlobal || gsStorage || (typeof window !== "undefined" && window.Input && window.Input.Mouse));
+        if (isVnmDetected) {
+            installVnmTouchCancelSafety();
+        }
     }
 
     pollPatches();
@@ -1565,7 +2850,8 @@
             StorageManager: root.StorageManager,
             Graphics: root.Graphics,
             patchGraphics: patchGraphics,
-            executeCheatCmd: executeCheatCmd
+            executeCheatCmd: executeCheatCmd,
+            installVnmTouchCancelSafety: installVnmTouchCancelSafety
         };
     }
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

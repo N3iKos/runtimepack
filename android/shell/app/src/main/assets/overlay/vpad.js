@@ -1672,6 +1672,51 @@
         }, { passive: true });
     }
 
+    function sampleTouchTrail(cx, cy) {
+        if (isEditMode || state.feedbackMode !== "all") return;
+        const pid = 999;
+        let tracked = activeFeedbackPointers.get(pid);
+        if (!tracked || !tracked.active) {
+            tracked = {
+                startX: cx,
+                startY: cy,
+                lastX: cx,
+                lastY: cy,
+                strokeId: null,
+                active: true
+            };
+            activeFeedbackPointers.set(pid, tracked);
+        }
+        if (!tracked.strokeId) {
+            const distSq = (cx - tracked.startX) * (cx - tracked.startX) + (cy - tracked.startY) * (cy - tracked.startY);
+            if (distSq >= TRAIL_ACTIVATION_DIST_SQ) {
+                const strokeId = "stroke_sample_" + Date.now();
+                tracked.strokeId = strokeId;
+                addTrailPoint(strokeId, tracked.startX, tracked.startY);
+                addTrailPoint(strokeId, cx, cy);
+                tracked.lastX = cx;
+                tracked.lastY = cy;
+            }
+        } else {
+            const dx = cx - tracked.lastX;
+            const dy = cy - tracked.lastY;
+            if (dx * dx + dy * dy >= TRAIL_SAMPLE_DIST_SQ) {
+                addTrailPoint(tracked.strokeId, cx, cy);
+                tracked.lastX = cx;
+                tracked.lastY = cy;
+            }
+        }
+    }
+
+    function endTouchTrail() {
+        const pid = 999;
+        const tracked = activeFeedbackPointers.get(pid);
+        if (tracked) {
+            tracked.active = false;
+        }
+        activeFeedbackPointers.delete(pid);
+    }
+
     function setupOverlayLogic() {
         const mainTriggerBtn = document.getElementById("vpad-main-trigger-btn");
         const subMenu = document.getElementById("vpad-sub-menu");
@@ -3292,6 +3337,8 @@
         window.getFeedbackMode = getFeedbackMode;
         window.setFeedbackMode = setFeedbackMode;
         window.updateRippleBtnUI = updateRippleBtnUI;
+        window.sampleTouchTrail = sampleTouchTrail;
+        window.endTouchTrail = endTouchTrail;
     }
 
     if (typeof module !== "undefined" && module.exports) {
@@ -3312,6 +3359,8 @@
             activeFeedbackPointers,
             setupTrailListeners,
             spawnTouchRipple,
+            sampleTouchTrail,
+            endTouchTrail,
             showTouchToast,
             cycleFeedbackMode,
             getFeedbackMode,

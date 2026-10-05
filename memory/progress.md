@@ -1,5 +1,41 @@
 # Progress Update — 30 September 2026 (Sesi 3, penutupan plan besar)
 
+## [2026-10-05] Gate 4: VNM Extreme Input Beta Build (Task 4) — SELESAI
+- **Worktree:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction\.worktrees\vnm-extreme-input`
+- **Output:** `dist_vnm_extreme_input_beta` (seluruh artefak sebelumnya tetap dipreservasi utuh).
+- **Deliverable APK:**
+  - Path: `dist_vnm_extreme_input_beta\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,606,408 bytes (1361.47 MB)
+  - SHA-256: `55C777050BDF039CA2665C8F2BCBE9EE00780C09893CC8DE9084FBD0CFEBADD2`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified, certificate SHA-256 `531643144f89...` identik)
+- **Cryptographic Asset Integrity Verified:**
+  - `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256`: `c92165e440d5db2133805677d7280bda79cb95480d14e6ccff2991e5d663d191`
+  - Computed actual APK staged assets (5 file: `overlay/index.html`, `web_shims/runtimepack_asset_audit.js`, `web_shims/runtimepack_vnm_input_guard.js`, `web_shims/runtimepack_web_shims.js`, `fonts/vl-gothic-regular.ttf` via exact Kotlin algorithm): `c92165e440d5db2133805677d7280bda79cb95480d14e6ccff2991e5d663d191`
+  - Status: **EXACT MATCH (`Matches: True`)**; zero mismatch tanpa toleransi exception.
+- **Parity Container & Shims:**
+  - GPACK `game.pack`: SHA-256 `E55CE664A990173A7FA5E1F74D61FC16333C6D53291CDB3BD5B3C7AF98D3DDFC` (1,385,960,367 bytes, 1969 entries, 100% `encryption=0`, identik dengan v4 passive baseline).
+  - Web shims: LF-normalized SHA-256 `A311855227BF52C56AC2EADF499A4BAA4C65CF17720C32FDD0D1FBCC0CB36A52` byte-for-byte identik dengan template source. Git tree unmodified.
+  - VNM Input Guard adapter: SHA-256 `EFE641A99C4C3AAE...` byte-for-byte identik dengan source review.
+  - DEX classes3.dex: Memuat `VnmInputGuardDiagnostics` dan bridge `@JavascriptInterface postVnmInputSnapshot`.
+  - Packaging exclusions: 7 platform DLLs. VNM preparation profile: Enabled.
+- **Scope & Context Disclosures:**
+  - Status gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya dimiliki user; zero ADB/device boot).
+  - Root cause whiteout stall tetap **UNKNOWN**; guard transition-aware adalah eksperimen terisolasi dan bukan jaminan perbaikan definitif sebelum pengujian user.
+  - Baseline commit `52f9f2f` dan APK v4 referensi `C390...` tetap bersih dan terpelihara di repo root. Seluruh perubahan eksperimen tetap uncommitted di worktree.
+
+---
+
+## [2026-10-05] VNM v4 Baseline Commit (Gate 2) — SELESAI
+- **Baseline Git Branch:** `baseline/vnm-v4`
+- **Scope & User Acceptance:** User accepted v4 reconstructed candidate behavior: normal gameplay and built-in Skip operate reliably equivalent to old reference APK; rapid auto-clicking exhibits a known minor limitation (holding a white-screen scene transition in both old and v4 APKs).
+- **Full Overlay & Ripple Toggle:** Preserved in codebase but not newly device-certified; primary user-test candidate uses passive-watermark profile.
+- **Flavor & Release Status:** Beta only; release flavor remains `RELEASE_NOT_VALIDATED`.
+- **Integrity & Immutable Inputs:** Raw game source, old reference APK (`Backup/TFPC-TLFMB.apk`), and candidate APKs remain 100% immutable and outside Git tracking.
+
+---
+
 ## Status: STABILITY & DIAGNOSTICS OVERHAUL — SELESAI (3 fase komplit, final review APPROVED_FOR_MERGE)
 
 Branch `feature/native-mv-mz-save` (worktree `.worktrees/native-mv-mz-save`) kini berisi 17 commit, semua ter-review:
@@ -31,6 +67,105 @@ e. HalfMove delegation: risiko recursion multi-button (guard try/catch ada).
 - Merge branch `feature/native-mv-mz-save` ke master (SUDAH di-merge: b4f1d1a).
 - Selesai plan `feature/asset-hardening` (7 commit, final review APPROVED_FOR_MERGE 10/10).
 - Siap merge `feature/asset-hardening` ke master.
+
+---
+
+## [2026-10-05] VNM Reference-Mode Passive Beta Build (Task 5) — SELESAI
+- **Workspace:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction`
+- **Output:** `dist_vnm_reference_v4_passive` (semua artifak sebelumnya tetap dipreservasi utuh).
+- **Deliverable APK (v4 passive candidate):**
+  - Path: `dist_vnm_reference_v4_passive\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,602,367 bytes (1361.47 MB)
+  - SHA-256: `C39088E32F8D599B538AEC9D360F02CF02983E2BCC255BE6E3428EC12643ADDF`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified, certificate SHA-256 `531643144f89...` identik, update OS kompatibel)
+- **Cryptographic Asset Integrity Verified:**
+  - `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256`: `2f83e641576ea6b45ef128711fbb4b48b19754981812f0d8c38c0aac6d5bf943`
+  - Computed actual APK staged assets (4 file: `overlay/index.html`, `web_shims/runtimepack_asset_audit.js`, `web_shims/runtimepack_web_shims.js`, `fonts/vl-gothic-regular.ttf` via exact Kotlin algorithm): `2f83e641576ea6b45ef128711fbb4b48b19754981812f0d8c38c0aac6d5bf943`
+  - Status: **EXACT MATCH (`EQUAL: True`)**; tidak memerlukan atau bergantung pada toleransi exception beta.
+- **Parity Container & Shims:**
+  - GPACK `game.pack`: SHA-256 `E55CE664A990173A7FA5E1F74D61FC16333C6D53291CDB3BD5B3C7AF98D3DDFC` (1,385,960,367 bytes, 1969 entries, 100% `encryption=0`).
+  - Container diff: 1,968 dari 1,969 entri identik dengan v3. Tepat 1 file (`globalData.vndata`) bertambah dari 17,661 ke 31,513 bytes (+13,852 bytes) pada live session sebelumnya. Diungkapkan jujur tanpa modifikasi input.
+  - Web shims: SHA-256 `A311855227BF52C56AC2EADF499A4BAA4C65CF17720C32FDD0D1FBCC0CB36A52` byte-for-byte identik dengan template source. Memuat touchcancel safety (`CAP-WEB-024`), AudioManager pool pruning (`CAP-WEB-025`), legacy Base64 save fallback (`CAP-WEB-026`), dan bridge `postDiagnosticError`.
+  - Passive overlay: Static HTML watermark (`Beta Test Veldra Community`) 100% identik dengan old reference APK; JS disabled, zero controls, zero ripple/feedback scripts.
+  - DEX classes: Memuat `BuildManifestLoader`, `DiagnosticLogStore`, `NativeSaveRepository` (read-only persistent paths), `BoundedEntryStream`, dan passive touch dispatch branch di `WebActivity`.
+- **Context & Scope Disclosures:**
+  - Status gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya dimiliki oleh user; zero ADB/MuMu/device boot; tidak ada klaim kelulusan lama atau jaminan build 'stable').
+  - Siap untuk audit independen Task 6 oleh `qa-tester`.
+
+---
+
+## [2026-10-05] VNM Stabilized v3 Candidate APK Build (Task Build) — SELESAI
+- **Workspace:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction`
+- **Output:** `dist_vnm_stabilized_v3` (output `dist_vnm_reconstructed` dan `dist_vnm_reconstructed_v2` tetap dipreservasi utuh).
+- **Deliverable APK (v3):**
+  - Path: `dist_vnm_stabilized_v3\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,674,927 bytes (1361.54 MB)
+  - SHA-256: `227CBB029D04C3C2F58F99DEEC0CB6F6FB2322FCE5DD30158C6500A86CCD59E3`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified, certificate SHA-256 `531643144f89...` identik dengan v1 dan v2, kompatibilitas save/data terjaga)
+- **Cryptographic Asset Integrity Verified:**
+  - `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256`: `f321cb006d7cf9f1fc93aff32d50bbce08195f53af9fcd785e9cc7ea64d03b1e`
+  - Computed actual APK staged assets (11 file di `overlay/`, `web_shims/`, `fonts/` via exact Kotlin algorithm): `f321cb006d7cf9f1fc93aff32d50bbce08195f53af9fcd785e9cc7ea64d03b1e`
+  - Status: **EXACT MATCH (`EQUAL: True`)**; tidak memerlukan atau bergantung pada toleransi exception beta.
+- **Parity Container & Shims:**
+  - GPACK `game.pack`: SHA-256 `21079D20C44E2F38DF7AFC0EECA978EFE148593E0539140B944FF40B5D60DF60` (identik persis dengan v1 dan v2). 1969 entries, 100% `encryption=0`.
+  - Web shims: SHA-256 `1d9f63cd18be97705cc9259784bbe17d97c02570e98a114095076963d1ae8b28` byte-for-byte identik dengan template source. Memuat own-instance audio accessors (`isPlaying`, `volume`, `playbackRate`), sidecar `vnmPendingSidecar`, dan bridge `postDiagnosticError`.
+  - Diagnostic suite: SHA-256 `a649af0e...` mirror exact dengan preview. Memuat `getAuditFailures`, `getRuntimeBuildInfo`, dan 8 MiB UTF-8 byte boundary trimming.
+  - Metadata outside gamepack: `packaging-exclusions.json` (7 desktop DLLs), `vnm-preparation-profile.json` (status Enabled).
+  - DEX classes3.dex: Memuat `MiniJson`, `DiagnosticLogStore`, `AssetAuditService` (dengan `runLock`), `BoundedEntryStream`, `RuntimeIntegrity`.
+- **Context & Scope Disclosures:**
+  - Riwayat pengujian user v2: gagal sebelum chapter 2 (save normal, pause/stop terdiagnosa).
+  - Status gameplay v3: **`NOT_TESTED`** (pengujian gameplay sepenuhnya dimiliki oleh user; zero ADB/MuMu/device boot; tidak ada klaim kelulusan lama atau jaminan build 'stable').
+  - Android Lint baseline 36 vendor errors diungkapkan jujur, 0 host errors.
+  - Raw source 1976 files vs historical 2279 files (historical 303 diff unknown, cannot claim solved).
+  - Seluruh artifak lama (`dist_vnm_reconstructed`, `dist_vnm_reconstructed_v2`, `Audit-app.txt`) dipreservasi 100% tanpa cleanup.
+
+---
+
+## [2026-10-05] Gate G1 / Gate G: Task 3 V2 Visual Novel Maker Candidate APK Rebuild — SELESAI
+- **Workspace:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction`
+- **Output:** `dist_vnm_reconstructed_v2` (output `dist_vnm_reconstructed` yang terblokir tetap dipreservasi utuh).
+- **Deliverable APK (v2):**
+  - Path: `dist_vnm_reconstructed_v2\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,619,428 bytes (1361.48 MB)
+  - SHA-256: `18F8E1A5FE064CE15C888C8140434FD510EA05DCAF3ACBAFA4EEFDD0F6FB781F`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified)
+- **Cryptographic Asset Integrity Verified:**
+  - `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256`: `5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d`
+  - Computed actual APK staged assets (11 file di `overlay/`, `web_shims/`, `fonts/` via exact Kotlin algorithm): `5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d`
+  - Status: **EXACT MATCH (`EQUAL: True`)**; tidak memerlukan atau bergantung pada toleransi exception beta.
+- **Parity Container & Shims:**
+  - GPACK `game.pack`: SHA-256 `21079D20C44E2F38DF7AFC0EECA978EFE148593E0539140B944FF40B5D60DF60` (identik persis dengan build v1 fresh). 1969 entries, 100% `encryption=0`.
+  - Web shims: SHA-256 `247aed00...` byte-for-byte identik dengan template source.
+  - DEX classes3.dex: Memuat `BoundedEntryStream`, `GpackStreamReader`, `GpackExtractor`, `RuntimeIntegrity`.
+- **Scope Note:**
+  - Release flavor: `RELEASE_NOT_VALIDATED` (bukan bagian dari deliverable gate ini).
+  - Playability / gameplay: `NOT_TESTED` (pengujian gameplay sepenuhnya dimiliki oleh user; zero ADB/device boot).
+
+---
+
+## [2026-10-05] Gate G: Task 3 Visual Novel Maker Candidate APK Build (v1 - BLOCKED by Gate G1) — PRESERVED
+- **Workspace:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction`
+- **Source Input:** `D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~` (1976 files, 1433.87 MB, source_hash `dcfd5c07...`, 100% read-only).
+- **Baseline Context:** Raw source contains 1976 files vs historical reference 2279 files (different package name; confirmed user version distinction; no byte parity claim made).
+- **Candidate APK Deliverable:**
+  - Path: `dist_vnm_reconstructed\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,619,428 bytes (1361.48 MB)
+  - SHA-256: `ACEDFA73281C008C9C5551DF406B9DB9ADD152F3A71DDAD37097FE2F406DEC1F`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified)
+- **Artifact Verification:**
+  - Embedded web shims SHA-256 matches source byte-for-byte (`247aed00...`).
+  - GPACK container: 1,385,946,515 bytes, 1969 entries, 100% `encryption=0` (flavor beta unencrypted).
+  - DEX classes contain `BoundedEntryStream`, `GpackStreamReader`, `GpackExtractor`, `RuntimeIntegrity`.
+  - Beta overlay diagnostics & watermark (`Beta Test Veldra Community`) verified in APK assets.
+- **Playability Status:** `NOT_TESTED` (Gameplay owned by user; independent of previous pass; no emulator/device run performed).
 
 ---
 

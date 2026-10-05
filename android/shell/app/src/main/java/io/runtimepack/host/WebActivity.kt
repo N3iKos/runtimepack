@@ -256,6 +256,12 @@ open class WebActivity : Activity() {
     var isOverlayModalOpen: Boolean = false
 
     @Volatile
+    var focusGeneration: Long = 0L
+
+    @Volatile
+    var isActivityForeground: Boolean = false
+
+    @Volatile
     var activeControlHitboxes: List<ControlHitbox> = emptyList()
 
     @Volatile
@@ -264,7 +270,24 @@ open class WebActivity : Activity() {
     @Volatile
     var cachedEvalResult: String = ""
 
-    private var isTouchCapturedByGame: Boolean = false
+    @Volatile
+    var isPassiveOverlay: Boolean = false
+
+    @Volatile
+    var lastMoveFeedbackDispatchTimeMs: Long = 0L
+    @Volatile
+    var pendingMoveCssSample: Pair<Int, Int>? = null
+    @Volatile
+    var pendingMoveFeedbackRunnable: Runnable? = null
+    @Volatile
+    var moveFeedbackDispatchCount: Int = 0
+
+    var isTouchCapturedByGame: Boolean = false
+    @Volatile
+    var gestureGeneration: Long = 0L
+    @Volatile
+    var activeCancelledGestureGen: Long = 0L
+    val activePressedKeys: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
     @SuppressLint("SetJavaScriptEnabled")
     @Suppress("DEPRECATION")
@@ -286,7 +309,13 @@ open class WebActivity : Activity() {
         val gameDir = File(filesDir, "game")
         gameDirectory = gameDir
         currentInstance = this
-        AssetAuditService.init(filesDir, "rpgmaker_web", this)
+        val manifestEngine = (application as? RuntimeApplication)?.manifest?.engine?.id
+            ?: (application as? RuntimeApplication)?.manifest?.runtime?.family
+            ?: "rpgmaker_web"
+        val sourceHash = (application as? RuntimeApplication)?.manifest?.sourceHash
+        val appManifest = (application as? RuntimeApplication)?.manifest
+        isPassiveOverlay = (appManifest?.overlayMode ?: "full") == "passive-watermark"
+        AssetAuditService.init(filesDir, manifestEngine, this, sourceHash)
         prepareGameContent(gameDir)
         setupVfs(gameDir)
         loadWebShims()
@@ -345,6 +374,7 @@ open class WebActivity : Activity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             hideSystemUi()
+            requestGameFocusSafe()
         }
     }
 
@@ -421,13 +451,25 @@ open class WebActivity : Activity() {
             Log.w(TAG, "Could not check System.json for encryption key: ${e.message}")
         }
 
-        vfsInterceptor = VfsResourceInterceptor(gpackReader, rpgMakerKey) { path ->
+        val manifest = (application as? RuntimeApplication)?.manifest
+        val engineFam = manifest?.runtime?.family
+            ?: manifest?.runtime?.id
+            ?: AssetAuditService.currentEngine
+        val vnmGuardMode = manifest?.vnmInputGuard ?: "off"
+        val isVnm = VfsResourceInterceptor.isVnmProfile(engineFam)
+        VnmInputGuardDiagnostics.configure(isVnm = isVnm, guardMode = vnmGuardMode, baseDir = filesDir)
+
+        vfsInterceptor = VfsResourceInterceptor(gpackReader, rpgMakerKey, engineFam, vnmGuardMode) { path ->
             val resolvedPath = if (path.isEmpty()) "index.html" else path
-            val localFile = File(gameDir, resolvedPath)
-            if (localFile.exists() && localFile.isFile) {
-                localFile.inputStream()
+            if (resolvedPath == "web_shims/runtimepack_web_shims.js" || resolvedPath == "web_shims/runtimepack_vnm_input_guard.js") {
+                OverlayAssetSource.open(resolvedPath, this)
             } else {
-                gpackReader?.openStream(resolvedPath)
+                val localFile = File(gameDir, resolvedPath)
+                if (localFile.exists() && localFile.isFile) {
+                    localFile.inputStream()
+                } else {
+                    gpackReader?.openStream(resolvedPath)
+                }
             }
         }
     }
@@ -459,7 +501,7 @@ open class WebActivity : Activity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
-        wv.addJavascriptInterface(WebBridge(InternalStorageSaveService(this)), "RuntimePackNative")
+        wv.addJavascriptInterface(WebBridge(InternalStorageSaveService(this), createSaveRepository()), "RuntimePackNative")
         wv.addJavascriptInterface(object : Any() {
             @JavascriptInterface
             fun setCheatState(stateJson: String) {
@@ -500,12 +542,46 @@ open class WebActivity : Activity() {
             fun getCombinedSummary(): String {
                 return this@WebActivity.getCombinedSummary()
             }
+
+            @JavascriptInterface
+            fun postDiagnosticError(json: String): Boolean {
+                return DiagnosticLogStore.recordJsonError(json)
+            }
+
+            @JavascriptInterface
+            fun postVnmInputSnapshot(json: String): Boolean {
+                return VnmInputGuardDiagnostics.postSnapshot(json)
+            }
+
+            @JavascriptInterface
+            fun getVnmInputSnapshots(): String {
+                return VnmInputGuardDiagnostics.getSnapshotsJson()
+            }
         }, "RuntimePackWeb")
 
         wv.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                 if (consoleMessage != null) {
-                    Log.i(TAG, "[GameConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    val lvl = consoleMessage.messageLevel()
+                    val msg = consoleMessage.message()
+                    val src = consoleMessage.sourceId()
+                    val line = consoleMessage.lineNumber()
+                    Log.i(TAG, "[GameConsole] $msg ($src:$line)")
+                    DiagnosticLogStore.recordLog(
+                        level = lvl.name,
+                        message = msg,
+                        source = "GAME",
+                        stack = if (src != null) "$src:$line" else null
+                    )
+                    if (lvl == ConsoleMessage.MessageLevel.ERROR) {
+                        DiagnosticLogStore.recordError(
+                            message = msg,
+                            file = src,
+                            line = line,
+                            kind = "console_error",
+                            source = "GAME"
+                        )
+                    }
                 }
                 return super.onConsoleMessage(consoleMessage)
             }
@@ -603,27 +679,31 @@ open class WebActivity : Activity() {
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
+            isFocusable = false
+            isFocusableInTouchMode = false
         }
 
         with(wv.settings) {
-            javaScriptEnabled = true
-            domStorageEnabled = true
+            javaScriptEnabled = !isPassiveOverlay
+            domStorageEnabled = !isPassiveOverlay
             allowFileAccess = true
             allowContentAccess = true
         }
 
-        wv.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                if (consoleMessage != null) {
-                    Log.i(TAG, "[OverlayConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+        if (!isPassiveOverlay) {
+            wv.webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                    if (consoleMessage != null) {
+                        Log.i(TAG, "[OverlayConsole] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    }
+                    return super.onConsoleMessage(consoleMessage)
                 }
-                return super.onConsoleMessage(consoleMessage)
             }
+
+            wv.webViewClient = OverlayAssetSource.createOverlayWebViewClient(this)
+
+            wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
         }
-
-        wv.webViewClient = OverlayAssetSource.createOverlayWebViewClient(this)
-
-        wv.addJavascriptInterface(createVPadBridge(), "RuntimePackVPad")
 
         wv.loadUrl("file:///android_asset/overlay/index.html")
         overlayWebView = wv
@@ -667,15 +747,16 @@ open class WebActivity : Activity() {
 
         @JavascriptInterface
         fun setOverlayTextFocused(focused: Boolean) {
-            this@WebActivity.overlayTextFocused = focused
+            this@WebActivity.onOverlayTextFocusChanged(focused)
         }
 
         @JavascriptInterface
         fun setGamepadHidden(hidden: Boolean) {
             this@WebActivity.isGamepadHidden = hidden
-            if (hidden) {
-                runOnUiThread { gameWebView?.requestFocus() }
-            }
+            this@WebActivity.clearPendingMoveFeedback()
+            this@WebActivity.cancelCapturedGameGesture()
+            this@WebActivity.releaseActiveKeys()
+            this@WebActivity.requestGameFocusSafe()
         }
 
         @JavascriptInterface
@@ -685,13 +766,7 @@ open class WebActivity : Activity() {
 
         @JavascriptInterface
         fun setOverlayModalOpen(open: Boolean) {
-            this@WebActivity.isOverlayModalOpen = open
-            if (open) {
-                isTouchCapturedByGame = false
-            }
-            if (!open) {
-                runOnUiThread { gameWebView?.requestFocus() }
-            }
+            this@WebActivity.onOverlayModalOpenChanged(open)
         }
 
         @JavascriptInterface
@@ -735,6 +810,36 @@ open class WebActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun postDiagnosticError(json: String): Boolean {
+            return DiagnosticLogStore.recordJsonError(json)
+        }
+
+        @JavascriptInterface
+        fun getDiagnosticErrors(): String {
+            return DiagnosticLogStore.getDiagnosticErrorsJson()
+        }
+
+        @JavascriptInterface
+        fun getDiagnosticLogs(): String {
+            return DiagnosticLogStore.getDiagnosticLogsJson()
+        }
+
+        @JavascriptInterface
+        fun getVnmInputSnapshots(): String {
+            return VnmInputGuardDiagnostics.getSnapshotsJson()
+        }
+
+        @JavascriptInterface
+        fun getAuditFailures(limit: Int): String {
+            return AssetAuditService.getFailuresJson(limit)
+        }
+
+        @JavascriptInterface
+        fun getRuntimeBuildInfo(): String {
+            return this@WebActivity.getRuntimeBuildInfo()
+        }
+
+        @JavascriptInterface
         fun getEngineFamily(): String {
             return try {
                 AssetAuditService.currentEngine
@@ -767,94 +872,105 @@ open class WebActivity : Activity() {
         }
     }
 
-    open fun dispatchKeyToGame(jsKeyCode: Int, type: String) {
-        runOnUiThread {
-            val script = """
-                (function() {
-                    var codeMap = {
-                        8: "Backspace", 9: "Tab", 13: "Enter", 16: "ShiftLeft", 17: "ControlLeft",
-                        18: "AltLeft", 19: "Pause", 27: "Escape", 32: "Space", 33: "PageUp",
-                        34: "PageDown", 35: "End", 36: "Home", 37: "ArrowLeft", 38: "ArrowUp",
-                        39: "ArrowRight", 40: "ArrowDown", 45: "Insert", 46: "Delete",
-                        48: "Digit0", 49: "Digit1", 50: "Digit2", 51: "Digit3", 52: "Digit4",
-                        53: "Digit5", 54: "Digit6", 55: "Digit7", 56: "Digit8", 57: "Digit9",
-                        65: "KeyA", 66: "KeyB", 67: "KeyC", 68: "KeyD", 69: "KeyE", 70: "KeyF",
-                        71: "KeyG", 72: "KeyH", 73: "KeyI", 74: "KeyJ", 75: "KeyK", 76: "KeyL",
-                        77: "KeyM", 78: "KeyN", 79: "KeyO", 80: "KeyP", 81: "KeyQ", 82: "KeyR",
-                        83: "KeyS", 84: "KeyT", 85: "KeyU", 86: "KeyV", 87: "KeyW", 88: "KeyX",
-                        89: "KeyY", 90: "KeyZ", 96: "Numpad0", 97: "Numpad1", 98: "Numpad2",
-                        99: "Numpad3", 100: "Numpad4", 101: "Numpad5", 102: "Numpad6",
-                        103: "Numpad7", 104: "Numpad8", 105: "Numpad9", 108: "NumpadEnter",
-                        112: "F1", 113: "F2", 114: "F3", 115: "F4", 116: "F5", 117: "F6",
-                        118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12"
-                    };
-                    var evt;
+    open fun releaseActiveKeys() {
+        val keys = ArrayList(activePressedKeys)
+        activePressedKeys.clear()
+        for (k in keys) {
+            dispatchKeyToGame(k, "keyup")
+        }
+    }
+
+    open fun buildKeyDispatchScript(jsKeyCode: Int, type: String): String {
+        return """
+            (function() {
+                var codeMap = {
+                    8: "Backspace", 9: "Tab", 13: "Enter", 16: "ShiftLeft", 17: "ControlLeft",
+                    18: "AltLeft", 19: "Pause", 27: "Escape", 32: "Space", 33: "PageUp",
+                    34: "PageDown", 35: "End", 36: "Home", 37: "ArrowLeft", 38: "ArrowUp",
+                    39: "ArrowRight", 40: "ArrowDown", 45: "Insert", 46: "Delete",
+                    48: "Digit0", 49: "Digit1", 50: "Digit2", 51: "Digit3", 52: "Digit4",
+                    53: "Digit5", 54: "Digit6", 55: "Digit7", 56: "Digit8", 57: "Digit9",
+                    65: "KeyA", 66: "KeyB", 67: "KeyC", 68: "KeyD", 69: "KeyE", 70: "KeyF",
+                    71: "KeyG", 72: "KeyH", 73: "KeyI", 74: "KeyJ", 75: "KeyK", 76: "KeyL",
+                    77: "KeyM", 78: "KeyN", 79: "KeyO", 80: "KeyP", 81: "KeyQ", 82: "KeyR",
+                    83: "KeyS", 84: "KeyT", 85: "KeyU", 86: "KeyV", 87: "KeyW", 88: "KeyX",
+                    89: "KeyY", 90: "KeyZ", 96: "Numpad0", 97: "Numpad1", 98: "Numpad2",
+                    99: "Numpad3", 100: "Numpad4", 101: "Numpad5", 102: "Numpad6",
+                    103: "Numpad7", 104: "Numpad8", 105: "Numpad9", 108: "NumpadEnter",
+                    112: "F1", 113: "F2", 114: "F3", 115: "F4", 116: "F5", 117: "F6",
+                    118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12"
+                };
+                var evt;
+                try {
+                    evt = new KeyboardEvent('$type', {
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    Object.defineProperty(evt, 'keyCode', {
+                        get: function() { return $jsKeyCode; },
+                        configurable: true
+                    });
+                    Object.defineProperty(evt, 'which', {
+                        get: function() { return $jsKeyCode; },
+                        configurable: true
+                    });
+                    var evtCode = codeMap[$jsKeyCode] || "";
                     try {
-                        evt = new KeyboardEvent('$type', {
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        Object.defineProperty(evt, 'keyCode', {
-                            get: function() { return $jsKeyCode; },
+                        Object.defineProperty(evt, 'code', {
+                            get: function() { return evtCode; },
                             configurable: true
                         });
-                        Object.defineProperty(evt, 'which', {
-                            get: function() { return $jsKeyCode; },
-                            configurable: true
-                        });
-                        var evtCode = codeMap[$jsKeyCode] || "";
-                        try {
-                            Object.defineProperty(evt, 'code', {
-                                get: function() { return evtCode; },
-                                configurable: true
-                            });
-                        } catch (e) {}
-                    } catch (e) {
-                        evt = null;
-                    }
-                    if (evt) {
-                        window.dispatchEvent(evt);
-                        document.dispatchEvent(evt);
-                    }
+                    } catch (e) {}
+                } catch (e) {
+                    evt = null;
+                }
+                if (evt) {
+                    document.dispatchEvent(evt);
+                }
 
-                    // Jalur utama: injeksi langsung ke state engine RPG Maker.
-                    // (Chromium modern membuang keyCode dari KeyboardEventInit,
-                    //  sehingga dispatch DOM saja tidak pernah sampai ke Input.keyMapper.)
-                    if (window.Input) {
-                        if ('$type' === 'keydown' && typeof window.Input._onKeyDown === 'function' && evt) {
-                            window.Input._onKeyDown(evt);
-                        } else if ('$type' === 'keyup' && typeof window.Input._onKeyUp === 'function' && evt) {
-                            window.Input._onKeyUp(evt);
-                        }
+                if (window.Input) {
+                    if ('$type' === 'keydown' && typeof window.Input._onKeyDown === 'function' && evt) {
+                        window.Input._onKeyDown(evt);
+                    } else if ('$type' === 'keyup' && typeof window.Input._onKeyUp === 'function' && evt) {
+                        window.Input._onKeyUp(evt);
                     }
-                    if (window.TouchInput) {
-                        if ('$type' === 'keydown' && typeof window.TouchInput._onKeyDown === 'function' && evt) {
-                            window.TouchInput._onKeyDown(evt);
-                        } else if ('$type' === 'keyup' && typeof window.TouchInput._onKeyUp === 'function' && evt) {
-                            window.TouchInput._onKeyUp(evt);
-                        }
+                }
+                if (window.TouchInput) {
+                    if ('$type' === 'keydown' && typeof window.TouchInput._onKeyDown === 'function' && evt) {
+                        window.TouchInput._onKeyDown(evt);
+                    } else if ('$type' === 'keyup' && typeof window.TouchInput._onKeyUp === 'function' && evt) {
+                        window.TouchInput._onKeyUp(evt);
                     }
+                }
 
-                    // Safety net: jika event tetap tidak diproses engine (keyCode hilang),
-                    // set state input secara langsung via RuntimePackInput (Task 1 shim).
-                    if (window.RuntimePackInput && window.RuntimePackInput.isAvailable()) {
-                        var action = null;
-                        if (window.Input && window.Input.keyMapper) {
-                            action = window.Input.keyMapper[$jsKeyCode] || null;
-                        }
-                        if (!action && evt && evt.code && window.Input && window.Input.codeMapper) {
-                            action = window.Input.codeMapper[evt.code] || null;
-                        }
-                        if (action) {
-                            if ('$type' === 'keydown') {
-                                window.RuntimePackInput.press(action);
-                            } else {
-                                window.RuntimePackInput.release(action);
-                            }
+                if (window.RuntimePackInput && window.RuntimePackInput.isAvailable()) {
+                    var action = null;
+                    if (window.Input && window.Input.keyMapper) {
+                        action = window.Input.keyMapper[$jsKeyCode] || null;
+                    }
+                    if (!action && evt && evt.code && window.Input && window.Input.codeMapper) {
+                        action = window.Input.codeMapper[evt.code] || null;
+                    }
+                    if (action) {
+                        if ('$type' === 'keydown') {
+                            window.RuntimePackInput.press(action);
+                        } else {
+                            window.RuntimePackInput.release(action);
                         }
                     }
-                })();
-            """.trimIndent()
+                }
+            })();
+        """.trimIndent()
+    }
+
+    open fun dispatchKeyToGame(jsKeyCode: Int, type: String) {
+        if (type == "keydown") {
+            activePressedKeys.add(jsKeyCode)
+        } else if (type == "keyup") {
+            activePressedKeys.remove(jsKeyCode)
+        }
+        runOnUiThread {
+            val script = buildKeyDispatchScript(jsKeyCode, type)
             gameWebView?.evaluateJavascript(script, null)
         }
     }
@@ -888,16 +1004,20 @@ open class WebActivity : Activity() {
         return super.dispatchKeyEvent(event)
     }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        val density = resources.displayMetrics.density
-        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
-        val screenHeight = resources.displayMetrics.heightPixels.toFloat()
+    open fun handleTouchEvent(action: Int, x: Float, y: Float): Boolean {
+        if (action == MotionEvent.ACTION_DOWN) {
+            ++gestureGeneration
+        }
 
-        val action = event.actionMasked
+        val dm = try { resources?.displayMetrics } catch (_: Exception) { null }
+        val density = dm?.density ?: 1.0f
+        val screenWidth = dm?.widthPixels?.toFloat() ?: 1280f
+        val screenHeight = dm?.heightPixels?.toFloat() ?: 720f
+
         isTouchCapturedByGame = resolveGestureCapturedByGame(
             action,
-            event.x,
-            event.y,
+            x,
+            y,
             screenWidth,
             screenHeight,
             density,
@@ -908,18 +1028,30 @@ open class WebActivity : Activity() {
         )
 
         if (isTouchCapturedByGame) {
-            val copy = MotionEvent.obtain(event)
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                isTouchCapturedByGame = false
+            }
+            return true
+        }
+        return false
+    }
+
+    open fun dispatchTouchEventToGame(event: MotionEvent): Boolean {
+        return gameWebView?.dispatchTouchEvent(event) ?: false
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (isPassiveOverlay) {
+            return dispatchTouchEventToGame(event)
+        }
+
+        val action = event.actionMasked
+        val captured = handleTouchEvent(action, event.x, event.y)
+        if (captured) {
             try {
                 gameWebView?.dispatchTouchEvent(event)
             } finally {
-                try {
-                    overlayWebView?.dispatchTouchEvent(copy)
-                } finally {
-                    copy.recycle()
-                }
-            }
-            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                isTouchCapturedByGame = false
+                forwardFeedbackSample(action, event.x, event.y)
             }
             return true
         }
@@ -928,6 +1060,11 @@ open class WebActivity : Activity() {
     }
 
     override fun onPause() {
+        isActivityForeground = false
+        ++focusGeneration
+        clearPendingMoveFeedback()
+        cancelCapturedGameGesture()
+        releaseActiveKeys()
         super.onPause()
         gameWebView?.onPause()
         overlayWebView?.onPause()
@@ -935,9 +1072,95 @@ open class WebActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        isActivityForeground = true
         gameWebView?.onResume()
         overlayWebView?.onResume()
         hideSystemUi()
+        requestGameFocusSafe()
+    }
+
+    open fun dispatchUiRunnable(action: Runnable) {
+        runOnUiThread(action)
+    }
+
+    open fun cancelCapturedGameGesture() {
+        if (isTouchCapturedByGame) {
+            val targetGesture = gestureGeneration
+            if (targetGesture == activeCancelledGestureGen) {
+                return
+            }
+            activeCancelledGestureGen = targetGesture
+            dispatchUiRunnable {
+                if (targetGesture == gestureGeneration && isTouchCapturedByGame) {
+                    dispatchCancelToGame()
+                    isTouchCapturedByGame = false
+                }
+            }
+        }
+    }
+
+    open fun dispatchCancelToGame() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val cancelEvent = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        try {
+            gameWebView?.dispatchTouchEvent(cancelEvent)
+        } finally {
+            cancelEvent.recycle()
+            forwardFeedbackSample(MotionEvent.ACTION_CANCEL, 0f, 0f)
+        }
+    }
+
+    open fun onOverlayModalOpenChanged(open: Boolean) {
+        isOverlayModalOpen = open
+        if (open) {
+            clearPendingMoveFeedback()
+            cancelCapturedGameGesture()
+            ++focusGeneration
+            releaseActiveKeys()
+        } else {
+            requestGameFocusSafe()
+        }
+    }
+
+    open fun onOverlayTextFocusChanged(focused: Boolean) {
+        overlayTextFocused = focused
+        val targetGen = ++focusGeneration
+        if (focused) {
+            dispatchUiRunnable {
+                if (targetGen == focusGeneration && isActivityForeground) {
+                    overlayWebView?.isFocusable = true
+                    overlayWebView?.isFocusableInTouchMode = true
+                    performOverlayFocus()
+                }
+            }
+        } else {
+            dispatchUiRunnable {
+                if (targetGen == focusGeneration) {
+                    overlayWebView?.isFocusable = false
+                    overlayWebView?.isFocusableInTouchMode = false
+                    if (isActivityForeground && !isOverlayModalOpen && !overlayTextFocused) {
+                        performGameFocus()
+                    }
+                }
+            }
+        }
+    }
+
+    open fun performGameFocus() {
+        gameWebView?.requestFocus()
+    }
+
+    open fun performOverlayFocus() {
+        overlayWebView?.requestFocus()
+    }
+
+    open fun requestGameFocusSafe() {
+        val targetGen = ++focusGeneration
+        dispatchUiRunnable {
+            if (targetGen == focusGeneration && isActivityForeground && !isOverlayModalOpen && !overlayTextFocused) {
+                performGameFocus()
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -951,6 +1174,88 @@ open class WebActivity : Activity() {
         gameWebView?.destroy()
         overlayWebView?.destroy()
         super.onDestroy()
+    }
+
+    open fun createSaveRepository(): NativeSaveRepository {
+        val baseDir = filesDir ?: File(".")
+        return NativeSaveRepository(File(baseDir, "saves"))
+    }
+
+    open fun currentUptimeMs(): Long {
+        return try {
+            android.os.SystemClock.uptimeMillis()
+        } catch (_: Exception) {
+            System.currentTimeMillis()
+        }
+    }
+
+    open fun postFeedbackRunnable(action: Runnable, delayMs: Long) {
+        val wv = overlayWebView
+        if (wv != null) {
+            wv.postDelayed(action, delayMs)
+        } else {
+            dispatchUiRunnable(action)
+        }
+    }
+
+    open fun removeFeedbackRunnable(action: Runnable) {
+        overlayWebView?.removeCallbacks(action)
+    }
+
+    open fun clearPendingMoveFeedback() {
+        val r = pendingMoveFeedbackRunnable
+        if (r != null) {
+            removeFeedbackRunnable(r)
+            pendingMoveFeedbackRunnable = null
+        }
+        pendingMoveCssSample = null
+    }
+
+    open fun forwardFeedbackSample(action: Int, x: Float, y: Float) {
+        val density = try { resources?.displayMetrics?.density ?: 1.0f } catch (_: Exception) { 1.0f }
+        val cssX = (x / density).toInt()
+        val cssY = (y / density).toInt()
+        if (action == MotionEvent.ACTION_DOWN) {
+            clearPendingMoveFeedback()
+            lastMoveFeedbackDispatchTimeMs = currentUptimeMs()
+            overlayWebView?.evaluateJavascript(
+                "if (window.spawnTouchRipple) { window.spawnTouchRipple($cssX, $cssY); }", null
+            )
+        } else if (action == MotionEvent.ACTION_MOVE) {
+            val now = currentUptimeMs()
+            val elapsed = now - lastMoveFeedbackDispatchTimeMs
+            if (elapsed >= 16L && pendingMoveFeedbackRunnable == null) {
+                lastMoveFeedbackDispatchTimeMs = now
+                moveFeedbackDispatchCount++
+                overlayWebView?.evaluateJavascript(
+                    "if (window.sampleTouchTrail) { window.sampleTouchTrail($cssX, $cssY); }", null
+                )
+            } else {
+                pendingMoveCssSample = Pair(cssX, cssY)
+                if (pendingMoveFeedbackRunnable == null) {
+                    val delay = (16L - elapsed).coerceAtLeast(1L)
+                    val r = Runnable {
+                        val sample = pendingMoveCssSample
+                        pendingMoveFeedbackRunnable = null
+                        pendingMoveCssSample = null
+                        if (sample != null) {
+                            lastMoveFeedbackDispatchTimeMs = currentUptimeMs()
+                            moveFeedbackDispatchCount++
+                            overlayWebView?.evaluateJavascript(
+                                "if (window.sampleTouchTrail) { window.sampleTouchTrail(${sample.first}, ${sample.second}); }", null
+                            )
+                        }
+                    }
+                    pendingMoveFeedbackRunnable = r
+                    postFeedbackRunnable(r, delay)
+                }
+            }
+        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            clearPendingMoveFeedback()
+            overlayWebView?.evaluateJavascript(
+                "if (window.endTouchTrail) { window.endTouchTrail(); }", null
+            )
+        }
     }
 
     open fun openUrl(url: String) {
@@ -1033,6 +1338,57 @@ open class WebActivity : Activity() {
         return AssetAuditService.getCombinedSummary(filesDir)
     }
 
+    open fun getRuntimeBuildInfo(): String {
+        val app = (application as? RuntimeApplication)
+        val manifest = app?.manifest
+        val sb = StringBuilder()
+        sb.append("{")
+        if (manifest != null) {
+            sb.append("\"app\":{")
+            sb.append("\"name\":\"").append(escapeJson(manifest.app.name)).append("\",")
+            sb.append("\"package\":\"").append(escapeJson(manifest.app.packageName)).append("\",")
+            sb.append("\"version_name\":\"").append(escapeJson(manifest.app.versionName)).append("\",")
+            sb.append("\"version_code\":").append(manifest.app.versionCode)
+            sb.append("},")
+
+            sb.append("\"engine\":{")
+            if (manifest.engine != null) {
+                sb.append("\"id\":\"").append(escapeJson(manifest.engine.id)).append("\",")
+                sb.append("\"confidence\":\"").append(escapeJson(manifest.engine.confidence)).append("\",")
+                sb.append("\"overridden\":").append(manifest.engine.overridden).append(",")
+                if (manifest.engine.detectedVersion != null) {
+                    sb.append("\"version\":\"").append(escapeJson(manifest.engine.detectedVersion)).append("\"")
+                } else {
+                    sb.append("\"version\":null")
+                }
+            } else {
+                sb.append("\"id\":null,\"confidence\":null,\"overridden\":false,\"version\":null")
+            }
+            sb.append("},")
+
+            sb.append("\"runtime\":{")
+            sb.append("\"id\":\"").append(escapeJson(manifest.runtime.id)).append("\",")
+            sb.append("\"family\":\"").append(escapeJson(manifest.runtime.family)).append("\",")
+            sb.append("\"version\":\"").append(escapeJson(manifest.runtime.version)).append("\",")
+            sb.append("\"runtime_api\":").append(manifest.runtime.runtimeApi).append(",")
+            sb.append("\"backend\":\"webview\"")
+            sb.append("},")
+
+            if (manifest.flavor != null) sb.append("\"flavor\":\"").append(escapeJson(manifest.flavor)).append("\",") else sb.append("\"flavor\":null,")
+            if (manifest.buildTimestamp != null) sb.append("\"build_timestamp\":\"").append(escapeJson(manifest.buildTimestamp)).append("\",") else sb.append("\"build_timestamp\":null,")
+            sb.append("\"content_mode\":\"").append(escapeJson(manifest.contentMode)).append("\",")
+            if (manifest.contentHash != null) sb.append("\"content_hash\":\"").append(escapeJson(manifest.contentHash)).append("\",") else sb.append("\"content_hash\":null,")
+            if (manifest.sourceHash != null) sb.append("\"source_hash\":\"").append(escapeJson(manifest.sourceHash)).append("\",") else sb.append("\"source_hash\":null,")
+            sb.append("\"overlay_mode\":\"").append(escapeJson(manifest.overlayMode)).append("\",")
+            sb.append("\"vnm_input_guard\":\"").append(escapeJson(manifest.vnmInputGuard)).append("\",")
+        } else {
+            sb.append("\"app\":null,\"engine\":null,\"runtime\":null,\"flavor\":null,\"build_timestamp\":null,\"content_mode\":null,\"content_hash\":null,\"source_hash\":null,\"overlay_mode\":null,\"vnm_input_guard\":null,")
+        }
+        sb.append("\"runtime_integrity_sha256\":\"").append(escapeJson(RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256)).append("\"")
+        sb.append("}")
+        return sb.toString()
+    }
+
     open fun postAuditEvent(eventJson: String): Boolean {
         return try {
             val ev = RuntimeAuditEvent.fromJson(eventJson)
@@ -1057,6 +1413,16 @@ open class WebActivity : Activity() {
     }
 
     open fun shareBugReport(jsonContent: String) {
+        val utf8Bytes = jsonContent.toByteArray(Charsets.UTF_8)
+        if (utf8Bytes.size > 8 * 1024 * 1024) {
+            Log.e(TAG, "Rejected oversized bug report: ${utf8Bytes.size} bytes exceeds 8 MiB limit")
+            DiagnosticLogStore.recordError(
+                message = "Bug report export rejected: ${utf8Bytes.size} bytes exceeds 8 MiB limit",
+                kind = "export_oversize",
+                source = "HOST"
+            )
+            return
+        }
         runOnUiThread {
             try {
                 val appLabel = try {

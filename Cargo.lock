@@ -673,6 +673,7 @@ dependencies = [
  "runtimepack-engine-rgss",
  "runtimepack-engine-rpgmaker-web",
  "runtimepack-engine-tyrano",
+ "runtimepack-engine-vnmaker",
  "runtimepack-pack",
  "serde",
  "serde_json",
@@ -732,6 +733,15 @@ version = "0.1.0"
 dependencies = [
  "encoding_rs",
  "regex",
+ "runtimepack-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtimepack-engine-vnmaker"
+version = "0.1.0"
+dependencies = [
  "runtimepack-core",
  "serde",
  "serde_json",

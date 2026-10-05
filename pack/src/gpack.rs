@@ -30,6 +30,19 @@ pub struct GpackIndexEntry {
     pub encryption: u8,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PackagingExclusionEntry {
+    pub logical_path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PackagingExclusions {
+    pub schema_version: u32,
+    pub source_hash: String,
+    pub entries: Vec<PackagingExclusionEntry>,
+}
+
 pub struct GpackPacker;
 
 impl GpackPacker {
@@ -142,6 +155,26 @@ impl GpackPacker {
         output_file: &Path,
     ) -> Result<u64, DiagnosticError> {
         Self::pack_from_index_with_options(index, output_file, None)
+    }
+
+    pub fn compute_packaging_exclusions(
+        source_index: &runtimepack_core::ingest::GameSourceIndex,
+    ) -> PackagingExclusions {
+        let mut entries = Vec::new();
+        for file in source_index.files.values() {
+            if !Self::should_include_in_pack(&file.logical_path) {
+                entries.push(PackagingExclusionEntry {
+                    logical_path: file.logical_path.clone(),
+                    reason: "EXCLUDED_PLATFORM_BINARY".to_string(),
+                });
+            }
+        }
+        entries.sort_by(|a, b| a.logical_path.cmp(&b.logical_path));
+        PackagingExclusions {
+            schema_version: 1,
+            source_hash: source_index.source_hash.clone(),
+            entries,
+        }
     }
 
     pub fn pack_from_index_with_options(

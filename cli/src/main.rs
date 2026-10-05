@@ -16,7 +16,7 @@ use runtimepack_core::build_plan::{
 };
 use runtimepack_core::theme::ThemePackage;
 use runtimepack_core::detection::DetectorRegistry;
-use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode};
+use runtimepack_core::diagnostics::{Diagnostic, DiagnosticCode, DiagnosticSeverity};
 use runtimepack_core::domain::{CompatibilityStatus, DetectionConfidence, EngineId};
 use runtimepack_core::ingest::GameSourceIndex;
 use runtimepack_core::provenance::{EvidenceRegistry, ToolchainLock};
@@ -29,6 +29,7 @@ use runtimepack_engine_rpgmaker_web::{
     RpgMakerMvDetector, RpgMakerMzDetector, RpgMakerWebAnalyzer, RpgMakerWebAssetAuditor,
 };
 use runtimepack_engine_tyrano::{TyranoAnalyzer, TyranoAssetAuditor, TyranoDetector};
+use runtimepack_engine_vnmaker::{VnMakerAnalyzer, VnMakerAssetAuditor, VnMakerDetector};
 use runtimepack_pack::GpackPacker;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -143,6 +144,10 @@ pub struct BuildArgs {
     /// Build flavor: beta or release
     #[arg(long, default_value = "beta")]
     pub flavor: String,
+    #[arg(long, default_value = "full", help = "Overlay mode: full or passive-watermark")]
+    pub overlay_mode: String,
+    #[arg(long, default_value = "off", help = "VNM dialogue advance input guard: off or transition-aware")]
+    pub vnm_input_guard: String,
     /// Static asset audit mode: standard or deep
     #[arg(long, default_value = "standard")]
     pub audit_mode: String,
@@ -211,6 +216,7 @@ fn create_default_detector_registry() -> DetectorRegistry {
     registry.register(Box::new(RpgMakerMzDetector));
     registry.register(Box::new(RenPyDetector));
     registry.register(Box::new(TyranoDetector));
+    registry.register(Box::new(VnMakerDetector));
     registry
 }
 
@@ -220,6 +226,7 @@ fn create_default_analyzer_registry() -> runtimepack_core::compatibility::Analyz
     registry.register(Box::new(RpgMakerWebAnalyzer));
     registry.register(Box::new(RenPyAnalyzer));
     registry.register(Box::new(TyranoAnalyzer));
+    registry.register(Box::new(VnMakerAnalyzer));
     registry
 }
 
@@ -237,6 +244,9 @@ pub(crate) fn create_default_asset_auditor_registry() -> AssetAuditorRegistry {
     registry
         .register(Box::new(TyranoAssetAuditor))
         .expect("Tyrano asset auditor must register");
+    registry
+        .register(Box::new(VnMakerAssetAuditor))
+        .expect("Visual Novel Maker asset auditor must register");
     registry
 }
 
@@ -678,6 +688,22 @@ fn cmd_build(args: BuildArgs) {
         );
         std::process::exit(1);
     }
+    let normalized_overlay_mode = args.overlay_mode.to_lowercase();
+    if normalized_overlay_mode != "full" && normalized_overlay_mode != "passive-watermark" {
+        eprintln!(
+            "[BLD-101] Invalid overlay mode '{}'. Must be 'full' or 'passive-watermark'.",
+            args.overlay_mode
+        );
+        std::process::exit(1);
+    }
+    let normalized_vnm_input_guard = args.vnm_input_guard.to_lowercase();
+    if normalized_vnm_input_guard != "off" && normalized_vnm_input_guard != "transition-aware" {
+        eprintln!(
+            "[BLD-101] Invalid vnm-input-guard '{}'. Must be 'off' or 'transition-aware'.",
+            args.vnm_input_guard
+        );
+        std::process::exit(1);
+    }
     let audit_mode = match args.audit_mode.to_ascii_lowercase().as_str() {
         "standard" => AuditMode::Standard,
         "deep" => AuditMode::Deep,
@@ -744,6 +770,36 @@ fn cmd_build(args: BuildArgs) {
         descriptor.id, descriptor.confidence
     );
 
+    if normalized_overlay_mode == "passive-watermark" {
+        if normalized_flavor != "beta" {
+            eprintln!(
+                "[BLD-101] Overlay mode 'passive-watermark' is only supported for beta flavor builds."
+            );
+            std::process::exit(1);
+        }
+        if descriptor.id != EngineId::VisualNovelMaker {
+            eprintln!(
+                "[BLD-101] Overlay mode 'passive-watermark' is only supported for Visual Novel Maker engine."
+            );
+            std::process::exit(1);
+        }
+    }
+
+    if normalized_vnm_input_guard == "transition-aware" {
+        if normalized_flavor != "beta" {
+            eprintln!(
+                "[BLD-101] VNM input guard 'transition-aware' is only supported for beta flavor builds."
+            );
+            std::process::exit(1);
+        }
+        if descriptor.id != EngineId::VisualNovelMaker {
+            eprintln!(
+                "[BLD-101] VNM input guard 'transition-aware' is only supported for Visual Novel Maker engine."
+            );
+            std::process::exit(1);
+        }
+    }
+
     // 3. Compatibility & Legal Gate
     let analyzers = create_default_analyzer_registry();
     let report = analyzers.analyze(&source_index, &descriptor);
@@ -758,7 +814,8 @@ fn cmd_build(args: BuildArgs) {
                     | DiagnosticCode::CMP_NODE_NATIVE_MODULE
                     | DiagnosticCode::CMP_PYTHON_NATIVE_EXTENSION
                     | DiagnosticCode::RNP_RUNTIME_VERSION_UNRESOLVED
-            )
+                    | DiagnosticCode::RT_UNRESOLVED
+            ) || issue.severity == DiagnosticSeverity::Error
         })
         .map(|issue| Diagnostic::error(issue.code.clone(), issue.message.clone()))
         .collect::<Vec<_>>();
@@ -1170,6 +1227,8 @@ fn cmd_build(args: BuildArgs) {
         runtimepack_version: "0.1.0".to_string(),
         git_commit: None,
         build_timestamp: Utc::now().to_rfc3339(),
+        overlay_mode: normalized_overlay_mode.clone(),
+        vnm_input_guard: normalized_vnm_input_guard.clone(),
         flavor: Some(normalized_flavor.clone()),
         audit: Some(audit_manifest.clone()),
         rtp_source: rtp_source_str.clone(),
@@ -1194,7 +1253,7 @@ fn cmd_build(args: BuildArgs) {
             capabilities: runtime.capabilities.clone(),
         },
         content: ContentManifestEntry {
-            mode: content_mode,
+            mode: content_mode.clone(),
             content_hash: pack_hash.clone(),
             file_count: source_index.file_count(),
             total_bytes,
@@ -1264,6 +1323,28 @@ fn cmd_build(args: BuildArgs) {
             let _ = fs::copy(&source_report, &target_audit_report);
         } else {
             let _ = fs::write(&target_audit_report, &audit_artifacts.report_json);
+        }
+    }
+
+    if content_mode != "plain" {
+        let exclusions = GpackPacker::compute_packaging_exclusions(&source_index);
+        let exclusions_json = serde_json::to_string_pretty(&exclusions).unwrap_or_default();
+        let source_exclusions = output.join("packaging-exclusions.json");
+        let _ = fs::write(&source_exclusions, &exclusions_json);
+        let target_exclusions = android_project_dir.join("app/src/main/assets/packaging-exclusions.json");
+        if !target_exclusions.exists() {
+            let _ = fs::write(&target_exclusions, &exclusions_json);
+        }
+    }
+
+    if descriptor.id == EngineId::VisualNovelMaker {
+        let vnm_profile = runtimepack_engine_vnmaker::VnmPreparationProfile::detect(&source_index);
+        let vnm_json = serde_json::to_string_pretty(&vnm_profile).unwrap_or_default();
+        let source_vnm_profile = output.join("vnm-preparation-profile.json");
+        let _ = fs::write(&source_vnm_profile, &vnm_json);
+        let target_vnm_profile = android_project_dir.join("app/src/main/assets/vnm-preparation-profile.json");
+        if !target_vnm_profile.exists() {
+            let _ = fs::write(&target_vnm_profile, &vnm_json);
         }
     }
 

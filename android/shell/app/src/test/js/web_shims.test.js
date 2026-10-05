@@ -1112,6 +1112,26 @@ function createSandbox(initialStorageManager) {
     assert(errorsCaptured.some(e => e.includes("[RuntimePack Unhandled Rejection]") && e.includes("Network save timed out")),
         "Unhandledrejection listener must log [RuntimePack Unhandled Rejection] with reason");
 
+    // 3. Native bridge postDiagnosticError call
+    const bridgeErrors = [];
+    sb.RuntimePackWeb = {
+        postDiagnosticError: function(json) {
+            bridgeErrors.push(JSON.parse(json));
+            return true;
+        }
+    };
+    eventListeners.error({
+        message: "Uncaught SyntaxError: Unexpected token",
+        filename: "js/main.js",
+        lineno: 10,
+        colno: 2,
+        error: { stack: "SyntaxError: Unexpected token\n at js/main.js:10:2" }
+    });
+    assert(bridgeErrors.length === 1, "postDiagnosticError must be called on bridge");
+    assert(bridgeErrors[0].message === "Uncaught SyntaxError: Unexpected token", "Error message matches");
+    assert(bridgeErrors[0].line === 10, "Line matches");
+    assert(bridgeErrors[0].kind === "error", "Kind matches");
+
     console.log("Global Error & Rejection Logger tests PASSED");
 }
 

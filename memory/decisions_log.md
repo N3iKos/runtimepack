@@ -1,5 +1,87 @@
 # Decisions Log
 
+## [2026-10-05] Gate 4 Task 4: VNM Extreme Input Experimental Beta Build Execution
+**Keputusan:**
+1. Menjalankan build kandidat eksperimental VNM Extreme Input (`--vnm-input-guard transition-aware --overlay-mode passive-watermark`) ke direktori target baru `dist_vnm_extreme_input_beta`:
+   - Command: `cargo run --offline --bin runtimepack -- build "D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~" --flavor beta --overlay-mode passive-watermark --vnm-input-guard transition-aware --accept-audit-unknown --output dist_vnm_extreme_input_beta`
+   - Semua artefak sebelumnya (`dist_vnm_reference_v4_passive`, `dist_vnm_stabilized_v3`, root reference APK) dipreservasi utuh tanpa modifikasi atau cleanup.
+2. Memverifikasi integritas runtime kriptografis:
+   - Konstanta tertanam `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` (`c92165e4...`) 100% cocok dengan hasil komputasi algoritma Kotlin pada 5 aset APK riil. Zero mismatch, tanpa toleransi exception.
+3. Memvalidasi artefak adapter & bridge:
+   - File `web_shims/runtimepack_vnm_input_guard.js` di APK byte-for-byte identik dengan source review (`efe641a9...`).
+   - `classes3.dex` memuat `VnmInputGuardDiagnostics` dan bridge `postVnmInputSnapshot`.
+   - VFS menginjeksi adapter script tag secara sekuensial setelah `SCRIPTS.js` dan normal hooks sebelum DOM ready.
+4. Preservasi container & isolasi Git:
+   - GPACK `E55CE664...` (1,385,960,367 bytes, 1969 entries, unencrypted) 100% identik dengan baseline v4.
+   - Baseline commit `52f9f2f` dan root repository tetap bersih. Seluruh perubahan eksperimental tetap uncommitted di worktree.
+5. Penegasan batasan & pengungkapan jujur:
+   - Status deliverable: **CANDIDATE EXPERIMENT**.
+   - Gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya hak prerogatif user).
+   - Root cause whiteout stall tetap **UNKNOWN**; perbaikan empiris belum terverifikasi sebelum pengetesan oleh user.
+**Alasan:** Memenuhi instruksi supervisor untuk mengeksekusi Task 4 build beta secara deterministik, offline, terverifikasi kriptografis, dan terisolasi dari baseline repository.
+**Dampak:** Deliverable APK `dist_vnm_extreme_input_beta` siap diserahkan kepada user untuk pengujian mandiri.
+
+---
+
+## [2026-10-05] Gate 2: VNM v4 Baseline Staging and Local Git Commit
+**Keputusan:**
+1. Menginisialisasi repositori Git lokal pada branch `baseline/vnm-v4` setelah verifikasi tidak ada repositori Git di root maupun parent.
+2. Menggunakan identitas user `N3ikos <epcg69@gmail.com>` secara strictly process-environment (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`) tanpa mutasi konfigurasi lokal atau global Git (`git config`).
+3. Menerapkan rule `.gitignore` bare additions sesuai review tanpa komentar: `/dist*/`, `dist*/`, `*.gpack`, `game.pack`, `__pycache__/`, `*.pyc`, `local.properties`, `SDD/`, `*.log`, `*.dex`, `Raw-Games/`, `saves/`.
+4. Melakukan staging selektif terhadap 2,793 file sumber terverifikasi (ditambah file supervisor Gate 2 doc dan pembaruan memory) via pathspec list tanpa menggunakan `git add .` atau `git add -A`.
+5. Menghasilkan commit baseline `feat: establish reconstructed VNM v4 baseline` dan tag anotasi `vnm-v4-baseline` dengan preservasi batasan user acceptance (normal gameplay dan Skip terverifikasi baik; rapid-auto transition limitation dicatat sebagai known minor).
+**Alasan:** Memenuhi instruksi supervisor untuk mempreservasi baseline v4 secara permanen di repositori Git lokal yang bersih sebelum memulai eksperimen terisolasi pada worktree.
+**Dampak:** Baseline v4 terkunci secara kriptografis di Git lokal, siap untuk pencabangan worktree di Gate 3.
+
+## [2026-10-05] Task 5: VNM Reference-Mode Passive Beta Build Execution
+**Keputusan:**
+1. Menjalankan build APK mode referensi pasif (`--overlay-mode passive-watermark`) ke direktori output baru `dist_vnm_reference_v4_passive` sesuai rencana supervisor:
+   - Command: `cargo run --offline --bin runtimepack -- build "D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~" --flavor beta --overlay-mode passive-watermark --accept-audit-unknown --output dist_vnm_reference_v4_passive`
+   - Semua artefak sebelumnya (`dist_vnm_stabilized_v3`, `dist_vnm_reconstructed_v2`, `dist_vnm_reconstructed`, root APK) dipreservasi utuh tanpa cleanup.
+2. Memverifikasi integritas runtime kriptografis:
+   - Nilai konstanta `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` (`2f83e641...`) 100% cocok dengan hasil komputasi algoritma Kotlin pada 4 aset APK riil. Zero mismatch, tanpa toleransi exception.
+3. Mengungkapkan delta container `game.pack`:
+   - GPACK `E55CE664...` (1,385,960,367 bytes, 1969 entries, unencrypted). 1,968 entri identik dengan v3; delta persis 13,852 bytes akibat `globalData.vndata` yang dimutasi engine game pada live test 10/5/2026 16:59. Per aturan, input dibiarkan immutable tanpa modifikasi buatan.
+4. Menegaskan batasan status:
+   - Deliverable berstatus **CANDIDATE** (bukan stable).
+   - Gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya dimiliki user; zero device/ADB/boot).
+**Alasan:** Memenuhi instruksi supervisor untuk mengeksekusi Task 5 build pasif secara deterministik, aman, dan dapat diaudit independen.
+**Dampak:** Deliverable APK v4 passive siap untuk diaudit oleh `qa-tester` pada Task 6.
+
+## [2026-10-05] Gate G1 Rebuild V2: Visual Novel Maker Candidate APK
+**Keputusan:**
+1. Menjalankan rebuild v2 ke direktori target baru `dist_vnm_reconstructed_v2` menyusul approval supervisor atas Gate G1 (perbaikan urutan hash integrity):
+   - Command: `cargo run --offline --bin runtimepack -- build "D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~" --flavor beta --accept-audit-unknown --output dist_vnm_reconstructed_v2`
+   - Direktori `dist_vnm_reconstructed` lama yang diblokir tetap dipreservasi tanpa penghapusan atau cleanup.
+2. Memverifikasi kesesuaian digest kriptografis:
+   - Konstanta tertanam `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` terbukti sama persis dengan hasil kalkulasi algoritma Kotlin terhadap aset APK riil (`5812be9a3e656d633333667bf05593fb8085361e8a7bbdfcbc8693327431035d`).
+   - Tidak lagi bergantung pada pengecualian toleransi beta; kesesuaian terbukti secara matematis.
+3. Parity GPACK `game.pack` tetap terjaga pada `21079d20c44e...` (1,385,946,515 bytes) dan shims `247aed00...`.
+4. Mempertahankan penegasan:
+   - Release flavor: `RELEASE_NOT_VALIDATED` (tidak termasuk deliverable saat ini).
+   - Gameplay: `NOT_TESTED` (pengujian gameplay sepenuhnya hak prerogatif user).
+**Alasan:** Memenuhi instruksi supervisor untuk memvalidasi rebuild APK kandidat bebas mismatch integritas dengan preservasi total terhadap artifact sebelumnya dan game input.
+**Dampak:** Menghasilkan artifact APK v2 valid yang lolos seluruh verifikasi statis & kriptografis host-side.
+
+
+## [2026-10-05] Gate G Task 3: Visual Novel Maker Candidate APK Build Execution
+**Keputusan:**
+1. Menjalankan pipeline build CLI penuh dengan toolchain yang sudah ada (pinned JDK 17, Android SDK 34, Gradle 8.7 offline cache):
+   - Command: `cargo run --offline --bin runtimepack -- build "D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~" --flavor beta --accept-audit-unknown --output dist_vnm_reconstructed`
+   - Menggunakan default overlay behavior (semua overlay & shims dipaketkan dalam plain assets untuk `--flavor beta`), tanpa flag eksperimental non-standar (`--overlay-mode` atau `--reuse-pack`).
+2. Menghasilkan artifact APK standalone:
+   - `dist_vnm_reconstructed\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk` (1,427,619,428 bytes, SHA-256 `ACEDFA73281C008C9C5551DF406B9DB9ADD152F3A71DDAD37097FE2F406DEC1F`).
+3. Mengonfirmasi integritas artifak:
+   - Source shim hash identik dengan embedded shim di APK (`247aed00...`).
+   - GPACK container `game.pack` berisi 1969 file dengan 100% `encryption=0`.
+   - Dex memuat `BoundedEntryStream`, `GpackStreamReader`, `GpackExtractor`, dan `RuntimeIntegrity`.
+   - Runtime integrity profile disematkan di bytecode DEX (`fe38ef57...`).
+4. Mengakui baseline raw game 1976 files vs historical reference 2279 files: user mengonfirmasi versi game adalah versi yang SAMA (bukan perbedaan versi resmi), dan selisih 303 file dicatat sebagai unknown inventory difference tanpa klaim byte parity.
+5. Menegakkan status pengujian runtime: `NOT_TESTED` (pengujian gameplay sepenuhnya dimiliki oleh user; tidak ada intervensi emulator/ADB/boot).
+**Alasan:** Memenuhi instruksi supervisor Gate G Task 3 dengan kepatuhan penuh terhadap prinsip reproduksibilitas, isolasi testing, dan immutability game input.
+**Dampak:** Deliverable APK siap diaudit oleh user/supervisor tanpa modifikasi kotor pada workspace atau game source.
+
+
 ## [2026-09-28] Touch Tail Smoothing, 3-Mode Toggle, Mobile Landscape Fit, Screen Fit & Overlay Hardening
 **Keputusan:**
 1. **Touch Tail Smoothing & Gesture Isolation:**

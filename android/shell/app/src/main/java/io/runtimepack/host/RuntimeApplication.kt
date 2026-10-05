@@ -18,6 +18,7 @@ class RuntimeApplication : Application() {
         saveService = InternalStorageSaveService(this)
         contentService = AssetContentService(this, manifest.contentMode)
         inputService = InputService()
-        AssetAuditService.init(filesDir, manifest.runtime.family, this)
+        val manifestEngine = manifest.engine?.id ?: manifest.runtime.family
+        AssetAuditService.init(filesDir, manifestEngine, this, manifest.sourceHash)
     }
 }

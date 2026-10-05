@@ -152,9 +152,33 @@ Evidence:
 
 `index.html` alone is generic HTML and never enough.
 
-## 10. Ambiguous HTML games
+## 10. Visual Novel Maker (Experimental Profile)
 
-If a source contains `index.html` but lacks an MV/MZ/Tyrano signature:
+Supported experimental profile for legacy HTML5/JavaScript Visual Novel Maker export packages [S29].
+
+Evidence rules:
+
+```text
++60 data/ENGINE.js containing window.gs and GameStorage (DET-VNM-001)
++60 data/SCRIPTS.js containing vn.Component_MessageBehavior and gs.Application (DET-VNM-002)
++80 index.html referencing both verified data/ENGINE.js and data/SCRIPTS.js (DET-VNM-003, only awarded if both verified source markers exist)
++0  package.json with main=index.html (DET-VNM-004, corroboration only)
+```
+
+Static read budgets:
+- index / package.json: <= 64 KiB
+- data/ENGINE.js: <= 512 KiB
+- data/SCRIPTS.js: <= 16 MiB
+
+Confidence thresholds:
+- Full verified pair + matching index: score = 200 (EXACT)
+- Verified pair without matching index: score = 120 (MEDIUM)
+- Single verified component: score = 60 (LOW)
+- Generic HTML or settings/signature files only: score = 0 (NONE)
+
+## 11. Ambiguous HTML games
+
+If a source contains `index.html` but lacks an MV/MZ/Tyrano/VNM signature:
 
 ```text
 engine = UNKNOWN
@@ -163,7 +187,7 @@ reason = DET-150_GENERIC_HTML_OUT_OF_SCOPE
 
 Generic HTML is not in v1 scope even though JoiPlay supports it.
 
-## 11. Security limits
+## 12. Security limits
 
 Detector must limit:
 
@@ -175,7 +199,7 @@ Detector must limit:
 
 No parser may trust file extensions alone.
 
-## 12. Detection report
+## 13. Detection report
 
 Every detection output records:
 

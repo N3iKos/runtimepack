@@ -1589,6 +1589,16 @@ fn test_runtime_validation_report_and_combined_summary_schemas() {
         "is_complete must be defined in events item properties"
     );
     assert_eq!(event_props["is_complete"]["type"], "boolean");
+    assert!(event_props["category"].is_object(), "category must be defined in events item properties");
+    assert!(event_props["audit_id"].is_object(), "audit_id must be defined in events item properties");
+
+    let report_props = &runtime_schema["properties"];
+    assert!(report_props["missing_count"].is_object());
+    assert!(report_props["decode_failed_count"].is_object());
+    assert!(report_props["indeterminate_count"].is_object());
+    assert!(report_props["excluded_count"].is_object());
+    assert!(report_props["attempted_count"].is_object());
+    assert!(report_props["stage_attempt_counts"].is_object());
 
     // 2. Combined validation summary schema
     let summary_schema_path = workspace_root.join("schemas/combined-validation-summary.schema.json");
@@ -1599,4 +1609,11 @@ fn test_runtime_validation_report_and_combined_summary_schemas() {
     assert_eq!(summary_schema["title"], "CombinedValidationSummary");
     assert!(summary_schema["properties"]["combined_outcome"].is_object());
     assert!(summary_schema["properties"]["discrepancies"].is_object());
+    let runtime_summary_props = &summary_schema["properties"]["runtime_summary"]["properties"];
+    assert!(runtime_summary_props["missing_count"].is_object());
+    assert!(runtime_summary_props["decode_failed_count"].is_object());
+    assert!(runtime_summary_props["indeterminate_count"].is_object());
+    assert!(runtime_summary_props["excluded_count"].is_object());
+    assert!(runtime_summary_props["attempted_count"].is_object());
+    assert!(runtime_summary_props["stage_attempt_counts"].is_object());
 }
