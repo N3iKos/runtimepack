@@ -87,6 +87,11 @@ class WebBridge(private val saveService: SaveService, private val saveRepository
     }
 
     @JavascriptInterface
+    fun postVnmInputSnapshot(json: String): Boolean {
+        return VnmInputGuardDiagnostics.postSnapshot(json)
+    }
+
+    @JavascriptInterface
     fun fileExists(relPath: String): Boolean {
         val clean = relPath.replace('\\', '/').trim('/', '.').lowercase()
         val reader = WebActivity.currentInstance?.gpackReader

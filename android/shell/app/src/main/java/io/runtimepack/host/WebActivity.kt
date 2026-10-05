@@ -451,13 +451,18 @@ open class WebActivity : Activity() {
             Log.w(TAG, "Could not check System.json for encryption key: ${e.message}")
         }
 
-        val engineFam = (application as? RuntimeApplication)?.manifest?.runtime?.family
-            ?: (application as? RuntimeApplication)?.manifest?.runtime?.id
+        val manifest = (application as? RuntimeApplication)?.manifest
+        val engineFam = manifest?.runtime?.family
+            ?: manifest?.runtime?.id
             ?: AssetAuditService.currentEngine
-        vfsInterceptor = VfsResourceInterceptor(gpackReader, rpgMakerKey, engineFam) { path ->
+        val vnmGuardMode = manifest?.vnmInputGuard ?: "off"
+        val isVnm = VfsResourceInterceptor.isVnmProfile(engineFam)
+        VnmInputGuardDiagnostics.configure(isVnm = isVnm, guardMode = vnmGuardMode, baseDir = filesDir)
+
+        vfsInterceptor = VfsResourceInterceptor(gpackReader, rpgMakerKey, engineFam, vnmGuardMode) { path ->
             val resolvedPath = if (path.isEmpty()) "index.html" else path
-            if (resolvedPath == "web_shims/runtimepack_web_shims.js") {
-                OverlayAssetSource.open("web_shims/runtimepack_web_shims.js", this)
+            if (resolvedPath == "web_shims/runtimepack_web_shims.js" || resolvedPath == "web_shims/runtimepack_vnm_input_guard.js") {
+                OverlayAssetSource.open(resolvedPath, this)
             } else {
                 val localFile = File(gameDir, resolvedPath)
                 if (localFile.exists() && localFile.isFile) {
@@ -541,6 +546,16 @@ open class WebActivity : Activity() {
             @JavascriptInterface
             fun postDiagnosticError(json: String): Boolean {
                 return DiagnosticLogStore.recordJsonError(json)
+            }
+
+            @JavascriptInterface
+            fun postVnmInputSnapshot(json: String): Boolean {
+                return VnmInputGuardDiagnostics.postSnapshot(json)
+            }
+
+            @JavascriptInterface
+            fun getVnmInputSnapshots(): String {
+                return VnmInputGuardDiagnostics.getSnapshotsJson()
             }
         }, "RuntimePackWeb")
 
@@ -807,6 +822,11 @@ open class WebActivity : Activity() {
         @JavascriptInterface
         fun getDiagnosticLogs(): String {
             return DiagnosticLogStore.getDiagnosticLogsJson()
+        }
+
+        @JavascriptInterface
+        fun getVnmInputSnapshots(): String {
+            return VnmInputGuardDiagnostics.getSnapshotsJson()
         }
 
         @JavascriptInterface
@@ -1360,8 +1380,9 @@ open class WebActivity : Activity() {
             if (manifest.contentHash != null) sb.append("\"content_hash\":\"").append(escapeJson(manifest.contentHash)).append("\",") else sb.append("\"content_hash\":null,")
             if (manifest.sourceHash != null) sb.append("\"source_hash\":\"").append(escapeJson(manifest.sourceHash)).append("\",") else sb.append("\"source_hash\":null,")
             sb.append("\"overlay_mode\":\"").append(escapeJson(manifest.overlayMode)).append("\",")
+            sb.append("\"vnm_input_guard\":\"").append(escapeJson(manifest.vnmInputGuard)).append("\",")
         } else {
-            sb.append("\"app\":null,\"engine\":null,\"runtime\":null,\"flavor\":null,\"build_timestamp\":null,\"content_mode\":null,\"content_hash\":null,\"source_hash\":null,\"overlay_mode\":null,")
+            sb.append("\"app\":null,\"engine\":null,\"runtime\":null,\"flavor\":null,\"build_timestamp\":null,\"content_mode\":null,\"content_hash\":null,\"source_hash\":null,\"overlay_mode\":null,\"vnm_input_guard\":null,")
         }
         sb.append("\"runtime_integrity_sha256\":\"").append(escapeJson(RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256)).append("\"")
         sb.append("}")

@@ -436,6 +436,7 @@ class WebActivityTest {
         val buildInfo = activity.getRuntimeBuildInfo()
         assertTrue(buildInfo.contains("\"runtime_integrity_sha256\""))
         assertTrue(buildInfo.contains("\"overlay_mode\""))
+        assertTrue(buildInfo.contains("\"vnm_input_guard\""))
         val parsed = MiniJson.parseObject(buildInfo)
         org.junit.Assert.assertNotNull(parsed)
     }

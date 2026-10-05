@@ -35,7 +35,8 @@ data class BuildManifestData(
     val buildTimestamp: String? = null,
     val contentHash: String? = null,
     val sourceHash: String? = null,
-    val overlayMode: String = "full"
+    val overlayMode: String = "full",
+    val vnmInputGuard: String = "off"
 )
 
 object BuildManifestLoader {
@@ -92,6 +93,7 @@ object BuildManifestLoader {
         val sourceHash = provObj?.getString("source_hash")
 
         val overlayMode = root.getString("overlay_mode") ?: "full"
+        val vnmInputGuard = root.getString("vnm_input_guard") ?: "off"
 
         return BuildManifestData(
             schemaVersion = root.getInt("schema_version") ?: 1,
@@ -103,7 +105,8 @@ object BuildManifestLoader {
             buildTimestamp = buildTimestamp,
             contentHash = contentHash,
             sourceHash = sourceHash,
-            overlayMode = overlayMode
+            overlayMode = overlayMode,
+            vnmInputGuard = vnmInputGuard
         )
     }
 

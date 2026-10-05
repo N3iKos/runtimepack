@@ -1,6 +1,33 @@
 # Progress Update — 30 September 2026 (Sesi 3, penutupan plan besar)
 
-## [2026-10-05] VNM v4 Baseline Commit (Gate 2) — IN PROGRESS
+## [2026-10-05] Gate 4: VNM Extreme Input Beta Build (Task 4) — SELESAI
+- **Worktree:** `D:\02_Development\Projects_2\runtimepack-vnm-reconstruction\.worktrees\vnm-extreme-input`
+- **Output:** `dist_vnm_extreme_input_beta` (seluruh artefak sebelumnya tetap dipreservasi utuh).
+- **Deliverable APK:**
+  - Path: `dist_vnm_extreme_input_beta\TimeforPunishmentClass~TakingLessonsforMyBoyfriend~.apk`
+  - Size: 1,427,606,408 bytes (1361.47 MB)
+  - SHA-256: `55C777050BDF039CA2665C8F2BCBE9EE00780C09893CC8DE9084FBD0CFEBADD2`
+  - Package: `io.runtimepack.game.timeforpunishmentclasstakinglessonsformyboyfriend`
+  - MinSDK: 26, TargetSDK: 34, ABI: `arm64-v8a`
+  - Signer: Android Debug (v2 scheme verified, certificate SHA-256 `531643144f89...` identik)
+- **Cryptographic Asset Integrity Verified:**
+  - `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256`: `c92165e440d5db2133805677d7280bda79cb95480d14e6ccff2991e5d663d191`
+  - Computed actual APK staged assets (5 file: `overlay/index.html`, `web_shims/runtimepack_asset_audit.js`, `web_shims/runtimepack_vnm_input_guard.js`, `web_shims/runtimepack_web_shims.js`, `fonts/vl-gothic-regular.ttf` via exact Kotlin algorithm): `c92165e440d5db2133805677d7280bda79cb95480d14e6ccff2991e5d663d191`
+  - Status: **EXACT MATCH (`Matches: True`)**; zero mismatch tanpa toleransi exception.
+- **Parity Container & Shims:**
+  - GPACK `game.pack`: SHA-256 `E55CE664A990173A7FA5E1F74D61FC16333C6D53291CDB3BD5B3C7AF98D3DDFC` (1,385,960,367 bytes, 1969 entries, 100% `encryption=0`, identik dengan v4 passive baseline).
+  - Web shims: LF-normalized SHA-256 `A311855227BF52C56AC2EADF499A4BAA4C65CF17720C32FDD0D1FBCC0CB36A52` byte-for-byte identik dengan template source. Git tree unmodified.
+  - VNM Input Guard adapter: SHA-256 `EFE641A99C4C3AAE...` byte-for-byte identik dengan source review.
+  - DEX classes3.dex: Memuat `VnmInputGuardDiagnostics` dan bridge `@JavascriptInterface postVnmInputSnapshot`.
+  - Packaging exclusions: 7 platform DLLs. VNM preparation profile: Enabled.
+- **Scope & Context Disclosures:**
+  - Status gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya dimiliki user; zero ADB/device boot).
+  - Root cause whiteout stall tetap **UNKNOWN**; guard transition-aware adalah eksperimen terisolasi dan bukan jaminan perbaikan definitif sebelum pengujian user.
+  - Baseline commit `52f9f2f` dan APK v4 referensi `C390...` tetap bersih dan terpelihara di repo root. Seluruh perubahan eksperimen tetap uncommitted di worktree.
+
+---
+
+## [2026-10-05] VNM v4 Baseline Commit (Gate 2) — SELESAI
 - **Baseline Git Branch:** `baseline/vnm-v4`
 - **Scope & User Acceptance:** User accepted v4 reconstructed candidate behavior: normal gameplay and built-in Skip operate reliably equivalent to old reference APK; rapid auto-clicking exhibits a known minor limitation (holding a white-screen scene transition in both old and v4 APKs).
 - **Full Overlay & Ripple Toggle:** Preserved in codebase but not newly device-certified; primary user-test candidate uses passive-watermark profile.

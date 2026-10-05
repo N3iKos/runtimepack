@@ -568,6 +568,7 @@ fn test_build_manifest_schema_aligns_with_optional_audit() {
         git_commit: None,
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1461,6 +1462,7 @@ fn test_build_manifest_supports_encrypted_streaming_mode() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1560,6 +1562,7 @@ fn test_generate_manifest_routes_web_family_to_web_activity() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1637,6 +1640,7 @@ fn test_emit_project_packages_runtime_asset_audit_scripts() {
         git_commit: None,
         build_timestamp: "2026-09-24T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1723,6 +1727,7 @@ fn test_emit_project_packages_cjk_fonts() {
         git_commit: None,
         build_timestamp: "2026-09-26T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -1801,6 +1806,7 @@ fn test_emit_project_generates_neutral_mipmap_icons_by_default() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
         audit: None,
         rtp_source: None,
@@ -1899,6 +1905,7 @@ fn test_emit_project_with_source_extracts_dynamic_pe_icons() {
         git_commit: None,
         build_timestamp: "2026-09-20T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: None,
             audit: None,
             rtp_source: None,
@@ -2009,6 +2016,7 @@ fn test_emit_project_packages_asset_dependency_graph() {
         git_commit: None,
         build_timestamp: "2026-09-25T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2176,6 +2184,7 @@ fn test_build_flavor_beta_injects_watermark() {
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2292,6 +2301,7 @@ fn test_build_flavor_release_omits_watermark() {
         git_commit: None,
         build_timestamp: "2026-09-23T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -2453,6 +2463,7 @@ fn test_emit_project_settings_gradle_kts_sanitizes_root_project_name() {
         git_commit: None,
         build_timestamp: "2026-09-26T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2534,6 +2545,7 @@ fn renpy_build_manifest() -> BuildManifest {
         git_commit: None,
         build_timestamp: "2026-09-27T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -2761,6 +2773,7 @@ fn create_base_test_manifest() -> BuildManifest {
         git_commit: None,
         build_timestamp: "2026-09-28T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -3350,6 +3363,7 @@ fn test_release_build_omits_plain_overlay_and_shims_assets() {
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -3439,6 +3453,7 @@ fn test_beta_build_preserves_plain_overlay_and_shims_assets() {
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -3692,6 +3707,7 @@ fn test_emit_project_emits_runtime_build_info_and_manifest_hash() {
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -3826,6 +3842,7 @@ fn test_emit_project_beta_flavor_runtime_build_info() {
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,
@@ -3956,6 +3973,7 @@ fn test_release_project_emits_proguard_rules_and_enables_minify() {
         git_commit: None,
         build_timestamp: "2026-09-30T00:00:00Z".to_string(),
         overlay_mode: "full".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("release".to_string()),
         audit: None,
         rtp_source: None,
@@ -4258,13 +4276,76 @@ fn test_build_manifest_serde_omitted_overlay_mode_defaults_to_full() {
 
     let manifest: BuildManifest = serde_json::from_str(base_json).unwrap();
     assert_eq!(manifest.overlay_mode, "full");
+    assert_eq!(manifest.vnm_input_guard, "off");
 
     let passive_json = base_json.replace(
         "\"flavor\": \"beta\",",
-        "\"flavor\": \"beta\",\n\"overlay_mode\": \"passive-watermark\",",
+        "\"flavor\": \"beta\",\n\"overlay_mode\": \"passive-watermark\",\n\"vnm_input_guard\": \"transition-aware\",",
     );
     let manifest_passive: BuildManifest = serde_json::from_str(&passive_json).unwrap();
     assert_eq!(manifest_passive.overlay_mode, "passive-watermark");
+    assert_eq!(manifest_passive.vnm_input_guard, "transition-aware");
+}
+
+#[test]
+fn test_cli_vnm_input_guard_defaults_to_off_and_validates_flags() {
+    let help_output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg("--help")
+        .output()
+        .expect("Must run runtimepack build --help");
+    let help_text = String::from_utf8_lossy(&help_output.stdout);
+    assert!(help_text.contains("--vnm-input-guard"));
+    assert!(help_text.contains("[default: off]"));
+
+    let temp_dir = test_temp_dir("cli-vnm-input-guard-validation");
+    let fixture = temp_dir.join("mv_game");
+    std::fs::create_dir_all(fixture.join("data")).unwrap();
+    std::fs::create_dir_all(fixture.join("js")).unwrap();
+    std::fs::write(
+        fixture.join("data/System.json"),
+        r#"{"gameTitle":"Test Game","optSideView":false}"#,
+    )
+    .unwrap();
+    std::fs::write(fixture.join("index.html"), "<html><body></body></html>").unwrap();
+    std::fs::write(fixture.join("js/rpg_core.js"), "// rpg_core").unwrap();
+    std::fs::write(fixture.join("js/rpg_managers.js"), "// rpg_managers").unwrap();
+
+    let invalid_out = temp_dir.join("out_invalid_guard");
+    let invalid_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&invalid_out)
+        .arg("--vnm-input-guard")
+        .arg("unknown-guard")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!invalid_res.status.success());
+    let stderr_invalid = String::from_utf8_lossy(&invalid_res.stderr);
+    assert!(stderr_invalid.contains("[BLD-101]"));
+
+    let non_vnm_out = temp_dir.join("out_non_vnm_guard");
+    let non_vnm_res = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .arg("build")
+        .arg(&fixture)
+        .arg("--output")
+        .arg(&non_vnm_out)
+        .arg("--vnm-input-guard")
+        .arg("transition-aware")
+        .arg("--flavor")
+        .arg("beta")
+        .arg("--accept-audit-fail")
+        .arg("--accept-audit-unknown")
+        .arg("--no-compile")
+        .output()
+        .expect("Must run build");
+    assert!(!non_vnm_res.status.success());
+    let stderr_non_vnm = String::from_utf8_lossy(&non_vnm_res.stderr);
+    assert!(stderr_non_vnm.contains("[BLD-101]"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -4277,6 +4358,7 @@ fn test_vnm_beta_passive_emits_minimal_overlay_and_deterministic_hash() {
         git_commit: None,
         build_timestamp: "2026-10-05T00:00:00Z".to_string(),
         overlay_mode: "passive-watermark".to_string(),
+        vnm_input_guard: "off".to_string(),
         flavor: Some("beta".to_string()),
         audit: None,
         rtp_source: None,

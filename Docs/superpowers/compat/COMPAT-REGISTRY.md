@@ -266,6 +266,16 @@
 
 ---
 
+## CAP-WEB-027 — Visual Novel Maker transition-aware dialogue advance input guard
+- Engine: Visual Novel Maker / Android Host | Trigger: Pointer dialogue advance saat transisi layar visual aktif (`Graphics.transitionData`) di bawah penekanan cepat atau multi-touch
+- Symptom (tanpa patch): Berpotensi memicu double-advance atau transisi teks prematur saat grafis transisi sedang dirender; input gesture beruntun mengeksekusi branch continue maupun mutasi wait/draw
+- Implementation: `android/shell/app/src/main/assets/web_shims/runtimepack_vnm_input_guard.js` membungkus `gs.Component_MessageTextRenderer.prototype.setupEventHandlers` secara idempoten dan mengintersepsi registrasi event `mouseUp` untuk `renderer.object`; menekan callback renderer selama `Graphics.transitionData` terkonfirmasi aktif (`duration > 0 && currentAlpha < 255`) tanpa replay atau mutasi flags input, fail-open jika pilihan/video/prompt aktif; didukung observer berkala dan bridge native bounded `postVnmInputSnapshot` pada host
+- Evidence: Gate 4 plan, audit authentic `SCRIPTS.js` 9901–9952, 9994–10007, 29521 dan logika transisi `ENGINE.js`
+- Regression test: `android/shell/app/src/test/js/vnm_extreme_input_guard.test.js` & `VnmInputGuardDiagnosticsTest.kt`
+- Diagnostic: Snapshot `schema_version=1`, counter `blocked_dialogue_count`, `delegated_dialogue_count`, `unknown_state_count`
+
+---
+
 # Runtime Hardening & Asset Lockdown Specifications
 
 > Spesifikasi proteksi aset dan hardening runtime untuk mencegah pencurian tata letak, modifikasi tidak sah (repack), dan inspeksi aset plaintext pada rilis produksi.

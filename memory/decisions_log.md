@@ -1,5 +1,28 @@
 # Decisions Log
 
+## [2026-10-05] Gate 4 Task 4: VNM Extreme Input Experimental Beta Build Execution
+**Keputusan:**
+1. Menjalankan build kandidat eksperimental VNM Extreme Input (`--vnm-input-guard transition-aware --overlay-mode passive-watermark`) ke direktori target baru `dist_vnm_extreme_input_beta`:
+   - Command: `cargo run --offline --bin runtimepack -- build "D:\Old-Recvery\Project_2\RPGM-P\Raw-Games\Time for Punishment Class ~Taking Lessons for My Boyfriend~" --flavor beta --overlay-mode passive-watermark --vnm-input-guard transition-aware --accept-audit-unknown --output dist_vnm_extreme_input_beta`
+   - Semua artefak sebelumnya (`dist_vnm_reference_v4_passive`, `dist_vnm_stabilized_v3`, root reference APK) dipreservasi utuh tanpa modifikasi atau cleanup.
+2. Memverifikasi integritas runtime kriptografis:
+   - Konstanta tertanam `RuntimeBuildInfo.RUNTIME_INTEGRITY_SHA256` (`c92165e4...`) 100% cocok dengan hasil komputasi algoritma Kotlin pada 5 aset APK riil. Zero mismatch, tanpa toleransi exception.
+3. Memvalidasi artefak adapter & bridge:
+   - File `web_shims/runtimepack_vnm_input_guard.js` di APK byte-for-byte identik dengan source review (`efe641a9...`).
+   - `classes3.dex` memuat `VnmInputGuardDiagnostics` dan bridge `postVnmInputSnapshot`.
+   - VFS menginjeksi adapter script tag secara sekuensial setelah `SCRIPTS.js` dan normal hooks sebelum DOM ready.
+4. Preservasi container & isolasi Git:
+   - GPACK `E55CE664...` (1,385,960,367 bytes, 1969 entries, unencrypted) 100% identik dengan baseline v4.
+   - Baseline commit `52f9f2f` dan root repository tetap bersih. Seluruh perubahan eksperimental tetap uncommitted di worktree.
+5. Penegasan batasan & pengungkapan jujur:
+   - Status deliverable: **CANDIDATE EXPERIMENT**.
+   - Gameplay: **`NOT_TESTED`** (pengujian gameplay sepenuhnya hak prerogatif user).
+   - Root cause whiteout stall tetap **UNKNOWN**; perbaikan empiris belum terverifikasi sebelum pengetesan oleh user.
+**Alasan:** Memenuhi instruksi supervisor untuk mengeksekusi Task 4 build beta secara deterministik, offline, terverifikasi kriptografis, dan terisolasi dari baseline repository.
+**Dampak:** Deliverable APK `dist_vnm_extreme_input_beta` siap diserahkan kepada user untuk pengujian mandiri.
+
+---
+
 ## [2026-10-05] Gate 2: VNM v4 Baseline Staging and Local Git Commit
 **Keputusan:**
 1. Menginisialisasi repositori Git lokal pada branch `baseline/vnm-v4` setelah verifikasi tidak ada repositori Git di root maupun parent.

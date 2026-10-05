@@ -25,6 +25,12 @@
       "default": "full",
       "description": "Overlay mode profile. Default 'full'. 'passive-watermark' is experimental for Visual Novel Maker beta builds."
     },
+    "vnm_input_guard": {
+      "type": "string",
+      "enum": ["off", "transition-aware"],
+      "default": "off",
+      "description": "VNM dialogue advance input guard mode. Default 'off'. 'transition-aware' is experimental for Visual Novel Maker beta builds."
+    },
     "audit": { "$ref": "#/definitions/audit" },
     "rtp_source": { "type": ["string", "null"] },
     "themes": {

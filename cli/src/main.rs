@@ -146,6 +146,8 @@ pub struct BuildArgs {
     pub flavor: String,
     #[arg(long, default_value = "full", help = "Overlay mode: full or passive-watermark")]
     pub overlay_mode: String,
+    #[arg(long, default_value = "off", help = "VNM dialogue advance input guard: off or transition-aware")]
+    pub vnm_input_guard: String,
     /// Static asset audit mode: standard or deep
     #[arg(long, default_value = "standard")]
     pub audit_mode: String,
@@ -694,6 +696,14 @@ fn cmd_build(args: BuildArgs) {
         );
         std::process::exit(1);
     }
+    let normalized_vnm_input_guard = args.vnm_input_guard.to_lowercase();
+    if normalized_vnm_input_guard != "off" && normalized_vnm_input_guard != "transition-aware" {
+        eprintln!(
+            "[BLD-101] Invalid vnm-input-guard '{}'. Must be 'off' or 'transition-aware'.",
+            args.vnm_input_guard
+        );
+        std::process::exit(1);
+    }
     let audit_mode = match args.audit_mode.to_ascii_lowercase().as_str() {
         "standard" => AuditMode::Standard,
         "deep" => AuditMode::Deep,
@@ -770,6 +780,21 @@ fn cmd_build(args: BuildArgs) {
         if descriptor.id != EngineId::VisualNovelMaker {
             eprintln!(
                 "[BLD-101] Overlay mode 'passive-watermark' is only supported for Visual Novel Maker engine."
+            );
+            std::process::exit(1);
+        }
+    }
+
+    if normalized_vnm_input_guard == "transition-aware" {
+        if normalized_flavor != "beta" {
+            eprintln!(
+                "[BLD-101] VNM input guard 'transition-aware' is only supported for beta flavor builds."
+            );
+            std::process::exit(1);
+        }
+        if descriptor.id != EngineId::VisualNovelMaker {
+            eprintln!(
+                "[BLD-101] VNM input guard 'transition-aware' is only supported for Visual Novel Maker engine."
             );
             std::process::exit(1);
         }
@@ -1203,6 +1228,7 @@ fn cmd_build(args: BuildArgs) {
         git_commit: None,
         build_timestamp: Utc::now().to_rfc3339(),
         overlay_mode: normalized_overlay_mode.clone(),
+        vnm_input_guard: normalized_vnm_input_guard.clone(),
         flavor: Some(normalized_flavor.clone()),
         audit: Some(audit_manifest.clone()),
         rtp_source: rtp_source_str.clone(),

@@ -409,6 +409,31 @@ class VfsResourceInterceptorTest {
 
         val forbiddenResp = interceptor.intercept("https://game.local/web_shims/unauthorized.js")
         assertNull(forbiddenResp)
+
+        val guardOffResp = interceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js")
+        assertNull(guardOffResp)
+
+        val guardContent = "console.log('guard');"
+        val guardInterceptor = VfsResourceInterceptor(engineFamily = "vnm", vnmInputGuard = "transition-aware") { path ->
+            if (path == "web_shims/runtimepack_vnm_input_guard.js") {
+                ByteArrayInputStream(guardContent.toByteArray(Charsets.UTF_8))
+            } else {
+                null
+            }
+        }
+        val guardResp = guardInterceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js")
+        assertNotNull(guardResp)
+        assertEquals("application/javascript", guardResp?.mimeType)
+        assertEquals("UTF-8", guardResp?.encoding)
+
+        val nonVnmGuardInterceptor = VfsResourceInterceptor(engineFamily = "rpgmaker-mv", vnmInputGuard = "transition-aware") { path ->
+            if (path == "web_shims/runtimepack_vnm_input_guard.js") {
+                ByteArrayInputStream(guardContent.toByteArray(Charsets.UTF_8))
+            } else {
+                null
+            }
+        }
+        assertNull(nonVnmGuardInterceptor.intercept("https://game.local/web_shims/runtimepack_vnm_input_guard.js"))
     }
 
     @Test
@@ -443,6 +468,16 @@ class VfsResourceInterceptorTest {
         org.junit.Assert.assertTrue(engineIdx < postEngineStorageIdx)
         org.junit.Assert.assertTrue(postEngineStorageIdx < scriptsIdx)
         org.junit.Assert.assertTrue(scriptsIdx < b2Idx)
+        org.junit.Assert.assertFalse(transformed.contains("web_shims/runtimepack_vnm_input_guard.js"))
+
+        val guardTransformed = interceptor.transformVnmHtml(rawHtml, guardMode = "transition-aware")
+        org.junit.Assert.assertTrue(guardTransformed.contains("window.__runtimepack_vnm_input_guard_mode = \"transition-aware\""))
+        org.junit.Assert.assertTrue(guardTransformed.contains("web_shims/runtimepack_vnm_input_guard.js"))
+        val guardScriptsIdx = guardTransformed.indexOf("data/SCRIPTS.js")
+        val guardB2Idx = guardTransformed.indexOf("__runtimepackPollVnmMessageCompat")
+        val guardIdx = guardTransformed.indexOf("web_shims/runtimepack_vnm_input_guard.js")
+        org.junit.Assert.assertTrue(guardScriptsIdx < guardB2Idx)
+        org.junit.Assert.assertTrue(guardB2Idx < guardIdx)
     }
 
     @Test
