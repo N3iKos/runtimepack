@@ -1,0 +1,14 @@
+{
+  "id": "liquid_glass",
+  "name": "Liquid Glass",
+  "version": "1.0.0",
+  "themeApi": "1.0.0",
+  "author": "RuntimePack",
+  "description": "Fluid visionOS-style optical glass aesthetic with frosted refraction, squircle panels, and pill buttons",
+  "stylesheets": {
+    "tokens": "tokens.css",
+    "components": "components.css",
+    "layout": "layout.css",
+    "effects": "effects.css"
+  }
+}

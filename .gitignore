@@ -1,0 +1,52 @@
+/target/
+**/*.rs.bk
+*.apk
+*.aab
+*.keystore
+*.jks
+*.zip
+.idea/
+.vscode/
+Thumbs.db
+[Ee]xternal/
+dist/
+LONA-*/
+.gradle/
+build/
+.worktrees/
+.runtimepack/
+**/.runtimepack/
+Raw-Game/
+graphify-out/
+.superpowers/
+asset-audit-report.html
+asset-audit-report.json
+asset-dependency-graph.json
+rp_audit_events.json
+packaging-exclusions.json
+/dist*/
+dist*/
+*.gpack
+game.pack
+__pycache__/
+*.pyc
+local.properties
+SDD/
+*.log
+*.dex
+Raw-Games/
+saves/
+
+# RTP assets are proprietary Enterbrain content, not project source.
+# ~256 MB of binary graphics/audio that would live in git history forever.
+# Provide them via RPGVXACE_RTP_PATH / RPGVX_RTP_PATH / RPGXP_RTP_PATH, via a
+# system install, or by placing them under runtimes/rtp/ locally (see rtp.rs).
+runtimes/rtp/
+
+# Local staging can contain proprietary games and user saves.
+/_temp/
+/_reports/
+# Native RGSS provenance is not cleared for public redistribution.
+/runtimes/rgss/jni/
+/android/shell/app/src/main/jniLibs/
+

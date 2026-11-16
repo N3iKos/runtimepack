@@ -1,0 +1,6 @@
+id = "web-nwjs-window"
+engines = ["rpgmaker-mv", "rpgmaker-mz"]
+symbol = "nw.Window"
+requires_capability = "web.nwjs_subset"
+severity_if_missing = "degraded"
+description = "NW.js window manipulation methods"

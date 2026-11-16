@@ -1,0 +1,6 @@
+id = "web-node-path"
+engines = ["rpgmaker-mv", "rpgmaker-mz"]
+symbol = "require('path')"
+requires_capability = "web.node.path"
+severity_if_missing = "unsupported"
+description = "Node.js path module require in RPG Maker MV/MZ desktop plugins"

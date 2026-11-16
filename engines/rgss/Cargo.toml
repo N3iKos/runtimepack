@@ -1,0 +1,17 @@
+[package]
+name = "runtimepack-engine-rgss"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+runtimepack-core = { path = "../../core" }
+serde = { workspace = true }
+flate2 = { workspace = true }
+regex = { workspace = true }
+
+[[test]]
+name = "rgss_asset_audit_test"
+path = "../../tests/integration/rgss_asset_audit_test.rs"
+

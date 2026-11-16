@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RuntimeValidationReport",
+  "description": "Authoritative report of runtime asset probe execution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audit_id",
+    "engine",
+    "mode",
+    "outcome",
+    "total_probed",
+    "passed_count",
+    "failed_count",
+    "warning_count",
+    "stage_counts",
+    "fallbacks_detected",
+    "checkpoint_restored",
+    "duration_ms",
+    "timestamp"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "audit_id": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["SAMPLED", "EXHAUSTIVE"]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"]
+    },
+    "total_probed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "passed_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warning_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "missing_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decode_failed_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "indeterminate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "excluded_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "attempted_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stage_attempt_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "stage_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "fallbacks_detected": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checkpoint_restored": {
+      "type": "boolean"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sequence_id",
+          "stage",
+          "asset_path",
+          "outcome"
+        ],
+        "properties": {
+          "sequence_id": {
+            "type": "integer"
+          },
+          "timestamp_ns": {
+            "type": "integer"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE", "NOT_RUN"]
+          },
+          "fallback_action": {
+            "type": ["string", "null"]
+          },
+          "error_message": {
+            "type": ["string", "null"]
+          },
+          "source_location": {
+            "type": ["string", "null"]
+          },
+          "is_complete": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": ["string", "null"]
+          },
+          "audit_id": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    }
+  }
+}

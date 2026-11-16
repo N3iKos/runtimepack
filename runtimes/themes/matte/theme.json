@@ -1,0 +1,14 @@
+{
+  "id": "matte",
+  "name": "Minimalist Matte",
+  "version": "1.0.0",
+  "themeApi": "1.0.0",
+  "author": "RuntimePack",
+  "description": "Minimalist matte tactile styling with navy toolbar, deep blue accents, and flat charcoal panels",
+  "stylesheets": {
+    "tokens": "tokens.css",
+    "components": "components.css",
+    "layout": "layout.css",
+    "effects": "effects.css"
+  }
+}

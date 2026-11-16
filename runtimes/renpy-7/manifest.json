@@ -1,0 +1,83 @@
+{
+  "schema": "runtimepack.renpy7-runtime-manifest/1",
+  "runtime_id": "renpy-android-7",
+  "version": "7.5.3",
+  "release_id": "7.5.3.22090809",
+  "python_version": "2.7.18",
+  "sdl_version": "2.0.20",
+  "abis": ["arm64-v8a"],
+  "artifacts": [
+    {
+      "path": "jni/arm64-v8a/librenpython.so",
+      "bytes": 19456096,
+      "sha256": "4ae92731e5f7a736900d35b94e16d4ebba78c306a6b374436c7928960df1bd53",
+      "origin": "rapt753"
+    },
+    {
+      "path": "licenses/LICENSE.txt",
+      "bytes": 80401,
+      "sha256": "5cedd397622937915847083e4f9caedda9198e6f660aea30e149e19c2c7b33d9",
+      "origin": "renpy753-source"
+    },
+    {
+      "path": "licenses/NOTICE.txt",
+      "bytes": 6118,
+      "sha256": "9829af8d036b9246f00afce01c0c253f42f22c6628a8e2a7721d2a38ede1af71",
+      "origin": "authored-from-verified-upstream"
+    },
+    {
+      "path": "licenses/OPENSSL-LICENSE.txt",
+      "bytes": 6121,
+      "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c",
+      "origin": "openssl111g-license"
+    },
+    {
+      "path": "licenses/components.json",
+      "bytes": 12308,
+      "sha256": "67e0530f8cbed2f51ca5a405db84e9cfe94232e10e4675561c26e96d2abbe415",
+      "origin": "authored-from-verified-upstream"
+    }
+  ],
+  "sources": [
+    {
+      "id": "rapt753",
+      "url": "https://www.renpy.org/dl/7.5.3/renpy-7.5.3-rapt.zip",
+      "archive_bytes": 48922348,
+      "archive_sha256": "af0f357dffa167f1f0c72ba0c0ba35cd0f2e34ca39f4831fbd6eae8c4c41f89a",
+      "member": "rapt/prototype/renpyandroid/src/main/jniLibs/arm64-v8a/librenpython.so",
+      "tag": null
+    },
+    {
+      "id": "renpy753-source",
+      "url": "https://www.renpy.org/dl/7.5.3/renpy-7.5.3-source.tar.bz2",
+      "archive_bytes": 66160915,
+      "archive_sha256": "76ad915323cd4e77e8b8f1c872ac363927ec701f4ba0175b13db02fa624f5760",
+      "member": "renpy-7.5.3-source/LICENSE.txt",
+      "tag": null
+    },
+    {
+      "id": "openssl111g-license",
+      "url": "https://raw.githubusercontent.com/openssl/openssl/OpenSSL_1_1_1g/LICENSE",
+      "archive_bytes": 6121,
+      "archive_sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c",
+      "member": null,
+      "tag": "OpenSSL_1_1_1g"
+    }
+  ],
+  "signature_status": {
+    "checksums_from_https": true,
+    "checksums_file_pgp_signed": true,
+    "pgp_signature_verified": false
+  },
+  "build_provenance": {
+    "ndk": "android-ndk-r21d",
+    "api": 21,
+    "source_commit": null,
+    "renpy_build_revision": null,
+    "rapt_payload_marker": "2971e2088fd5c3e89f40e70c4f9ce4e43a790582cc121c0c2aa385fde838b5c2",
+    "rapt_payload_marker_is_source_commit": false
+  },
+  "runtime_validation": "NOT_RUN",
+  "notice_bundle": "licenses",
+  "components_manifest": "licenses/components.json"
+}

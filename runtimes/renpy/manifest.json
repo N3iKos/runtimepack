@@ -1,0 +1,82 @@
+{
+  "manifest_version": 1,
+  "runtime_id": "renpy-android-8",
+  "family": "renpy",
+  "name": "RuntimePack Ren'Py 8 Android Runtime (official RAPT)",
+  "description": "Official Ren'Py Android Packaging Tool (RAPT) native runtime for arm64-v8a. A single fat shared library that statically links CPython 3.9, SDL2, pygame_sdl2 and the Ren'Py engine (Cython modules). Required by RenpyActivity to boot Ren'Py 8 games such as Mizuki And Me.",
+  "runtime_api": 1,
+  "abis": ["arm64-v8a"],
+  "engines": ["renpy"],
+
+  "renpy": {
+    "sdk_version": "8.3.7.25031702",
+    "version_name": "Second Star to the Right",
+    "branch": "fix",
+    "official": true,
+    "script_version": 5003000,
+    "python_major": 3,
+    "python_version": "3.9"
+  },
+
+  "source": {
+    "publisher": "Ren'Py (renpy.org / github.com/renpy/renpy)",
+    "artifact": "renpy-8.3.7-rapt.zip",
+    "url": "https://www.renpy.org/dl/8.3.7/renpy-8.3.7-rapt.zip",
+    "checksums_url": "https://www.renpy.org/dl/8.3.7/checksums.txt",
+    "sha256": "ea3a96dc59a276464fcec30eb5371e12178be563348b1e318a5f236c3511ef9f",
+    "download_date": "2026-09-27",
+    "inside_archive_path": "rapt/prototype/renpyandroid/src/main/jniLibs/arm64-v8a/librenpython.so"
+  },
+
+  "licenses": {
+    "primary_license": "MIT",
+    "notice_bundle": "licenses/renpy",
+    "bundled_components": "See licenses/NOTICE.txt and licenses/components.json (CPython/PSF, SDL2/zlib, LGPL portions, etc.)"
+  },
+
+  "native_libraries": [
+    {
+      "filename": "librenpython.so",
+      "abi": "arm64-v8a",
+      "path": "runtimes/renpy/jni/arm64-v8a/librenpython.so",
+      "size": 27918624,
+      "sha256": "e111aa6c02b040019e68f0e36361574d1110b577105de09636864c3a38fed80a",
+      "elf": {
+        "class": "ELF64",
+        "data": "little-endian",
+        "type": "DYN (shared object)",
+        "machine": "AArch64",
+        "soname": null,
+        "dynamic_needed": [
+          "libGLESv1_CM.so",
+          "libGLESv2.so",
+          "libOpenSLES.so",
+          "libdl.so",
+          "libm.so",
+          "liblog.so",
+          "libandroid.so",
+          "libc.so"
+        ],
+        "statically_linked": ["CPython 3.9", "SDL2", "pygame_sdl2", "Ren'Py Cython modules", "libc++"],
+        "load_align": {
+          "note": "3 of 4 LOAD segments use p_align=0x1000 (4 KB); the executable LOAD uses p_align=0x4000 (16 KB). Not fully 16 KB page-size aligned as built upstream.",
+          "sixteen_kb_compatible": false
+        }
+      },
+      "provides_symbols": ["Py_Initialize", "PyRun_File", "PyRun_SimpleFile", "SDL_Init", "PyInit_renpy_*"],
+      "loaded_by": "org.libsdl.app.SDLActivity via PythonSDLActivity.getMainSharedObject() == \"renpython\""
+    }
+  ],
+
+  "notes": [
+    "The official RAPT runtime for Android ships ONE fat library per ABI. There is no separate libpython3.9.so / libSDL2*.so / libc++_shared.so on Android; CPython 3.9, SDL2, pygame_sdl2 and libc++ are statically linked into librenpython.so.",
+    "Additional ABIs available in the same RAPT archive: armeabi-v7a (26331672 bytes, sha256 2e096754e101c10f20203cd6175dc47bce7dd9cb07d523335e0dcb910b73933a) and x86_64 (32123784 bytes, sha256 858fa3f033a4673f6a13dcd40d0b56a8c0bddcd064e41c5d203efe72ddd3517a). Only arm64-v8a is vendored here.",
+    "Ren'Py engine + Python stdlib (renpy/, lib/python3.9) are shipped as game content and are mounted from the packaged content container at runtime; they are not part of this native runtime payload."
+  ],
+
+  "evidence": {
+    "renpy_version_source": "Raw-Game/Mizuki And Me/renpy/vc_version.py:4 (version = '8.3.7.25031702')",
+    "renpy_version_cross_check": "Raw-Game/Mizuki And Me/log.txt:3 (Ren'Py 8.3.7.25031702) and log.txt:15 (Set script version to: (8, 3, 7))",
+    "python_version_source": "Raw-Game/Mizuki And Me/lib/python3.9/ and Raw-Game/Mizuki And Me/lib/py3-windows-x86_64/libpython3.9.dll and Raw-Game/Mizuki And Me/Game/cache/bytecode-39.rpyb"
+  }
+}

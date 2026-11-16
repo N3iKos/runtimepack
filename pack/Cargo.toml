@@ -1,0 +1,15 @@
+[package]
+name = "runtimepack-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+runtimepack-core = { path = "../core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf = { workspace = true }

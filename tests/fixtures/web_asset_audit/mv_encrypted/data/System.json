@@ -1,0 +1,80 @@
+{
+  "gameTitle": "Test Web Game",
+  "title1Name": "TitleMV1",
+  "title2Name": "TitleMV2",
+  "windowskinName": "Window",
+  "sounds": [
+    {
+      "name": "Cursor",
+      "pan": 0,
+      "pitch": 100,
+      "volume": 90
+    },
+    {
+      "name": "Decision",
+      "pan": 0,
+      "pitch": 100,
+      "volume": 90
+    }
+  ],
+  "titleBgm": {
+    "name": "ThemeMV",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "battleBgm": {
+    "name": "BattleMV",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "victoryMe": {
+    "name": "VictoryMV",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "defeatMe": {
+    "name": "DefeatMV",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "gameoverMe": {
+    "name": "GameOverMV",
+    "pan": 0,
+    "pitch": 100,
+    "volume": 90
+  },
+  "boat": {
+    "characterName": "VehicleMV",
+    "bgm": {
+      "name": "ShipBgm",
+      "pan": 0,
+      "pitch": 100,
+      "volume": 90
+    }
+  },
+  "ship": {
+    "characterName": "VehicleMV",
+    "bgm": {
+      "name": "ShipBgm",
+      "pan": 0,
+      "pitch": 100,
+      "volume": 90
+    }
+  },
+  "airship": {
+    "characterName": "VehicleMV",
+    "bgm": {
+      "name": "ShipBgm",
+      "pan": 0,
+      "pitch": 100,
+      "volume": 90
+    }
+  },
+  "hasEncryptedImages": true,
+  "hasEncryptedAudio": true,
+  "encryptionKey": "d41d8cd98f00b204e9800998ecf8427e"
+}

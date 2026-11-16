@@ -1,0 +1,1 @@
+// MV rpg_core.js

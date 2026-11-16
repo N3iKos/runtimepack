@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RuntimePackThemePackage",
+  "description": "Schema for runtimepack theme package manifest (theme.json)",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "themeApi",
+    "stylesheets"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "themeApi": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "stylesheets": {
+      "type": "object",
+      "required": [
+        "tokens",
+        "components",
+        "layout"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "string"
+        },
+        "components": {
+          "type": "string"
+        },
+        "layout": {
+          "type": "string"
+        },
+        "effects": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "mediaType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

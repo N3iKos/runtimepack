@@ -1,0 +1,128 @@
+RuntimePack — Third-Party Notices
+Runtime: renpy-android-7 (official Ren'Py 7.5.3 Android / RAPT runtime)
+======================================================================
+
+Scope
+-----
+This notice bundle covers only the minimal native runtime vendored under:
+
+    runtimes/renpy-7/jni/arm64-v8a/librenpython.so
+
+It does not cover, and no file here vendors, Ren'Py engine Python modules,
+the Python 2.7 standard library, game scripts or game assets. Those are
+supplied by each game distribution and are packed as immutable game-derived
+data; they remain the property of their respective copyright holders.
+
+Pinned upstream release
+-----------------------
+    Project:      Ren'Py (https://www.renpy.org, https://github.com/renpy/renpy)
+    Version:      7.5.3
+    Release id:   7.5.3.22090809
+    Runtime id:   renpy-android-7
+    Python:       CPython 2.7.18 (Python 2 line)
+    SDL:          SDL2 2.0.20 (statically linked)
+    ABI:          arm64-v8a only
+    Build:        android-ndk-r21d, API 21 (aarch64-linux-android21-clang)
+
+Upstream artifacts and archive identity
+---------------------------------------
+    RAPT archive:
+        File:      renpy-7.5.3-rapt.zip
+        URL:       https://www.renpy.org/dl/7.5.3/renpy-7.5.3-rapt.zip
+        Size:      48922348 bytes
+        SHA-256:   af0f357dffa167f1f0c72ba0c0ba35cd0f2e34ca39f4831fbd6eae8c4c41f89a
+        Member:    rapt/prototype/renpyandroid/src/main/jniLibs/arm64-v8a/librenpython.so
+
+    Source archive:
+        File:      renpy-7.5.3-source.tar.bz2
+        URL:       https://www.renpy.org/dl/7.5.3/renpy-7.5.3-source.tar.bz2
+        Size:      66160915 bytes
+        SHA-256:   76ad915323cd4e77e8b8f1c872ac363927ec701f4ba0175b13db02fa624f5760
+        Member:    renpy-7.5.3-source/LICENSE.txt
+
+    OpenSSL license source:
+        URL:       https://raw.githubusercontent.com/openssl/openssl/OpenSSL_1_1_1g/LICENSE
+        Tag:       OpenSSL_1_1_1g
+        Size:      6121 bytes
+        SHA-256:   c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c
+
+Vendored binary
+---------------
+    File:      librenpython.so (arm64-v8a)
+    Size:      19456096 bytes
+    SHA-256:   4ae92731e5f7a736900d35b94e16d4ebba78c306a6b374436c7928960df1bd53
+    ELF:       ELF64, little-endian, AArch64, DYN (shared object), stripped
+    JNI:       JNI_OnLoad and Java_org_renpy_android_PythonSDLActivity_nativeSetEnv
+
+librenpython.so is a single fat shared library. CPython 2.7.18, SDL2 2.0.20,
+pygame_sdl2, the Ren'Py engine C extensions and the bundled third-party
+libraries are statically linked into it. The official RAPT runtime has no
+separate libpython/libSDL2 shared objects for Android.
+
+Licensing summary
+-----------------
+* Most of Ren'Py is MIT-licensed. The complete upstream license text, including
+  the Python, JPEG, PNG, Zlib, Bzip2, Modified BSD, Artistic, Apache 2.0 and
+  MPL 2.0 sections, is shipped verbatim in licenses/LICENSE.txt.
+* Portions of Ren'Py and several bundled dependencies are licensed under the
+  GNU LGPL and other licenses. Verbatim upstream wording from LICENSE.txt:
+
+      Portions of Ren'Py are derived from source code that is licensed under the
+      GNU Lesser General Public License, so Ren'Py games must be distributed in a
+      manner that satisfies the LGPL.
+
+  Upstream suggested wording:
+
+      This program contains free software licensed under a number of licenses,
+      including the GNU Lesser General Public License. A complete list of software
+      is available at http://www.renpy.org/doc/html/license.html.
+
+* licenses/components.json keeps the upstream component/license mapping and
+  separates components declared by upstream from components observed in this
+  binary. Upstream-listed desktop components are not claimed to be linked into
+  the Android arm64 binary.
+
+OpenSSL 1.1.1g
+--------------
+OpenSSL 1.1.1g is statically linked inside librenpython.so and is not named in
+upstream LICENSE.txt. The applicable license text — OpenSSL License plus the
+Original SSLeay License — is shipped verbatim in licenses/OPENSSL-LICENSE.txt.
+
+Required acknowledgements:
+
+    This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/)
+    This product includes cryptographic software written by Eric Young (eay@cryptsoft.com).  This product includes software written by Tim Hudson (tjh@cryptsoft.com).
+    This product includes cryptographic software written by Eric Young (eay@cryptsoft.com)
+
+OpenSSL 1.1.1g obligations are attribution/notice only. No source-offer and no
+relink requirement arise from OpenSSL itself, and none is asserted here.
+
+Composite LGPL obligations
+--------------------------
+LGPL-covered components (for example ffmpeg, fribidi, libjpeg-turbo, chardet,
+libusb and LGPL portions of pygame_sdl2) retain the upstream source/relink
+requirement. Upstream declares the corresponding source locations:
+
+    https://github.com/renpy/renpy
+    https://github.com/renpy/pygame_sdl2
+    https://github.com/renpy/renpy-build
+    https://github.com/renpy/renpyweb
+
+These are upstream-declared locations. They are not a verified matching build
+recipe or source pin, and no generic source offer is authored by this project.
+
+Known unknowns and verification scope
+-------------------------------------
+* The exact source commit used for this build is UNKNOWN.
+* The exact renpy-build revision/dependency pin is UNKNOWN. The RAPT
+  rapt/hash.txt value 2971e2088fd5c3e89f40e70c4f9ce4e43a790582cc121c0c2aa385fde838b5c2
+  is a DLC payload marker, not a Git revision or source commit.
+* Artifact checksums were compared over HTTPS against the upstream PGP-signed
+  checksums.txt. The PGP signature itself was NOT verified; no trusted-key
+  verification is claimed.
+* Runtime validation is NOT_RUN. No device/emulator boot, reflective
+  preparePython resolution or .pyo import has been tested here. Resource
+  presence, hashes and this notice do not prove Android boot or playability.
+
+This notice records scoped obligations. It is not a legal certification and
+does not assert that the whole bundle is fully license-verified.

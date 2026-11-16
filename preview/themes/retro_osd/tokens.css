@@ -1,0 +1,18 @@
+:root, [data-theme="retro_osd"] {
+  --theme-accent: #ff7700;
+  --theme-accent-contrast: #000000;
+  --theme-accent-amber: #ffaa44;
+  --theme-accent-glow: rgba(255, 119, 0, 0.35);
+  --theme-bg-toolbar: #0a0a0c;
+  --theme-bg-toolbar-active: #ff7700;
+  --theme-bg-panel: #0a0a0c;
+  --theme-border-panel: 2px solid #ff7700;
+  --theme-radius-panel: 2px;
+  --theme-radius-button: 50%;
+  --theme-backdrop-filter: none;
+  --theme-box-shadow: 0 0 14px rgba(255, 119, 0, 0.35);
+  --theme-font-family: Consolas, "Roboto Mono", monospace;
+  --theme-text-primary: #ffaa44;
+  --theme-text-muted: #885522;
+  --theme-border-color: #ff7700;
+}

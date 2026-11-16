@@ -1,0 +1,253 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BuildManifest",
+  "description": "Schema for generated build-manifest.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "runtimepack_version",
+    "app",
+    "engine",
+    "runtime",
+    "content",
+    "android",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "runtimepack_version": { "type": "string" },
+    "git_commit": { "type": ["string", "null"] },
+    "build_timestamp": { "type": "string", "format": "date-time" },
+    "flavor": { "type": ["string", "null"] },
+    "overlay_mode": {
+      "type": "string",
+      "enum": ["full", "passive-watermark"],
+      "default": "full",
+      "description": "Overlay mode profile. Default 'full'. 'passive-watermark' is experimental for Visual Novel Maker beta builds."
+    },
+    "vnm_input_guard": {
+      "type": "string",
+      "enum": ["off", "transition-aware"],
+      "default": "off",
+      "description": "VNM dialogue advance input guard mode. Default 'off'. 'transition-aware' is experimental for Visual Novel Maker beta builds."
+    },
+    "audit": { "$ref": "#/definitions/audit" },
+    "rtp_source": { "type": ["string", "null"] },
+    "themes": {
+      "type": ["object", "null"],
+      "properties": {
+        "default_theme": { "type": "string" },
+        "selected_themes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["default_theme", "selected_themes"]
+    },
+    "compat_profile": { "type": ["string", "null"] },
+    "runtime_integrity_sha256": {
+      "type": ["string", "null"],
+      "description": "Deterministic SHA-256 integrity hash of staged runtime assets (overlay, shims, fonts)."
+    },
+    "app": {
+      "type": "object",
+      "required": ["name", "package", "version_name", "version_code"],
+      "properties": {
+        "name": { "type": "string" },
+        "package": { "type": "string" },
+        "version_name": { "type": "string" },
+        "version_code": { "type": "integer" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["id", "confidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "confidence": { "type": "string" },
+        "overridden": { "type": "boolean", "default": false },
+        "detected_version": { "type": ["string", "null"] },
+        "content_root": { "type": ["string", "null"] },
+        "evidence": {
+          "type": "array",
+          "description": "Detection evidence behind the recorded engine decision, including zero-weight live-entrypoint arbitration rules. Optional; omitted when empty.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["rule", "path", "weight", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "rule": { "type": "string", "minLength": 1 },
+              "path": { "type": "string" },
+              "weight": { "type": "integer" },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "description": "Detection conflicts recorded for the engine decision. Optional; empty for a clean selection.",
+          "default": [],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "version", "family", "runtime_api"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "family": { "type": "string" },
+        "runtime_api": { "type": "integer" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "script_completion_hooks": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "native_libs_dir": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "required": ["mode", "content_hash"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["plain", "packed", "encrypted-streaming"] },
+        "content_hash": { "type": "string" },
+        "file_count": { "type": "integer" },
+        "total_bytes": { "type": "integer" }
+      }
+    },
+    "android": {
+      "type": "object",
+      "required": ["abis", "min_sdk", "target_sdk", "permissions"],
+      "properties": {
+        "abis": { "type": "array", "items": { "type": "string" } },
+        "min_sdk": { "type": "integer" },
+        "target_sdk": { "type": "integer" },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source_hash", "config_hash"],
+      "properties": {
+        "source_hash": { "type": "string" },
+        "config_hash": { "type": "string" },
+        "apk_hash": { "type": ["string", "null"] },
+        "flavor": { "type": ["string", "null"] },
+        "audit": { "$ref": "#/definitions/audit" },
+        "rtp_source": { "type": ["string", "null"] },
+        "themes": {
+          "type": ["object", "null"],
+          "properties": {
+            "default_theme": { "type": "string" },
+            "selected_themes": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["default_theme", "selected_themes"]
+        },
+        "compat_profile": { "type": ["string", "null"] },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "agp_version": { "type": ["string", "null"] },
+            "gradle_version": { "type": ["string", "null"] },
+            "jdk_version": { "type": ["string", "null"] },
+            "android_sdk_platform": { "type": ["string", "null"] },
+            "ndk_version": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "audit": {
+      "type": ["object", "null"],
+      "required": ["report_path", "report_sha256", "mode", "outcome", "overrides"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": { "type": "string", "enum": ["informational", "strict"], "default": "strict" },
+        "build_policy": {
+          "type": "string",
+          "enum": ["default", "experimental"],
+          "default": "default",
+          "description": "Build policy applied to this invocation. 'experimental' means --allow-unknown was passed and only Unknown findings were forwarded; it is never a persisted project default."
+        },
+        "compatibility_policy": {
+          "type": "string",
+          "enum": ["warn", "block"],
+          "default": "block",
+          "description": "Packaging compatibility policy applied to this invocation. 'warn' may continue past one narrowly allowlisted compatibility fact and discloses it in compatibility_warnings; a manifest without this field was produced under the strict 'block' semantics."
+        },
+        "policy_ruleset_version": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Version of the typed build-policy ruleset that produced this decision. A manifest without this field describes ruleset 1; the compatibility warning policy is ruleset 2."
+        },
+        "forwarded_unknowns": {
+          "type": "array",
+          "description": "Codes of the Unknown findings forwarded by the experimental policy. Omitted when empty.",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "compatibility_warnings": {
+          "type": "array",
+          "description": "Compatibility facts accepted by the warn policy, each keeping its original knowledge class. Omitted when empty. Never a claim of compatibility or of gameplay validation.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "state",
+              "class",
+              "requiredness",
+              "reason",
+              "audit_finding_ids",
+              "runtime_validation"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "type": "string", "minLength": 1 },
+              "state": { "type": "string", "enum": ["unknown", "required"] },
+              "class": {
+                "type": "string",
+                "enum": ["supported", "advisory", "degraded", "blocked", "unknown"]
+              },
+              "requiredness": { "type": "string", "enum": ["required", "optional"] },
+              "path": { "type": ["string", "null"] },
+              "reason": { "type": "string" },
+              "audit_finding_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "runtime_validation": { "type": "string", "enum": ["NOT_RUN"] }
+            }
+          }
+        },
+        "notice_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the durable EXPERIMENTAL-NOTICE.txt emitted for a build carrying accepted risk. Verified against the published APK assets."
+        },
+        "report_path": { "type": "string" },
+        "report_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mode": { "type": "string", "enum": ["STANDARD", "DEEP"] },
+        "outcome": { "type": "string", "enum": ["PASS", "WARNING", "FAIL", "INDETERMINATE"] },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["flag", "original_outcome", "accepted_finding_ids", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "flag": { "type": "string", "enum": ["--accept-audit-fail", "--accept-audit-unknown"] },
+              "original_outcome": { "type": "string", "enum": ["FAIL", "INDETERMINATE"] },
+              "accepted_finding_ids": { "type": "array", "items": { "type": "string" } },
+              "rationale": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

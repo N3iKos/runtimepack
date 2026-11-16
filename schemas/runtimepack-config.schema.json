@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RuntimePackConfig",
+  "description": "Schema for runtimepack.toml project configuration",
+  "type": "object",
+  "required": ["schema", "app"],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "app": {
+      "type": "object",
+      "required": ["name", "package"],
+      "properties": {
+        "name": { "type": "string" },
+        "package": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$" },
+        "version_name": { "type": "string", "default": "1.0.0" },
+        "version_code": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["auto", "forced"], "default": "auto" },
+        "id": { "type": "string", "enum": ["rpgmaker-xp", "rpgmaker-vx", "rpgmaker-vxace", "rpgmaker-mv", "rpgmaker-mz", "renpy", "tyrano", "visual-novel-maker"] }
+      }
+    },
+    "android": {
+      "type": "object",
+      "properties": {
+        "abis": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["arm64-v8a", "x86_64", "armeabi-v7a"] },
+          "default": ["arm64-v8a"]
+        },
+        "orientation": { "type": "string", "enum": ["auto", "landscape", "portrait", "sensorLandscape"], "default": "auto" },
+        "format": { "type": "string", "enum": ["apk", "aab"], "default": "apk" },
+        "min_sdk": { "type": "integer", "default": 26 },
+        "target_sdk": { "type": "integer", "default": 34 }
+      }
+    },
+    "content": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["plain", "packed", "encrypted-streaming"], "default": "packed" },
+        "compression": { "type": "string", "enum": ["auto", "none", "zstd"], "default": "auto" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "policy": { "type": "string", "enum": ["strict", "warn"], "default": "strict" }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["debug", "release-local", "release-external-keystore"], "default": "debug" },
+        "keystore_path": { "type": "string" },
+        "key_alias": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+manifest_version = 1
+id = "renpy-android-7"
+name = "RuntimePack Ren'Py 7 Runtime"
+version = "7.5.3"
+runtime_api = 1
+family = "renpy"
+engines = ["renpy"]
+abis = ["arm64-v8a"]
+capabilities = [
+  "fs.vfs.read",
+  "fs.save.write",
+  "input.keyboard",
+  "input.pointer",
+  "renpy.runtime.versioned",
+  "renpy.python.pure",
+]
+
+[android]
+min_sdk = 26
+target_sdk = 34
+
+[artifacts]
+android_module = "runtimes/renpy-7"
+native_libs_dir = "runtimes/renpy-7/jni"
+
+[licenses]
+license_id = "MIT"
+notice_bundle = "licenses"
+required_notice_files = [
+  "licenses/LICENSE.txt",
+  "licenses/NOTICE.txt",
+  "licenses/components.json",
+]

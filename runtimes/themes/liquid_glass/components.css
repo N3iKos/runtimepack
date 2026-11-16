@@ -1,0 +1,255 @@
+/* Liquid Glass Component Styles */
+
+/* Trigger & Topbar */
+#vpad-main-trigger-btn {
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--theme-radius-button, 9999px);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  color: var(--theme-text-primary, #f8fafc);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+}
+
+.vpad-top-btn {
+  color: var(--theme-text-primary, #f8fafc);
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 42%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--theme-radius-button, 9999px);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+}
+
+.vpad-top-btn.active,
+#vpad-main-trigger-btn.active {
+  background: radial-gradient(circle at 35% 20%, rgba(0, 122, 255, 0.55) 0%, rgba(0, 100, 220, 0.35) 50%, rgba(15, 23, 42, 0.75) 100%);
+  border-color: var(--theme-accent, #007aff);
+  color: var(--theme-accent-contrast, #ffffff);
+  box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.75);
+}
+
+.vpad-top-btn.active svg,
+#vpad-main-trigger-btn.active svg {
+  stroke: var(--theme-accent-contrast, #ffffff);
+}
+
+/* Pill-shaped Action Buttons */
+.vpad-btn {
+  color: var(--theme-text-primary, #f8fafc);
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 40%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--theme-radius-button, 9999px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.55), inset 0 -1.5px 2px rgba(0, 0, 0, 0.2);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+}
+
+.vpad-btn:active {
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.35) 0%, rgba(35, 42, 60, 0.8) 100%);
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), inset 0 1.2px 1px rgba(255, 255, 255, 0.7);
+}
+
+.vpad-btn-green {
+  background: radial-gradient(circle at 35% 25%, rgba(16, 185, 129, 0.4) 0%, rgba(6, 78, 59, 0.75) 100%);
+  border: 1px solid rgba(110, 231, 183, 0.6);
+  color: #ecfdf5;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+}
+
+.vpad-btn-green:active {
+  background: radial-gradient(circle at 35% 25%, rgba(52, 211, 153, 0.6) 0%, rgba(5, 150, 105, 0.85) 100%);
+  border-color: #a7f3d0;
+}
+
+.vpad-btn-red {
+  background: radial-gradient(circle at 35% 25%, rgba(239, 68, 68, 0.4) 0%, rgba(127, 29, 29, 0.75) 100%);
+  border: 1px solid rgba(252, 165, 165, 0.6);
+  color: #fef2f2;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+}
+
+.vpad-btn-red:active {
+  background: radial-gradient(circle at 35% 25%, rgba(248, 113, 113, 0.6) 0%, rgba(220, 38, 38, 0.85) 100%);
+  border-color: #fecaca;
+}
+
+.vpad-btn-yellow {
+  background: radial-gradient(circle at 35% 25%, rgba(245, 158, 11, 0.4) 0%, rgba(120, 53, 15, 0.75) 100%);
+  border: 1px solid rgba(253, 230, 138, 0.6);
+  color: #fffbeb;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+}
+
+.vpad-btn-yellow:active {
+  background: radial-gradient(circle at 35% 25%, rgba(251, 191, 36, 0.6) 0%, rgba(217, 119, 6, 0.85) 100%);
+  border-color: #fef08a;
+}
+
+.vpad-btn-util {
+  border-radius: var(--theme-radius-button, 9999px);
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.16) 0%, rgba(28, 34, 48, 0.75) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* D-Pad & Joystick */
+.vpad-dpad-container {
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(26, 32, 48, 0.65) 50%, rgba(10, 14, 22, 0.85) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+}
+
+.vpad-dpad-arrow {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.vpad-dpad-arrow.active {
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.65) 0%, rgba(0, 90, 200, 0.85) 100%);
+  border-color: #60a5fa;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 122, 255, 0.5);
+}
+
+.vpad-dpad-center {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vpad-joystick-container {
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12) 0%, rgba(30, 36, 52, 0.65) 50%, rgba(12, 16, 26, 0.85) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1.2px 1px rgba(255, 255, 255, 0.55);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+}
+
+.vpad-joystick-inner-ring {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.vpad-joystick-stick {
+  background: radial-gradient(circle at 35% 35%, #475569, #0f172a);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7);
+}
+
+.vpad-joystick-container.active .vpad-joystick-stick {
+  border-color: var(--theme-accent, #007aff);
+  box-shadow: 0 4px 16px rgba(0, 122, 255, 0.5);
+}
+
+/* Squircle 24px Panels (Editor Bar, Panels & Modals) */
+#vpad-editor-bar,
+#fnh-cheat-overlay,
+#rp-diag-modal,
+#vpad-prop-panel,
+#vpad-key-modal,
+.vpad-modal-box {
+  border-radius: var(--theme-radius-panel, 24px);
+  backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-backdrop-filter, blur(30px) saturate(180%));
+  background: var(--theme-bg-panel, linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(15, 23, 42, 0.55) 100%));
+  border: var(--theme-border-panel, 1px solid rgba(255, 255, 255, 0.28));
+  box-shadow: var(--theme-box-shadow, 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45));
+  color: var(--theme-text-primary, #f8fafc);
+}
+
+#vpad-bar-done {
+  background: var(--theme-accent, #007aff);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--theme-radius-button, 9999px);
+  color: var(--theme-accent-contrast, #ffffff);
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+#vpad-bar-done:active {
+  background: #0062cc;
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(0.92);
+}
+
+#rp-diag-modal {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+.diag-console-box,
+.diag-log-box {
+  max-height: 90px;
+}
+
+#fnh-cheat-overlay {
+  width: min(84vw, 460px);
+  max-height: min(78vh, 320px);
+}
+
+#fnh-cheat-content,
+#fnh-cheat-body {
+  max-height: 180px;
+}
+
+#fnh-cheat-overlay .fnh-cheat-row {
+  padding: 6px 10px;
+}
+
+#vpad-key-modal .vpad-modal-box {
+  width: min(84vw, 440px);
+  max-height: min(78vh, 320px);
+}
+
+.vpad-modal-scroll-area {
+  max-height: 140px;
+}
+
+#vpad-prop-panel {
+  width: min(80vw, 290px);
+  max-height: min(78vh, 310px);
+}
+
+@media (max-height: 480px) {
+  #rp-diag-modal {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .diag-tab-pane {
+    padding: 8px !important;
+  }
+  .diag-card {
+    padding: 8px !important;
+  }
+  .diag-console-box,
+  .diag-log-box {
+    max-height: 90px !important;
+  }
+  #fnh-cheat-overlay {
+    width: min(84vw, 460px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  #fnh-cheat-content,
+  #fnh-cheat-body {
+    max-height: 180px !important;
+  }
+  .fnh-cheat-row {
+    padding: 6px 10px !important;
+  }
+  #vpad-key-modal .vpad-modal-box {
+    width: min(84vw, 440px) !important;
+    max-height: min(78vh, 320px) !important;
+  }
+  .vpad-modal-scroll-area {
+    max-height: 140px !important;
+  }
+  #vpad-prop-panel {
+    width: min(80vw, 290px) !important;
+    max-height: min(78vh, 310px) !important;
+  }
+}

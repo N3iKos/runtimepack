@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "profile_id": "rpgmaker-mz-desktop-subproc-disable",
+  "engine_id": "rpgmaker-mz",
+  "capability_id": "CAP-WEB-028",
+  "status": "DEGRADED",
+  "diagnostic_code": "CMP-107",
+  "description": "Disables desktop subprocess child_process helper functions across RPG Maker MZ plugins for Android mobile runtime",
+  "patches": [
+    {
+      "target_anchor": "payload",
+      "logical_path": "js/plugins/Shiroin_SaveUI_MZ.js",
+      "expected_file_size": 76858,
+      "expected_file_sha256": "2b8b5cadfa3d9d744130ba35745a40260e4b95c8117caf28fbccb17f658080f2",
+      "range": {
+        "start": 24013,
+        "end": 24275
+      },
+      "expected_fragment_sha256": "78a7f9b851130266deefb397385aec8bb91ca509b03749111f4f2ec45f099629",
+      "replacement": "\n\tconst msg = \"[RT-DESKTOP-DISABLED] Opening local directory via desktop subprocess is not supported on Android mobile devices.\";\n\tconsole.error(msg);\n\ttry {\n\t\tif (window.RuntimePackWeb && typeof window.RuntimePackWeb.postDiagnosticError === \"function\") {\n\t\t\twindow.RuntimePackWeb.postDiagnosticError(JSON.stringify({\n\t\t\t\tcode: \"RT-102\",\n\t\t\t\tmessage: msg,\n\t\t\t\tcapability: \"CAP-WEB-028\"\n\t\t\t}));\n\t\t}\n\t} catch (_) {}\n\tthrow new Error(msg);",
+      "result_file_sha256": "fcc96849c01401e28a7d9a19df22ddd1db199aa2bc7eea73a39bb34295fd8f84"
+    },
+    {
+      "target_anchor": "payload",
+      "logical_path": "js/plugins/QJ-MPMZLib-0.js",
+      "expected_file_size": 101077,
+      "expected_file_sha256": "073aaf114e371f82226e6227b88d4408264c73d5816c06fbd1e9d49c22f5206d",
+      "range": {
+        "start": 94193,
+        "end": 95524
+      },
+      "expected_fragment_sha256": "8abe423bb4b24b64c57da4bb0049ab02f23502b1f24da87f52b5e0a68c8fef7f",
+      "replacement": "\n\tconsole.warn(\"[RuntimePack] RT-DESKTOP-DISABLED: listSystemGpus desktop subprocess GPU enumeration suppressed on Android; returning empty list.\");\n\ttry {\n\t\tif (window.RuntimePackWeb && typeof window.RuntimePackWeb.postDiagnosticError === \"function\") {\n\t\t\twindow.RuntimePackWeb.postDiagnosticError(JSON.stringify({\n\t\t\t\tcode: \"RT-102\",\n\t\t\t\tmessage: \"listSystemGpus desktop subprocess GPU enumeration suppressed on Android\",\n\t\t\t\tcapability: \"CAP-WEB-028\"\n\t\t\t}));\n\t\t}\n\t} catch (_) {}\n\treturn [];\n",
+      "result_file_sha256": "52aa386473b1307347dadf265ac2d16344ec648e55e2609e4b62e5f4b713234f"
+    },
+    {
+      "target_anchor": "payload",
+      "logical_path": "js/plugins/Drill_PictureSnapShot.js",
+      "expected_file_size": 108947,
+      "expected_file_sha256": "36aa9fa0f12e13f427d343dccfb3634332bdce72038b43ca900f4269197d0f67",
+      "range": {
+        "start": 105752,
+        "end": 106191
+      },
+      "expected_fragment_sha256": "4b5ef057712223665a0e45f515f6d594701425152a9419f30617a6706cc910bd",
+      "replacement": "\n\tconsole.warn(\"[RuntimePack] RT-DESKTOP-DISABLED: drill_PSS_spawnDetached desktop subprocess spawn suppressed on Android; returning false.\");\n\ttry {\n\t\tif (window.RuntimePackWeb && typeof window.RuntimePackWeb.postDiagnosticError === \"function\") {\n\t\t\twindow.RuntimePackWeb.postDiagnosticError(JSON.stringify({\n\t\t\t\tcode: \"RT-102\",\n\t\t\t\tmessage: \"drill_PSS_spawnDetached desktop subprocess spawn suppressed on Android\",\n\t\t\t\tcapability: \"CAP-WEB-028\"\n\t\t\t}));\n\t\t}\n\t} catch (_) {}\n\treturn false;\n",
+      "result_file_sha256": "5b939355070e1956d61902bd222a08996954bb0c4ff9cfe3044dc45d830967d7"
+    },
+    {
+      "target_anchor": "payload",
+      "logical_path": "js/plugins/TSR_Save.js",
+      "expected_file_size": 226583,
+      "expected_file_sha256": "d8d088eee4b67d02023877ab2a5ef404a656bbf9e281cfba498466277dfe7886",
+      "range": {
+        "start": 190507,
+        "end": 190788
+      },
+      "expected_fragment_sha256": "3cd3c895b46f09b699b0e2f7f73fb35c85ca647524e568eaf0a7b4988dd9e31c",
+      "replacement": "\n\tconst msg = \"[RT-DESKTOP-DISABLED] Opening local directory via desktop subprocess is not supported on Android mobile devices.\";\n\tconsole.error(msg);\n\ttry {\n\t\tif (window.RuntimePackWeb && typeof window.RuntimePackWeb.postDiagnosticError === \"function\") {\n\t\t\twindow.RuntimePackWeb.postDiagnosticError(JSON.stringify({\n\t\t\t\tcode: \"RT-102\",\n\t\t\t\tmessage: msg,\n\t\t\t\tcapability: \"CAP-WEB-028\"\n\t\t\t}));\n\t\t}\n\t} catch (_) {}\n\tthrow new Error(msg);",
+      "result_file_sha256": "5dbb4d0329075245872221e80502fd90e0ebf2a208a4382aa7b615e4b9fd7de9"
+    }
+  ]
+}

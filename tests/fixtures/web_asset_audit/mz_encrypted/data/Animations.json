@@ -1,0 +1,26 @@
+[
+  null,
+  {
+    "id": 1,
+    "name": "Slash",
+    "animation1Name": "Hit1",
+    "animation2Name": "Hit2",
+    "timings": [
+      {
+        "frame": 1,
+        "se": {
+          "name": "SlashSE",
+          "pan": 0,
+          "pitch": 100,
+          "volume": 90
+        }
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "name": "Laser",
+    "effectName": "LaserBeam",
+    "timings": []
+  }
+]

@@ -1,0 +1,12 @@
+[
+  null,
+  {
+    "id": 1,
+    "name": "Harold",
+    "characterName": "Actor1",
+    "characterIndex": 0,
+    "faceName": "Actor1_face",
+    "faceIndex": 0,
+    "battlerName": "Actor1_sv"
+  }
+]

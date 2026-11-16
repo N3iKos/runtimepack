@@ -1,0 +1,11 @@
+o:RPG::System:@gameover_nameI"GameOverVX:ET:@title_bgmo:RPG::AudioFile:
+@nameI"TitleBgmVX:ET:@volumeii:@pitchii:@battle_bgmo:RPG::AudioFile:
+@nameI"BattleBgmVX:ET:@volumeii:@pitchii:@battle_end_meo:RPG::AudioFile:
+@nameI"VictoryMeVX:ET:@volumeii:@pitchii:@gameover_meo:RPG::AudioFile:
+@nameI"GameOverMeVX:ET:@volumeii:@pitchii:@sounds[o:RPG::AudioFile:
+@nameI"CursorSeVX:ET:@volumeii:@pitchii:
+@boato:RPG::System::Vehicle:@character_nameI"BoatVX:ET:	@bgmo:RPG::AudioFile:
+@nameI"BoatBgmVX:ET:@volumeii:@pitchii:
+@shipo:RPG::System::Vehicle:@character_nameI"ShipVX:ET:	@bgmo:RPG::AudioFile:
+@nameI"ShipBgmVX:ET:@volumeii:@pitchii:@airshipo:RPG::System::Vehicle:@character_nameI"AirshipVX:ET:	@bgmo:RPG::AudioFile:
+@nameI"AirshipBgmVX:ET:@volumeii:@pitchii

@@ -1,0 +1,6 @@
+id = "rgss-user32-keyboard"
+engines = ["rpgmaker-xp", "rpgmaker-vx", "rpgmaker-vxace"]
+symbol = "GetKeyboardState"
+requires_capability = "rgss.win32.user32.keyboard"
+severity_if_missing = "unsupported"
+description = "Win32API user32 GetKeyboardState keyboard polling"

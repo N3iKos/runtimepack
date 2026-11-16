@@ -1,0 +1,412 @@
+{
+  "schema": "runtimepack.renpy7-components/1",
+  "runtime_id": "renpy-android-7",
+  "version": "7.5.3",
+  "release_id": "7.5.3.22090809",
+  "components": [
+    {
+      "id": "librenpython",
+      "name": "Ren'Py Android native runtime (librenpython.so, arm64-v8a)",
+      "version": "7.5.3",
+      "license_scope": "MIT AND LGPL-2.1-or-later AND Python-2.0 AND Zlib AND BSD-3-Clause AND Apache-2.0 AND MPL-2.0 AND OpenSSL",
+      "notice_files": ["LICENSE.txt", "OPENSSL-LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "sha256=4ae92731e5f7a736900d35b94e16d4ebba78c306a6b374436c7928960df1bd53",
+        "bytes=19456096",
+        "source_id=rapt753",
+        "member=rapt/prototype/renpyandroid/src/main/jniLibs/arm64-v8a/librenpython.so",
+        "elf=ELF64 little-endian AArch64 DYN shared-object stripped",
+        "python=2.7.18",
+        "sdl=SDL2 2.0.20",
+        "build=android-ndk-r21d API 21 aarch64-linux-android21-clang"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "renpy",
+      "name": "Ren'Py",
+      "version": "7.5.3.22090809",
+      "license_scope": "MIT AND LGPL-2.1-or-later",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "release_id=7.5.3.22090809",
+        "license_source=renpy753-source::renpy-7.5.3-source/LICENSE.txt",
+        "engine_modules=game-distribution (not vendored here)"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "cpython",
+      "name": "CPython",
+      "version": "2.7.18",
+      "license_scope": "Python-2.0",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "statically-linked-in=librenpython.so",
+        "binary-string=2.7.18",
+        "python2-c-api=PyCObject_*,PyString_*,PyInt_FromLong,Py_InitModule4_64"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "sdl2",
+      "name": "SDL2",
+      "version": "2.0.20",
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "statically-linked-in=librenpython.so",
+        "binary-string=SDL2 2.0.20"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "openssl",
+      "name": "OpenSSL",
+      "version": "1.1.1g",
+      "license_scope": "OpenSSL AND SSLeay",
+      "notice_files": ["OPENSSL-LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "binary-string=OpenSSL 1.1.1g  21 Apr 2020",
+        "linkage=static (DT_NEEDED lists no libssl.so/libcrypto.so)",
+        "license_tag=OpenSSL_1_1_1g",
+        "not-named-in=upstream LICENSE.txt component list"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "pygame-sdl2",
+      "name": "Pygame_SDL2",
+      "version": null,
+      "license_scope": "MIT AND LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=pygame_sdl2",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "sdl2-image",
+      "name": "SDL2_image",
+      "version": null,
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "sdl2-ttf",
+      "name": "SDL2_ttf",
+      "version": null,
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "freetype",
+      "name": "FreeType",
+      "version": null,
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=FreeType",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "fribidi",
+      "name": "Fribidi",
+      "version": null,
+      "license_scope": "LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=fribidi",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "ffmpeg",
+      "name": "ffmpeg",
+      "version": null,
+      "license_scope": "LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-strings=libavcodec,libavformat,ffmpeg",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "libjpeg-turbo",
+      "name": "libjpeg-turbo",
+      "version": null,
+      "license_scope": "LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-strings=libjpeg,jpeg-turbo",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "libpng",
+      "name": "libpng",
+      "version": null,
+      "license_scope": "PNG",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=libpng",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "zlib",
+      "name": "zlib",
+      "version": null,
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-strings=zlib,inflate",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "bzip2",
+      "name": "bzip2",
+      "version": null,
+      "license_scope": "Bzip2",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-strings=bzip2,BZ2_",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "pyjnius",
+      "name": "pyjnius",
+      "version": null,
+      "license_scope": "MIT",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=jnius",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "certifi",
+      "name": "certifi",
+      "version": null,
+      "license_scope": "MPL-2.0",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "binary-string=certifi",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "binary-observed"
+    },
+    {
+      "id": "pyobjc",
+      "name": "pyobjc",
+      "version": null,
+      "license_scope": "MIT",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "py2exe",
+      "name": "py2exe",
+      "version": null,
+      "license_scope": "MIT",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "glew",
+      "name": "GLEW",
+      "version": null,
+      "license_scope": "Modified BSD AND MIT",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "zsync",
+      "name": "zsync",
+      "version": null,
+      "license_scope": "Artistic",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "angle",
+      "name": "ANGLE",
+      "version": null,
+      "license_scope": "BSD-3-Clause",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "requests",
+      "name": "requests",
+      "version": null,
+      "license_scope": "Apache-2.0",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "urllib3",
+      "name": "urllib3",
+      "version": null,
+      "license_scope": "MIT",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "chardet",
+      "name": "chardet",
+      "version": null,
+      "license_scope": "LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "libusb",
+      "name": "libusb",
+      "version": null,
+      "license_scope": "LGPL",
+      "notice_files": ["LICENSE.txt", "NOTICE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    },
+    {
+      "id": "tinyfiledialogs",
+      "name": "tinyfiledialogs",
+      "version": null,
+      "license_scope": "Zlib",
+      "notice_files": ["LICENSE.txt"],
+      "evidence": [
+        "upstream_declared=LICENSE.txt component list",
+        "not-claimed-linked-into-android-arm64",
+        "exact_version=UNKNOWN"
+      ],
+      "presence": "upstream-declared"
+    }
+  ],
+  "notice_files": [
+    {
+      "path": "LICENSE.txt",
+      "bytes": 80401,
+      "sha256": "5cedd397622937915847083e4f9caedda9198e6f660aea30e149e19c2c7b33d9"
+    },
+    {
+      "path": "OPENSSL-LICENSE.txt",
+      "bytes": 6121,
+      "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c"
+    },
+    {
+      "path": "NOTICE.txt",
+      "bytes": 6118,
+      "sha256": "9829af8d036b9246f00afce01c0c253f42f22c6628a8e2a7721d2a38ede1af71"
+    }
+  ],
+  "obligations": {
+    "openssl": {
+      "source_offer_required": false,
+      "relink_required": false,
+      "acknowledgements": [
+        "This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/)",
+        "This product includes cryptographic software written by Eric Young (eay@cryptsoft.com).  This product includes software written by Tim Hudson (tjh@cryptsoft.com).",
+        "This product includes cryptographic software written by Eric Young (eay@cryptsoft.com)"
+      ]
+    },
+    "composite_lgpl": {
+      "requirement": "Portions of Ren'Py are derived from source code that is licensed under the GNU Lesser General Public License, so Ren'Py games must be distributed in a manner that satisfies the LGPL.",
+      "upstream_declared_source_urls": [
+        "https://github.com/renpy/renpy",
+        "https://github.com/renpy/pygame_sdl2",
+        "https://github.com/renpy/renpy-build",
+        "https://github.com/renpy/renpyweb"
+      ],
+      "matching_build_recipe_verified": false,
+      "compliance_status": "OBLIGATIONS_RECORDED_NOT_LEGAL_CERTIFICATION"
+    }
+  },
+  "unknowns": {
+    "source_commit": "UNKNOWN",
+    "renpy_build_revision": "UNKNOWN",
+    "device_reflection": "NOT_TESTED",
+    "pyo_runtime": "NOT_TESTED"
+  },
+  "signature_status": {
+    "checksums_from_https": true,
+    "checksums_file_pgp_signed": true,
+    "pgp_signature_verified": false
+  }
+}

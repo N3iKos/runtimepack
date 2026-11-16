@@ -1,0 +1,56 @@
+[
+  {
+    "component": "renpy",
+    "version": "8.3.7.25031702",
+    "source": "https://www.renpy.org/dl/8.3.7/renpy-8.3.7-rapt.zip",
+    "artifact_sha256": "ea3a96dc59a276464fcec30eb5371e12178be563348b1e318a5f236c3511ef9f",
+    "license": "MIT",
+    "notice_files": [
+      "runtimes/renpy/licenses/LICENSE.txt",
+      "runtimes/renpy/licenses/NOTICE.txt"
+    ],
+    "source_obligation": "reviewed",
+    "notes": "Most of Ren'Py is MIT; portions/dependencies are LGPL and other licenses. Upstream requires LGPL-satisfying distribution."
+  },
+  {
+    "component": "librenpython.so",
+    "version": "8.3.7.25031702",
+    "source": "https://www.renpy.org/dl/8.3.7/renpy-8.3.7-rapt.zip",
+    "artifact": "rapt/prototype/renpyandroid/src/main/jniLibs/arm64-v8a/librenpython.so",
+    "sha256": "e111aa6c02b040019e68f0e36361574d1110b577105de09636864c3a38fed80a",
+    "license": "MIT AND LGPL-2.1-or-later AND Zlib AND PSF-2.0 AND Apache-2.0 AND BSD-3-Clause AND others",
+    "notice_files": [
+      "runtimes/renpy/licenses/LICENSE.txt",
+      "runtimes/renpy/licenses/NOTICE.txt"
+    ],
+    "source_obligation": "reviewed",
+    "notes": "Fat Android shared library; statically links CPython 3.9, SDL2, pygame_sdl2, libc++ and the Ren'Py engine. Per-component licenses listed in licenses/LICENSE.txt."
+  },
+  {
+    "component": "python",
+    "version": "3.9",
+    "source": "https://www.python.org/",
+    "license": "PSF-2.0",
+    "notice_files": ["runtimes/renpy/licenses/LICENSE.txt"],
+    "source_obligation": "reviewed",
+    "notes": "Statically linked into librenpython.so (libpython3.9 on desktop builds)."
+  },
+  {
+    "component": "sdl2",
+    "version": "bundled-with-renpy-8.3.7",
+    "source": "https://libsdl.org/",
+    "license": "Zlib",
+    "notice_files": ["runtimes/renpy/licenses/LICENSE.txt"],
+    "source_obligation": "reviewed",
+    "notes": "SDL2, SDL2_image, SDL2_ttf statically linked into librenpython.so."
+  },
+  {
+    "component": "ffmpeg",
+    "version": "bundled-with-renpy-8.3.7",
+    "source": "https://ffmpeg.org/",
+    "license": "LGPL-2.1-or-later",
+    "notice_files": ["runtimes/renpy/licenses/LICENSE.txt"],
+    "source_obligation": "reviewed",
+    "notes": "Statically linked into librenpython.so; LGPL source-offer/relink obligation applies."
+  }
+]

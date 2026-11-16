@@ -1,0 +1,18 @@
+{
+  "displayName": "Target Map",
+  "autoplayBgm": false,
+  "bgm": {
+    "name": ""
+  },
+  "autoplayBgs": false,
+  "bgs": {
+    "name": ""
+  },
+  "parallaxName": "",
+  "battleback1Name": "",
+  "battleback2Name": "",
+  "tilesetId": 1,
+  "events": [
+    null
+  ]
+}

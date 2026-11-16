@@ -1,0 +1,1 @@
+// MZ rmmz_core.js

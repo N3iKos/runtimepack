@@ -1,0 +1,2 @@
+# Preserve fixture/runtime bytes and existing launcher line endings on every OS.
+* -text

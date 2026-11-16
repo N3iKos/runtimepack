@@ -1,0 +1,38 @@
+name: Native Linux checks
+on:
+  push:
+    branches: [main, master, 'release/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build native CLI
+        run: cargo build --locked --release -p runtimepack
+      - name: Rust workspace tests
+        run: cargo test --locked --workspace
+      - name: Wizard platform and output tests
+        run: python3 -m unittest discover -s tests/windows -p 'test_wizard_*.py'
+      - name: Overlay behavior
+        run: |
+          node android/shell/app/src/test/js/overlay_interaction_regression.test.js
+          node android/shell/app/src/test/js/vpad_bridge.test.js
+      - name: Native CLI and wizard smoke check
+        env:
+          RUNTIMEPACK_EXE: ${{ github.workspace }}/target/release/runtimepack
+          TERM: xterm
+        run: |
+          ./target/release/runtimepack --help
+          printf '0\n' | python3 wizard.py
