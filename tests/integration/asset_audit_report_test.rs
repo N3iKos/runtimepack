@@ -593,10 +593,11 @@ fn test_audit_cache_validates_outside_source_root() {
 fn test_build_uses_audit_cache_on_repeat_runs() {
     let working_dir = temp_dir("build-cache-work");
     let out_dir = temp_dir("build-cache-repeat");
+    // Cache behavior must not depend on separately supplied RGSS native binaries.
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("tests/fixtures/vxace_min");
+        .join("tests/fixtures/tyrano_asset_audit/tyrano_missing_asset");
 
     // First build run: executes audit and stores in cache
     let run1 = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
@@ -1547,10 +1548,12 @@ fn test_regression_sanitize_preserves_external_urls_without_truncation() {
 fn test_regression_build_preserves_clean_audit_cache_without_ephemeral_overrides() {
     let working_dir = temp_dir("build-clean-audit-cache");
     let dist_dir = temp_dir("build-clean-dist");
+    // Retain a real failing audit for the override/cache-isolation assertions,
+    // without depending on license-restricted RGSS runtime payloads.
     let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("tests/fixtures/vxace_min");
+        .join("tests/fixtures/tyrano_asset_audit/tyrano_missing_asset");
 
     // Run build with --accept-audit-fail and --no-compile
     let run = std::process::Command::new(env!("CARGO_BIN_EXE_runtimepack"))
