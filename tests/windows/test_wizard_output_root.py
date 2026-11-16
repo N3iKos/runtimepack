@@ -28,7 +28,7 @@ def make_bundle(root: Path) -> Path:
     shutil.copy2(REPO_ROOT / "RuntimePack-Wizard.bat", bundle / "RuntimePack-Wizard.bat")
     bin_dir = bundle / "bin"
     bin_dir.mkdir(exist_ok=True)
-    stub = bin_dir / "runtimepack.exe"
+    stub = bin_dir / ("runtimepack.exe" if sys.platform == "win32" else "runtimepack")
     stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     stub.chmod(0o755)
     return bundle
