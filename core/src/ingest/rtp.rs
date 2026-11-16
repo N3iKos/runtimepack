@@ -311,11 +311,31 @@ mod tests {
 
     #[test]
     fn test_find_system_rtp_path_local_repo() {
-        let xp_path = find_system_rtp_path("Standard");
-        assert!(xp_path.is_some(), "Expected Standard RTP to be found in runtimes/rtp/standard");
-        let vx_path = find_system_rtp_path("RPGVX");
-        assert!(vx_path.is_some(), "Expected RPGVX RTP to be found in runtimes/rtp/vx");
-        let vxace_path = find_system_rtp_path("RPGVXAce");
-        assert!(vxace_path.is_some(), "Expected RPGVXAce RTP to be found in runtimes/rtp/vxace");
+        if let Some(root) = std::env::var_os("RUNTIMEPACK_TEST_RTP_FIXTURE") {
+            let root = PathBuf::from(root);
+            for (name, dir) in [("Standard", "standard"), ("RPGVX", "vx"), ("RPGVXAce", "vxace")] {
+                assert_eq!(find_system_rtp_path(name), Some(fs::canonicalize(root.join("runtimes/rtp").join(dir)).unwrap()));
+            }
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("runtimepack-rtp-unit-{}", std::process::id()));
+        for marker in crate::resource_root::REQUIRED_RESOURCE_MARKERS {
+            let path = root.join(marker);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"test marker").unwrap();
+        }
+        for dir in ["standard", "vx", "vxace"] {
+            fs::create_dir_all(root.join("runtimes/rtp").join(dir)).unwrap();
+        }
+        // Isolate environment changes in a child, not the parallel test process.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "ingest::rtp::tests::test_find_system_rtp_path_local_repo"])
+            .env("RUNTIMEPACK_TEST_RTP_FIXTURE", &root)
+            .env("RUNTIMEPACK_RESOURCE_ROOT", &root)
+            .env_remove("STANDARD_RTP_PATH").env_remove("Standard_RTP_PATH")
+            .env_remove("RPGVX_RTP_PATH").env_remove("RPGVXAce_RTP_PATH")
+            .env_remove("RPGVXACE_RTP_PATH")
+            .output().unwrap();
+        assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     }
 }

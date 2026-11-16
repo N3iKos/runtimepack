@@ -24,7 +24,7 @@ jobs:
       - name: Ruby bootstrap error logger
         run: ruby android/shell/app/src/test/ruby/tkg_error_log_test.rb
       - name: Rust workspace tests
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
       - name: Wizard platform and output tests
         run: python3 -m unittest discover -s tests/windows -p 'test_wizard_*.py'
       - name: Overlay behavior

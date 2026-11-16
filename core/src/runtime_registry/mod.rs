@@ -1239,7 +1239,16 @@ android_module = "runtimes/fixture"{native_line}
         assert_eq!(manifests.len(), 6, "all six shipped manifests must be checked");
 
         for (path, manifest) in &manifests {
-            if let Err(problem) = validate_abi_contract(&resource_root, manifest) {
+            let native = manifest.artifacts.as_ref().and_then(|a| a.native_libs_dir.as_deref());
+            if manifest.id == "rgss-android" && native.is_some_and(|p| !resource_root.join(p).exists()) {
+                // Public source deliberately omits the optional unverified RGSS
+                // payload. Its absence must still be rejected, never accepted.
+                assert!(validate_abi_contract(&resource_root, manifest).is_err());
+                let registry = RuntimeRegistry::new();
+                let runtime = registry.get("rgss-android").unwrap();
+                let missing = resource_root.join(native.unwrap());
+                assert_eq!(effective_abis(&runtime.abis, Some(&missing)).unwrap_err().code(), Some("BLD-109"));
+            } else if let Err(problem) = validate_abi_contract(&resource_root, manifest) {
                 panic!("{}: {problem}", path.display());
             }
         }
