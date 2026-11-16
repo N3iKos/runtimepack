@@ -421,10 +421,13 @@ fn test_windows_batch_wizard_contract() {
         py.contains("RUNTIMEPACK_EXE"),
         "wizard.py must honour the RUNTIMEPACK_EXE override"
     );
-    assert!(
-        py.contains(r#""bin" / "runtimepack.exe""#),
-        "wizard.py must look for bin/runtimepack.exe in the bundle layout"
-    );
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let selection = std::process::Command::new(python)
+        .current_dir(worktree_root)
+        .args(["-m", "unittest", "discover", "-s", "tests/windows", "-p", "test_wizard_platform.py"])
+        .output().expect("Python 3 is required for wizard contract tests");
+    assert!(selection.status.success(), "wizard binary selection failed: {}{}",
+        String::from_utf8_lossy(&selection.stdout), String::from_utf8_lossy(&selection.stderr));
     // Fail-closed diagnostic when the binary is absent
     assert!(
         py.contains("ERR-WIZ-001"),
