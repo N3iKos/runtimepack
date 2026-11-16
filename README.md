@@ -3,11 +3,19 @@
 > **High-Performance Build-Time Compatibility Packager for Desktop & Web Games to Standalone Android Applications**
 
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![Android](https://img.shields.io/badge/Android-API%2026%2B%20(Target%2034)-green.svg)](https://developer.android.com/)
 [![Architecture](https://img.shields.io/badge/Target-arm64--v8a-lightgrey.svg)]()
 
-RuntimePack transforms desktop games created with RPG Maker, Ren'Py, and TyranoScript into native, standalone Android APKs and AAB packages without requiring Windows emulation, Wine/x86 translation layers, or multi-game launcher applications.
+RuntimePack packages desktop/web games made with RPG Maker, Ren'Py, TyranoScript, and Visual Novel Maker into standalone Android applications. Web engines run in Android WebView; Ren'Py and RGSS use engine-specific native runtimes, subject to availability and licensing. Windows emulation and a separate multi-game launcher are not required.
+
+## Current candidate — 2026-11-16
+
+- Native Windows CLI and interactive Windows/Python wizard are available in the local portable bundle. Linux CLI builds and the Python wizard are supported by the source layout; native Ubuntu validation runs through [GitHub Actions](https://github.com/N3iKos/runtimepack/actions/workflows/linux.yml). **Linux validation is pending until the workflow passes.**
+- Recent changes cover compatibility warning policy, encrypted-asset checks, MV/MZ detection, integrity manifests, and Ren'Py VPAD touch feedback. Touch feedback cycles **Ripple + Tail → Ripple → None**; toolbar capture follows the displayed geometry.
+- The maintainer reports manual game testing **PASS**, including the newer TeacherVN Ren'Py and Time for Punishment Class VNM APKs. Device/scenario details were not supplied; this is not a guarantee that every game or path works.
+- Public source excludes games, saves, proprietary RTP, and RGSS native binaries whose matching source is unverified. Local bundles marked `LOCAL_DIAGNOSTIC_ONLY` must not be redistributed.
+- See [candidate notes and known limitations](Docs/RELEASE-20261116.md) and [license gates](Docs/LICENSE_COMPLIANCE.md).
 
 The resulting APK installs and launches directly like an official native Android title:
 ```text
@@ -39,7 +47,8 @@ Install Game.apk ──> Tap App Icon ──> Native Runtime Initializes ──>
 | **RPG Maker MV** | `index.html`, `js/rpg_core.js`, `data/System.json` | Web Runtime + Node.js/NW.js Shims | Supported |
 | **RPG Maker MZ** | `index.html`, `js/rmmz_core.js`, `data/System.json` | Web Runtime + Pointer Normalization | Supported |
 | **Ren'Py 8** | `renpy/` dir, `*.rpy`, `*.rpyc` archives | Native Ren'Py 8 Android bridge (`librenpython.so`) | Supported |
-| **Ren'Py 7** | `renpy/` dir, `*.rpy`, `*.rpyc` archives | — | **Unavailable**: no verified native runtime in this tree; fails closed with `BLD-109` |
+| **Ren'Py 7** | `renpy/` dir, `*.rpy`, `*.rpyc` archives | Versioned native Ren'Py 7 Android runtime (`renpy-android-7`) | Supported for compatible Ren'Py 7 inputs; runtime/version checks remain fail-closed |
+| **Visual Novel Maker** | Verified `data/ENGINE.js`, `data/SCRIPTS.js`, and entrypoint references | VNM WebView adapter (`vnmaker-web`) | Supported; title-specific desktop integrations may require shims or remain incompatible |
 | **TyranoScript / TyranoBuilder** | `data/system/Config.tjs`, `tyrano/tyrano.js` | Web Runtime Adapter | Supported |
 
 *Note: RPG Maker 2000/2003 and RPG Maker Unite are explicitly out of scope for v1.*
@@ -70,7 +79,7 @@ builds from this tree; the native engine binary is not.
 
 ### Host Environment
 - **Operating System**: Windows 10/11 (64-bit), Linux (x86_64), or macOS (Apple Silicon/Intel).
-- **Rust Toolchain**: Rust 1.75 or higher (Edition 2021) with `cargo`.
+- **Rust Toolchain**: Current stable Rust with `cargo` for source builds (Edition 2021). A prebuilt CLI does not require Rust. Dependencies are pinned by `Cargo.lock`; no Rust 1.75 minimum is currently verified.
 - **Java Development Kit (JDK)**: JDK 17 (OpenJDK or Oracle).
 - **Android SDK**:
   - `compileSdkVersion`: **34**
@@ -98,18 +107,20 @@ export JAVA_HOME="/usr/lib/jvm/java-17-openjdk"
 Clone the repository and compile the CLI using Cargo:
 
 ```bash
-git clone https://github.com/<owner>/runtimepack.git
+git clone --branch release/20261116 https://github.com/N3iKos/runtimepack.git
 cd runtimepack
 
-# Build the release binary
-cargo build --release
+# Build the native CLI for your host OS
+cargo build --locked --release -p runtimepack
 
 # The compiled binary will be located at:
 # ./target/release/runtimepack (Linux/macOS)
 # .\target\release\runtimepack.exe (Windows)
 ```
 
-Add the target directory to your system `PATH` or invoke it directly.
+Add the target directory to your system `PATH` or invoke it directly. Run the wizard with `python wizard.py` on Windows or `python3 wizard.py` on Linux; it discovers the native CLI in `bin/`, the repository root, or `target/release/` / `target/debug/`. `RUNTIMEPACK_EXE` overrides that selection. Windows portable-bundle users can double-click `RuntimePack-Wizard.bat`.
+
+No WSL is needed for native Windows or native Linux usage. Building APKs still requires the JDK/SDK prerequisites; Gradle may contact dependency repositories when its cache is incomplete.
 
 ---
 
@@ -187,6 +198,8 @@ Orchestrates project generation, VFS containerization, and Gradle compilation:
 - `--themes <LIST>`: Comma-separated list of Virtual Gamepad themes to bundle (e.g. `matte,minimalist_glass,retro_osd`).
 - `--default-theme <ID>`: Active theme ID upon first boot (default: `matte`).
 - `--theme-catalog <DIR>`: Directory containing custom theme packages (default: `runtimes/themes`).
+- `--compatibility-policy <warn|block>`: `warn` is the CLI default. Eligible compatibility risks remain disclosed in the reports; a successful build is not proof that unsupported desktop features work. `block` refuses those risks. Security, integrity, unsupported runtime, and other mandatory failures remain stops.
+- `--strict-audit`: Independent audit strictness; it is not the same setting as compatibility policy.
 - `--no-compile`: Generates the Android project and bundled assets without invoking Gradle.
 - `--probe`: Automatically executes a T1 smoke test via ADB after successful compilation.
 - `--probe-device <ADDR>`: Specific ADB target address or profile (e.g. `127.0.0.1:16384`).
@@ -258,7 +271,7 @@ A modular Android host application written in Kotlin:
 ## Directory Structure
 
 ```text
-RPGM-P/
+runtimepack/
 ├── Cargo.toml               # Cargo workspace configuration
 ├── toolchain.lock           # Pinned toolchain and dependency versions
 ├── runtimepack.toml         # Base project configuration
@@ -268,7 +281,8 @@ RPGM-P/
 │   ├── rgss/                # RPG Maker XP, VX, and VX Ace support
 │   ├── rpgmaker_web/        # RPG Maker MV and MZ support
 │   ├── renpy/               # Ren'Py script and archive scanner
-│   └── tyrano/              # TyranoScript and TyranoBuilder adapter
+│   ├── tyrano/              # TyranoScript and TyranoBuilder adapter
+│   └── vnmaker/             # Visual Novel Maker adapter
 ├── pack/                    # GPACK/1 binary container format implementation
 ├── android/shell/           # Android project template (Kotlin, Gradle, jniLibs)
 ├── compatibility-db/        # Declarative compatibility and Win32API shim database
@@ -283,22 +297,26 @@ RPGM-P/
 
 ## Testing & Quality Assurance
 
-The repository adheres to strict automated testing standards:
+Run checks from the repository root:
 
 ```bash
-# Run all host Rust unit and integration tests
-cargo test --workspace
+cargo test --locked --workspace
+cargo test --locked -p runtimepack --test integration_detection
+cargo test --locked -p runtimepack-pack
+python3 -m unittest discover -s tests/windows -p 'test_wizard_*.py'
+node android/shell/app/src/test/js/overlay_interaction_regression.test.js
 
-# Run specific engine detection tests
-cargo test --test detection_test
-
-# Run GPACK/1 container crypto and packaging tests
-cargo test -p runtimepack_pack
-
-# Run Android Shell unit tests via Gradle
+# Android host tests (Windows: gradlew.bat instead of ./gradlew)
 cd android/shell
-./gradlew testReleaseUnitTest
+./gradlew :app:testDebugUnitTest
 ```
+
+Current evidence is deliberately not labeled all-green:
+- VPAD overlay regression: **38 passed**; platform binary-selection tests: **4 passed**.
+- Android host: **287 tests / 6 failures**, the known Windows symlink-privilege cases.
+- Full Rust workspace on Windows encounters seven Unix-only test compilation errors. A library run reached **29 passed / 2 failed** in Gradle command fixtures; it does not establish that all remaining crates passed.
+- Asset-dependent VNM audio, genuine PIXI, and genuine JSZip integration checks require the documented external test inputs; skipped checks are not passes.
+- Native Linux CI runs the full Rust workspace, wizard tests, overlay tests, and a CLI/wizard smoke check. Check its actual result rather than inferring Linux success from Windows tests.
 
 ---
 
