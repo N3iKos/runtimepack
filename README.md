@@ -11,7 +11,7 @@ RuntimePack packages desktop/web games made with RPG Maker, Ren'Py, TyranoScript
 
 ## Current candidate — 2026-11-16
 
-- Native Windows CLI and interactive Windows/Python wizard are available in the local portable bundle. Linux CLI builds and the Python wizard are supported by the source layout; native Ubuntu validation runs through [GitHub Actions](https://github.com/N3iKos/runtimepack/actions/workflows/linux.yml). **Linux validation is pending until the workflow passes.**
+- Native Windows CLI and interactive Windows/Python wizard are available in the local portable bundle. Linux CLI builds and the Python wizard are supported by the source layout; native Ubuntu validation runs through [GitHub Actions](https://github.com/N3iKos/runtimepack/actions/workflows/linux.yml). **Native Linux CI passed on commit `1edf21d`**: release CLI build, Rust workspace, Ruby logger, wizard tests, overlay tests, and CLI/wizard startup. This does not claim an APK build on Linux or Android gameplay coverage.
 - Recent changes cover compatibility warning policy, encrypted-asset checks, MV/MZ detection, integrity manifests, and Ren'Py VPAD touch feedback. Touch feedback cycles **Ripple + Tail → Ripple → None**; toolbar capture follows the displayed geometry.
 - The maintainer reports manual game testing **PASS**, including the newer TeacherVN Ren'Py and Time for Punishment Class VNM APKs. Device/scenario details were not supplied; this is not a guarantee that every game or path works.
 - Public source excludes games, saves, proprietary RTP, and RGSS native binaries whose matching source is unverified. Local bundles marked `LOCAL_DIAGNOSTIC_ONLY` must not be redistributed.
