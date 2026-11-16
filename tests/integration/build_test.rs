@@ -3539,7 +3539,7 @@ fn test_cli_build_with_probe_flag_graceful_skip() {
         "Build with --probe must succeed when compilation is skipped.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     );
     assert!(
-        stdout.contains("[probe] skipping runtime verification â€” no APK was produced by build"),
+        stdout.contains("[probe] skipping runtime verification \u{2014} no APK was produced by build"),
         "STDOUT must report probe skipped when no APK is built:\n{stdout}"
     );
 
