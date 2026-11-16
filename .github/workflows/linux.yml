@@ -21,6 +21,8 @@ jobs:
           node-version: '22'
       - name: Build native CLI
         run: cargo build --locked --release -p runtimepack
+      - name: Ruby bootstrap error logger
+        run: ruby android/shell/app/src/test/ruby/tkg_error_log_test.rb
       - name: Rust workspace tests
         run: cargo test --locked --workspace
       - name: Wizard platform and output tests

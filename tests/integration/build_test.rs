@@ -15,6 +15,9 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[path = "../support/rgss_copy_resources.rs"]
+mod rgss_copy_resources;
+
 fn audit_report(outcome: AuditOutcome) -> AssetAuditReport {
     let finding = match outcome {
         AuditOutcome::Fail => Some((
@@ -322,7 +325,7 @@ fn test_asar_pack_roundtrip_integrity() {
 
     // Synthetic TyranoScript Electron package. The JSON header is deliberately
     // left unaligned (`json_len % 4 != 0`) so the 4-byte header padding is
-    // non-zero — the exact condition that historically shifted every packed
+    // non-zero â€” the exact condition that historically shifted every packed
     // entry by the padding size.
     let entries: Vec<(&str, Vec<u8>)> = vec![
         (
@@ -759,7 +762,7 @@ fn test_build_strict_unknown_rejected_and_legacy_manifest_defaults_strict() {
 #[test]
 fn test_build_default_audit_is_informational_with_honest_reports() {
     for (fixture_name, outcome) in [
-        ("vxace_min", "FAIL"),
+        ("tyrano_asset_audit/tyrano_missing_asset", "FAIL"),
         ("web_asset_audit/mv_external_url", "INDETERMINATE"),
     ] {
         let out_dir = test_temp_dir("informational-audit");
@@ -914,7 +917,7 @@ fn test_build_gating_accept_audit_unknown_succeeds_with_provenance_and_reports()
 #[test]
 fn test_build_gating_accept_audit_fail_succeeds_with_provenance_and_reports() {
     let out_dir = test_temp_dir("accepted-fail");
-    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+    let fixture = test_workspace_root().join("tests/fixtures/tyrano_asset_audit/tyrano_missing_asset");
 
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
         .arg("build")
@@ -988,7 +991,7 @@ fn test_build_gating_accept_audit_fail_succeeds_with_provenance_and_reports() {
 #[test]
 fn test_build_with_no_html_flag_omits_html_report() {
     let out_dir = test_temp_dir("accepted-no-html");
-    let fixture = test_workspace_root().join("tests/fixtures/vxace_min");
+    let fixture = test_workspace_root().join("tests/fixtures/tyrano_asset_audit/tyrano_missing_asset");
 
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
         .arg("build")
@@ -1060,6 +1063,7 @@ fn test_build_gating_hard_blocker_cannot_be_bypassed_by_audit_override() {
 #[test]
 fn test_build_with_rtp_path_packages_rtp_assets() {
     let out_dir = test_temp_dir("build-rtp-pack");
+    let resources = rgss_copy_resources::create(&test_temp_dir("rtp-copy-resources"), &test_workspace_root());
     let rtp_dir = test_temp_dir("build-rtp-source");
     let fixture = test_workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_missing_asset");
 
@@ -1071,6 +1075,7 @@ fn test_build_with_rtp_path_packages_rtp_assets() {
     std::fs::copy(&src_pic, rtp_pic_dir.join("PictureAce.png")).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .env("RUNTIMEPACK_RESOURCE_ROOT", &resources)
         .arg("build")
         .arg(&fixture)
         .arg("--rtp-path")
@@ -1116,6 +1121,7 @@ fn test_build_with_rtp_path_packages_rtp_assets() {
 
 #[test]
 fn test_build_auto_rtp_discovery_and_packaging() {
+    let resources = rgss_copy_resources::create(&test_temp_dir("auto-rtp-copy-resources"), &test_workspace_root());
     let out_dir = test_temp_dir("build-auto-rtp-pack");
     let rtp_dir = test_temp_dir("build-auto-rtp-source");
     let fixture = test_workspace_root().join("tests/fixtures/rgss_asset_audit/vxace_missing_asset");
@@ -1137,6 +1143,7 @@ fn test_build_auto_rtp_discovery_and_packaging() {
 
     // Invoke build WITHOUT --rtp-path, using RPGVXACE_RTP_PATH env var to simulate system/discovered RTP
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .env("RUNTIMEPACK_RESOURCE_ROOT", &resources)
         .arg("build")
         .arg(&fixture)
         .arg("--output")
@@ -1326,14 +1333,14 @@ fn test_rgss_bootstrap_prevents_encoding_conversion_crash_on_file_write() {
 }
 
 #[test]
-fn test_rgss_bootstrap_sets_utf8_encoding_and_catches_tkg_error() {
+fn test_rgss_bootstrap_sets_utf8_encoding() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir.parent().unwrap_or(manifest_dir);
     let bootstrap_path = root.join("android/shell/app/src/main/assets/runtimepack_bootstrap.rb");
     let source = std::fs::read_to_string(bootstrap_path).unwrap();
 
     assert!(source.contains("Encoding.default_external = Encoding::UTF_8"));
-    assert!(source.contains("TKG::ErrorLog"));
+    // ErrorLog behavior is exercised by the Ruby test, not a spelling check.
 }
 
 #[test]
@@ -3532,7 +3539,7 @@ fn test_cli_build_with_probe_flag_graceful_skip() {
         "Build with --probe must succeed when compilation is skipped.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     );
     assert!(
-        stdout.contains("[probe] skipping runtime verification — no APK was produced by build"),
+        stdout.contains("[probe] skipping runtime verification â€” no APK was produced by build"),
         "STDOUT must report probe skipped when no APK is built:\n{stdout}"
     );
 
@@ -4422,7 +4429,7 @@ fn test_packaging_exclusions_parity_and_predicate() {
 /// Scope note (Phase 1e / HIGH-1): this test packs a **root** index
 /// (`pack_directory` over a tree that happens to contain `www/`), so the paths
 /// here are distribution paths (`www/lib/x.node`). That is the packer's own
-/// predicate at root scope and it stays true — but it is *not* the shape a web
+/// predicate at root scope and it stays true â€” but it is *not* the shape a web
 /// build uses. The production web build scopes the index to the content root and
 /// hands the packer `lib/x.node`, and the analyzer/auditor evaluate that same
 /// scoped path (see `compatibility_test.rs::shipped_payload_coordinates`).
@@ -4556,8 +4563,8 @@ fn test_pack_excludes_windows_pe_binaries_structurally() {
 /// FIX 7 (HIGH-1, reporting consistency): `packaging-exclusions.json` must
 /// describe the artifact.
 ///
-/// The CLI records the drop set from the **index it hands to the packer** — the
-/// index scoped to the content root — so every recorded path must be exactly a
+/// The CLI records the drop set from the **index it hands to the packer** â€” the
+/// index scoped to the content root â€” so every recorded path must be exactly a
 /// file the artifact does not contain, and no shipped file may be recorded. The
 /// old code recorded the set from the full distribution index, which names
 /// game-root-relative paths the packer never evaluates.
@@ -5948,16 +5955,16 @@ fn test_declared_script_completion_hooks_scoped_roots_mv_and_mz() {
         "Scoped 'bin/www' must output root-relative js/rpg_core.js without double prefix"
     );
 
-    // 3. Scoped to arbitrary uppercase and Unicode root: "GAME_PAYLOAD/日本語_Data"
+    // 3. Scoped to arbitrary uppercase and Unicode root: "GAME_PAYLOAD/æ—¥æœ¬èªž_Data"
     let unicode_fixture = test_temp_dir("test-scoped-unicode-hooks");
-    std::fs::create_dir_all(unicode_fixture.join("GAME_PAYLOAD/日本語_Data/js")).unwrap();
+    std::fs::create_dir_all(unicode_fixture.join("GAME_PAYLOAD/æ—¥æœ¬èªž_Data/js")).unwrap();
     std::fs::write(
-        unicode_fixture.join("GAME_PAYLOAD/日本語_Data/js/rmmz_core.js"),
+        unicode_fixture.join("GAME_PAYLOAD/æ—¥æœ¬èªž_Data/js/rmmz_core.js"),
         "// unicode mz core",
     )
     .unwrap();
     let raw_uni_index = GameSourceIndex::build(&unicode_fixture).unwrap();
-    let scoped_uni = raw_uni_index.scoped_to("GAME_PAYLOAD/日本語_Data").unwrap();
+    let scoped_uni = raw_uni_index.scoped_to("GAME_PAYLOAD/æ—¥æœ¬èªž_Data").unwrap();
     assert_eq!(
         declared_script_completion_hooks(&scoped_uni, EngineId::RpgMakerMz),
         vec!["js/rmmz_core.js".to_string()],
@@ -6440,6 +6447,7 @@ fn test_cli_build_non_rgss_with_rtp_path_fails_bld106() {
 
 #[test]
 fn test_build_nested_rgss_relative_rtp_packages_rtp_assets() {
+    let resources = rgss_copy_resources::create(&test_temp_dir("nested-rtp-copy-resources"), &test_workspace_root());
     let fixture = test_temp_dir("nested-rgss-rtp-fixture");
     let out_dir = test_temp_dir("nested-rgss-rtp-out");
 
@@ -6459,6 +6467,7 @@ fn test_build_nested_rgss_relative_rtp_packages_rtp_assets() {
     std::fs::write(rtp_pics.join("NestedAce.png"), rtp_pic_bytes).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .env("RUNTIMEPACK_RESOURCE_ROOT", &resources)
         .arg("build")
         .arg(&fixture)
         .arg("--output")
@@ -6629,10 +6638,17 @@ fn test_primary_runtime_apk_native_libraries_isolation() {
     assert!(!web_renpy.exists(), "Web APK must not contain Ren'Py librenpython.so");
 
     // 2. RGSS runtime emission: must contain RGSS libs, but NOT Renpy
-    let rgss_manifest = create_manifest("rgss-android", "RGSS");
-    AndroidProjectGenerator::emit_project(&rgss_project, &rgss_manifest, None).unwrap();
-    let rgss_mkxp = rgss_project.join("app/src/main/jniLibs/arm64-v8a/libmkxp-z.so");
-    let rgss_renpy = rgss_project.join("app/src/main/jniLibs/arm64-v8a/librenpython.so");
+    let resources = rgss_copy_resources::create(&base_dir.join("copy-resources"), &test_workspace_root());
+    let generated = Command::new(env!("CARGO_BIN_EXE_runtimepack"))
+        .env("RUNTIMEPACK_RESOURCE_ROOT", &resources)
+        .args(["build", "--no-compile", "--flavor", "beta"])
+        .arg(test_workspace_root().join("tests/fixtures/vxace_min"))
+        .arg("--output").arg(&rgss_project)
+        .output().unwrap();
+    assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+    let rgss_mkxp = rgss_project.join("android-project/app/src/main/jniLibs/arm64-v8a/libmkxp-z.so");
+    let rgss_renpy = rgss_project.join("android-project/app/src/main/jniLibs/arm64-v8a/librenpython.so");
+    assert_eq!(std::fs::read(&rgss_mkxp).unwrap(), std::fs::read(resources.join("runtimes/rgss/jni/arm64-v8a/libmkxp-z.so")).unwrap());
     assert!(rgss_mkxp.exists(), "RGSS APK must contain libmkxp-z.so");
     assert!(!rgss_renpy.exists(), "RGSS APK must not contain Ren'Py librenpython.so");
 
@@ -6643,6 +6659,17 @@ fn test_primary_runtime_apk_native_libraries_isolation() {
     let renpy_mkxp = renpy_project.join("app/src/main/jniLibs/arm64-v8a/libmkxp-z.so");
     assert!(renpy_lib.exists(), "Ren'Py APK must contain librenpython.so");
     assert!(!renpy_mkxp.exists(), "Ren'Py APK must not contain RGSS libmkxp-z.so");
+}
+
+#[test]
+fn test_rgss_without_native_artifact_fails_closed_bld109() {
+    let out = test_temp_dir("rgss-absent-runtime");
+    let mut manifest = create_base_test_manifest();
+    manifest.runtime.id = "rgss-android".into();
+    manifest.runtime.native_libs_dir = Some("runtimes/absent-rgss-fixture/jni".into());
+    let err = AndroidProjectGenerator::emit_project(&out, &manifest, None).unwrap_err();
+    assert_eq!(err.code(), Some("BLD-109"));
+    assert!(err.to_string().contains("absent-rgss-fixture"));
 }
 
 #[test]
@@ -6876,7 +6903,7 @@ fn test_cli_build_renpy_7_emits_durable_runtime_notices() {
 }
 
 // =============================================================================
-// D1 shared integration — engine provenance fields and schema back-compat
+// D1 shared integration â€” engine provenance fields and schema back-compat
 // =============================================================================
 
 const LEGACY_MANIFEST_JSON: &str = r#"{
@@ -7118,7 +7145,7 @@ fn test_manifest_schema_declares_optional_engine_provenance() {
 
 
 // =============================================================================
-// Tahap 3 Task 3 — CLI `--allow-unknown` and the experimental notice
+// Tahap 3 Task 3 â€” CLI `--allow-unknown` and the experimental notice
 //
 // The flag is per-invocation only. It forwards `Unknown` findings into a labelled
 // experimental build, writes EXPERIMENTAL-NOTICE.txt into the output directory and
@@ -7404,7 +7431,7 @@ fn test_allow_unknown_cannot_bypass_native_gate() {
 }
 
 // =============================================================================
-// Web portability Task 1 — CLI `--compatibility-policy warn|block`
+// Web portability Task 1 â€” CLI `--compatibility-policy warn|block`
 //
 // `warn` is the CLI default: a structurally valid `CMP-104` carrier whose state is
 // `unknown` or `required` is disclosed and the build continues. `block` keeps the
